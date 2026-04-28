@@ -41,16 +41,26 @@ convention; the dashboard-facing helpers live at `lib/auth.ts`.
 
 `roleFromClaims()` in `lib/auth-roles.ts` is pure and unit-tested. The
 production rule is "AAD `groups` claim wins; email patterns are a
-sandbox bridge until real groups exist". When the tenant has real
-groups:
+sandbox bridge until real groups exist". The group → role mapping is
+**env-driven** (`AZURE_AD_GROUP_ADMIN_IDS` / `AZURE_AD_GROUP_FINOPS_IDS`
+/ `AZURE_AD_GROUP_MANAGER_IDS` — comma-separated UUIDs) so wiring real
+groups does NOT require a code change. Sandbox precedence inside the env
+map is ADMIN > FINOPS > MANAGER (a duplicated id assigns to the higher
+role).
+
+When the tenant has real groups:
 
 1. Configure the AAD app reg's "Token configuration" to include
-   `groupMembershipClaims=SecurityGroup`.
-2. Populate `GROUP_ROLE_MAP` in `lib/auth-roles.ts` with the real group
-   object IDs.
-3. Trim `EMAIL_ROLE_RULES` to an empty array (or keep one fallback for
-   break-glass admins).
-4. Update tests in `lib/auth-roles.test.ts`.
+   `groupMembershipClaims=SecurityGroup` so the JWT carries the
+   `groups` array.
+2. Set the `AZURE_AD_GROUP_*_IDS` env vars in `.env.local` (or the prod
+   secret store). No code change needed.
+3. Trim `EMAIL_ROLE_RULES` in `lib/auth-roles.ts` to an empty array
+   (or keep a single `^anuj(\.|@)/i` break-glass rule). This _is_ a
+   code change and should land in the same PR that flips the env vars
+   in prod.
+4. Update tests in `lib/auth-roles.test.ts` to lock in the new
+   posture.
 
 ## When extending
 
