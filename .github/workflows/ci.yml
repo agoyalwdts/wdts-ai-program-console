@@ -1,0 +1,77 @@
+name: CI
+
+# Runs on every PR + every push to main. Three things have to be green
+# for a PR to merge once branch protection is enabled:
+#   - typecheck (npm run typecheck)
+#   - lint (npm run lint)
+#   - tests (npm test) — includes the DB-integration tests that exercise
+#     the synthetic gateway against the test DB. Vitest's globalSetup
+#     handles test DB provisioning; we just need a Postgres service
+#     container with credentials matching the committed .env.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs when a new commit is pushed to the same PR.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: typecheck + lint + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: wdts
+          POSTGRES_PASSWORD: wdts_dev
+          POSTGRES_DB: wdts_ai_console
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Matches the committed .env so the test DB infra in
+      # tests/db-utils.ts derives `<dev>_test` against the same instance.
+      DATABASE_URL: postgresql://wdts:wdts_dev@localhost:5432/wdts_ai_console?schema=public
+      # Auth.js requires this even in non-runtime contexts (next build
+      # imports auth.ts which checks env). Generated per-run; no real
+      # session is ever issued in CI.
+      AUTH_SECRET: ci-only-secret-not-used-for-real-sessions
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply schema migrations to dev DB
+        run: npx prisma migrate deploy
+
+      - name: Typecheck (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test (vitest globalSetup auto-provisions the test DB)
+        run: npm test

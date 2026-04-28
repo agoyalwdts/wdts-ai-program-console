@@ -19,7 +19,7 @@ import {
   getDeelClient,
   getGatewayClient,
 } from "@/lib/integrations";
-import type { DeelEmployee, IdentityUser, UsageRecord } from "@/lib/integrations";
+import type { DeelEmployee, UsageRecord } from "@/lib/integrations";
 import { Search, ChevronRight, AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";

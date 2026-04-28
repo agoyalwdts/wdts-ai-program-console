@@ -239,13 +239,17 @@ nothing to abstract.
   override `DATABASE_URL` via `tests/setup-files.ts`.
 - **One-shot setup**: `npm run db:test:setup`. Idempotent. Useful when you
   want to inspect the test DB with psql.
+- **CI** runs on every PR + every push to `main` via `.github/workflows/ci.yml`:
+  - `npm run typecheck` (strict `tsc --noEmit`)
+  - `npm run lint`
+  - `npm test` (vitest globalSetup auto-provisions a `<dev>_test` DB on the
+    workflow's Postgres 16 service container)
+  - You can replicate the full CI gate locally with `npm run ci`.
 - **Still to add**, per scoping §9.2:
   - **Vitest API route tests** for `app/api/**/route.ts` (e.g.
     `/api/decisions/export`).
   - **Playwright** end-to-end against the synthetic-data dev environment for
     each F-feature flow.
-  - **GitHub Actions CI** to run `npm test` and Playwright on every PR; no
-    feature ships once main is protected without green CI.
 
 When in doubt, follow the rule from scoping §9.2: ship tests with the
 feature, not as a follow-up PR.
@@ -254,16 +258,28 @@ feature, not as a follow-up PR.
 
 ## 8. Commit and PR discipline
 
+- **Remote**: `https://github.com/agoyalwdts/wdts-ai-program-console`
+  (private, WDTS-owned). All work flows through GitHub PRs from this point on
+  — the v0.1/v0.2 local `--no-ff` merge pattern is retired.
 - **Conventional Commits** (`feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`).
 - **Small commits** — aim for 30–80 lines of net-new code per commit. One
   logical change per commit.
-- **PRs for every feature.** PR description includes:
+- **Branching** — feature branches off `main`, named `<type>/<short-slug>`
+  (e.g. `feat/exception-requests`, `chore/ci-workflow`). Never commit
+  directly to `main`.
+- **Local CI gate before opening a PR**: `npm run ci`. CI on GitHub Actions
+  re-runs the same three checks (`typecheck` + `lint` + `test`) plus a real
+  Postgres 16 service container for the DB-integration tests. A PR is
+  mergeable only when CI is green.
+- **PRs for every feature.** Open with `gh pr create`. The PR description
+  includes:
   - which F-number from scoping §2 this implements,
-  - what was added/changed,
-  - what tests were added (once we have tests),
+  - what was added / changed,
+  - what tests were added,
   - any open question for the human reviewer.
-- **No direct pushes to `main`** once `main` branch protection is on. The
-  agent never bypasses review.
+- **No direct pushes to `main`.** Once branch protection is enabled on
+  github.com (require PR + green CI before merge), the agent will not be
+  able to push to `main` even by accident.
 - **Every write-path PR** must wrap the change in a `Decision` row before the
   policy-repo PR is opened (scoping §9.1 last bullet).
 
