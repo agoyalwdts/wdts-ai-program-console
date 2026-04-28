@@ -30,8 +30,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files
+# `.env` (no suffix) is committed and holds local-dev placeholders only —
+# see AGENTS.md §3 / lib/integrations/index.ts. Real secrets go in
+# `.env.local` (gitignored) per Next.js convention.
+.env*.local
 
 # vercel
 .vercel
