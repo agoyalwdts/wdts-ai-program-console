@@ -40,8 +40,9 @@ describe("integration env parsing", () => {
         "azuread",
         "deel",
         "policyrepo",
+        "azureopenai",
       ]),
     );
-    expect(INTEGRATION_NAMES).toHaveLength(8);
+    expect(INTEGRATION_NAMES).toHaveLength(9);
   });
 });

@@ -50,12 +50,19 @@ export type { M365GraphClient, CopilotActivity, CopilotLicense } from "./m365gra
 
 export { getAzureADClient } from "./azuread";
 export type { AzureADClient, IdentityUser } from "./azuread";
+// Direct access to the real client for the /settings probe widget. Pages
+// SHOULD continue to use getAzureADClient() so the env flag governs them;
+// this export exists for the explicit probe-the-real-thing case.
+export { realAzureADClient } from "./azuread/real";
 
 export { getDeelClient } from "./deel";
 export type { DeelClient, DeelEmployee, DeelWebhookEvent } from "./deel";
 
 export { getPolicyRepoClient } from "./policyrepo";
 export type { PolicyRepoClient, PolicyChange, PolicyPullRequest } from "./policyrepo";
+
+export { getAzureOpenAIClient } from "./azureopenai";
+export type { AzureOpenAIClient, AzureOpenAIDeployment } from "./azureopenai";
 
 export { NotImplementedError, IntegrationError } from "./errors";
 export {

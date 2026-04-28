@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   getAnthropicClient,
   getAzureADClient,
+  getAzureOpenAIClient,
   getCursorClient,
   getDeelClient,
   getGatewayClient,
@@ -66,6 +67,11 @@ describe("client factories return the expected method surface", () => {
     const c = getPolicyRepoClient({});
     expect(typeof c.openPullRequest).toBe("function");
     expect(typeof c.getPullRequest).toBe("function");
+  });
+
+  it("azureopenai", () => {
+    const c = getAzureOpenAIClient({});
+    expect(typeof c.listDeployments).toBe("function");
   });
 });
 
