@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Users, LayoutGrid, ScrollText, Settings } from "lucide-react";
+import { Activity, Users, UserCog, LayoutGrid, ScrollText, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/health", label: "Program Health", icon: Activity, feature: "F1" },
   { href: "/users", label: "Users", icon: Users, feature: "F2" },
+  { href: "/managers", label: "Manager Queue", icon: UserCog, feature: "F3" },
   { href: "/cursor-seats", label: "Cursor Seats", icon: LayoutGrid, feature: "F4" },
   { href: "/decisions", label: "Decisions", icon: ScrollText, feature: "F5" },
   { href: "/settings", label: "Settings", icon: Settings, feature: "stub" },

@@ -273,7 +273,7 @@ They map to scoping §2.
 | Area | What's deferred | Scoping ref |
 |---|---|---|
 | Auth | NextAuth + Azure AD wiring; replace `lib/auth.ts`; enforce 401 on routes | §4 #1, §6 Q2, §8 N2 |
-| F3 Manager queue | Per-manager direct-reports view (cap %, idle, pending tier moves) | §2 v1 row 3 |
+| ~~F3 Manager queue~~ | **Landed** — `/managers` route reads through `getGatewayClient().managerQueue()` (synthetic). v0.2 evolves the "pending recommendations" surface from `Decision` rows to dedicated `ReclamationEvent` / `ExceptionRequest` models | §2 v1 row 3 |
 | Integration interfaces | Shape **landed** in `lib/integrations/`; real impls still throw `NotImplementedError`. v0.2 wires each `real.ts` per the §4 priority order | §4 |
 | F1/F2/F4/F5 → integration clients | Existing pages still call Prisma directly; migrate them to consume `getGatewayClient()` / `getCursorClient()` etc. in a refactor PR | §4 |
 | F6 Tier promotion / demotion | Write-path via policy-repo PR (GitHub API), SCIM update flow | §2 v1.1 row 1 |
