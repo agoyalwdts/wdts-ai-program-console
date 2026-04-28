@@ -97,8 +97,12 @@ export async function graphGet<T>(
     throw new IntegrationError(
       "azuread",
       `Graph returned 403 on ${path}. The most common cause is missing admin consent ` +
-        `for Directory.Read.All / User.Read.All on the app registration. Re-run ` +
-        `"Grant admin consent for <tenant>" in the Azure portal.`,
+        `on the app registration. Required scopes by endpoint: ` +
+        `/users → User.Read.All (or Directory.Read.All); ` +
+        `/reports → Reports.Read.All; ` +
+        `/auditLogs → AuditLog.Read.All. ` +
+        `Re-run "Grant admin consent for <tenant>" in the Azure portal after ` +
+        `adding the missing one.`,
     );
   }
   if (!r.ok) {
