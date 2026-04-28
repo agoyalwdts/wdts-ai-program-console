@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wdts-ai-console-pg
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: wdts
+      POSTGRES_PASSWORD: wdts_dev
+      POSTGRES_DB: wdts_ai_console
+    volumes:
+      - wdts_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wdts -d wdts_ai_console"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  wdts_pg_data:

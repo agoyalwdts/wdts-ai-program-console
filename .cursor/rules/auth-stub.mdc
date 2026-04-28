@@ -1,0 +1,57 @@
+---
+description: The dev auth stub in lib/auth.ts is intentional; do not silently replace it
+globs: lib/auth.ts,app/**/*,middleware.ts
+alwaysApply: false
+---
+
+# Auth stub — `lib/auth.ts`
+
+`lib/auth.ts` returns a hardcoded `admin@wdts.com` dev user. This is **intentional**
+for v0.1. Do **not** replace it without coordinating the Azure AD integration
+that scoping §4 (integration #1) and §8 N2 describe.
+
+## Why it's a stub
+
+- The dashboard is hosted on Azure (App Service / Container Apps) and uses
+  Azure AD / Entra ID via NextAuth as its identity provider (scoping §6 Q2).
+- That requires N2 (domain name), N1 (Azure subscription / resource group),
+  and an app registration with the right redirect URIs — none of which are
+  cleared yet.
+- Wiring NextAuth before those are cleared bakes in the wrong tenant /
+  redirect URI and forces a re-do.
+
+## What replacing it looks like (v0.2 spec)
+
+Replace `getCurrentUser()` with `getServerSession()` (NextAuth) backed by the
+Azure AD provider. Do **all** of:
+
+- Add `next-auth` + `@auth/azure-ad` (or the current canonical NextAuth Azure AD
+  package — verify in `node_modules/next-auth/...` before installing).
+- Add a route handler at `app/api/auth/[...nextauth]/route.ts`.
+- Read `AZURE_AD_CLIENT_ID`, `AZURE_AD_CLIENT_SECRET`, `AZURE_AD_TENANT_ID`,
+  `NEXTAUTH_SECRET`, `NEXTAUTH_URL` from the env. Production secrets live in
+  Azure Key Vault — never in `.env`.
+- Update `lib/auth.ts` so callers keep the same shape (`getCurrentUser()` →
+  resolves the NextAuth session and returns the same `DevUser`-shaped object,
+  or 401 if no session).
+- Add a new rule `.cursor/rules/auth.mdc` that requires every route handler to
+  call `getServerSession()` and return 401 on missing session.
+- Add an integration test that asserts each route returns 401 unauthenticated.
+
+## What you must not do
+
+- Don't delete the stub file entirely; replace its body with the real
+  resolver and keep the same exports so callers don't churn.
+- Don't bypass the resolver for any route. If you find yourself wanting to,
+  the answer is a feature flag for development with the real resolver — never
+  a fall-through to "no auth".
+- Don't store secrets in `.env`-committed values. The committed `.env` is for
+  local DB credentials only.
+- Don't hand-roll JWTs or session cookies; use NextAuth's defaults.
+
+## During v0.1
+
+While the stub is in place, every Server Component can call `getCurrentUser()`
+without checking for null. Once the real resolver lands, every call site
+becomes nullable and unauthenticated requests must redirect to sign-in (pages)
+or return 401 (route handlers).

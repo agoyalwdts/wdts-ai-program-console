@@ -1,0 +1,83 @@
+// Prisma schema for the WDTS AI Program Console — v0.1 prototype
+// See ../README.md and ../Dashboard_Scoping_v1.md §3.1 for context.
+// v0.1 keeps a subset of the canonical schema; v0.2 will add ExceptionRequest,
+// ReclamationEvent, BudgetSnapshot, FrictionBudgetMetric, etc.
+//
+// WORKAROUND (v0.1): pinned to prisma@^6 in package.json. Prisma 7 deprecated
+// `datasource.url` inside schema.prisma in favour of `prisma.config.ts` with
+// adapters. Revisit when migrating to v0.2 / production.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  displayName String
+  managerId   String?
+  manager     User?    @relation("UserManager", fields: [managerId], references: [id])
+  reports     User[]   @relation("UserManager")
+  roleTag     String
+  region      String
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+
+  licenses     License[]
+  usageRecords UsageRecord[]
+  decisions    Decision[]    @relation("DecisionSubject")
+}
+
+model License {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  product     String // CHATGPT | CODEX | CURSOR | CLAUDE_AI | M365_COPILOT
+  subTier     String
+  capUsdMonth Float?
+  grantedAt   DateTime  @default(now())
+  expiresAt   DateTime?
+  source      String    @default("AUTO_PROVISIONED")
+  flag        String? // optional marker e.g. "likely-reclaim"
+
+  @@unique([userId, product])
+  @@index([product, subTier])
+}
+
+model UsageRecord {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  product   String
+  model     String
+  tokensIn  Int?
+  tokensOut Int?
+  costUsd   Float?
+  decision  String   @default("ALLOWED")
+  region    String
+  ts        DateTime
+
+  @@index([userId, ts])
+  @@index([product, ts])
+}
+
+model Decision {
+  id            String   @id @default(uuid())
+  type          String // TIER_PROMOTION | TIER_DEMOTION | RECLAMATION | EXCEPTION_GRANT | METHODOLOGY_CHANGE | CAP_ADJUSTMENT | CURSOR_SEAT_GRANT | CURSOR_SEAT_RECLAIM
+  subjectUserId String?
+  subject       User?    @relation("DecisionSubject", fields: [subjectUserId], references: [id])
+  beforeState   String // JSON-as-string for v0.1 simplicity
+  afterState    String
+  actorEmail    String
+  justification String
+  evidenceLink  String?
+  ts            DateTime @default(now())
+
+  @@index([type, ts])
+  @@index([ts])
+}

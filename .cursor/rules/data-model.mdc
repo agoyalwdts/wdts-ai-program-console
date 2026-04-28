@@ -1,0 +1,82 @@
+---
+description: prisma/schema.prisma is the single source of truth for the data model; reconcile any drift with the scoping doc
+globs: prisma/**/*,**/*.prisma,lib/synthetic-data.ts,app/**/*
+alwaysApply: false
+---
+
+# Data model — `prisma/schema.prisma` is canonical
+
+The Prisma schema in this repo is the single source of truth for the
+dashboard's data shape. The scoping doc (§3.1) describes the same entities
+but is a living document — when the two disagree, **fix the schema and update
+the scoping doc**, not the other way around. Surface the conflict in the PR
+description so the human reviewer can confirm.
+
+## Authoritative entities
+
+The dashboard owns authoritatively only:
+
+- `Decision` — append-only program decision log.
+- `ExceptionRequest` — §16.3 exception flow (v0.2+).
+- `ReclamationEvent` — §4.6.4 idle-credit / unused-seat events (v0.2+).
+
+Every other entity (`User`, `License`, `UsageRecord`, `BudgetSnapshot`, etc.)
+is a **mirror** of an authoritative external source — IdP, Deel, gateway,
+vendor admin APIs, policy repo. Mirrors must be:
+
+- **Read-mostly.** Writes happen via the upstream system, then reconcile.
+- **Reconstructable.** If the dashboard is wiped, the mirror is rebuilt from
+  the upstream source. No mirror field can be the only place a value exists.
+- **Stamped with provenance.** Every mirror row should record where it came
+  from (`License.source`, `UsageRecord` from gateway logs, etc.).
+
+## v0.1 vs canonical
+
+The v0.1 schema (`User`, `License`, `UsageRecord`, `Decision`) is a deliberate
+subset. The full canonical schema (scoping §3.1) adds:
+
+- `ExceptionRequest`, `ReclamationEvent` — authoritative, append-only.
+- `BudgetSnapshot` — monthly trend table per (product, sub-tier).
+- `FrictionBudgetMetric` — §17.5 weekly KPIs.
+- The §3.2 SQL views (`v_user_current_posture`, `v_program_health`,
+  `v_manager_queue`, `v_cursor_seat_board`, `v_codex_ladder`).
+
+When v0.2 lands these, follow `prisma-changes.mdc` (migration + seed + PR
+together) and write a one-line note in the migration explaining which
+F-feature it enables.
+
+## Enums vs strings
+
+v0.1 stores `Product`, `LicenseSource`, `UsageDecision`, `DecisionType`,
+`UserStatus` as `String` rather than as Prisma enums to keep the prototype
+simple. The canonical schema uses real enums. v0.2 should migrate them via
+a migration that converts the columns to enum types and updates the seed.
+Don't add new enum-shaped fields as `String`; if you're adding new shape,
+use a real enum from day one.
+
+## Synthetic data is not authoritative
+
+`lib/synthetic-data.ts` is a deterministic generator for prototype / demo /
+test fixtures. It is **not** the data model. If you change the schema, update
+the generator to match — but never let the generator's shape drift the schema
+the other way (e.g. don't add a field to the schema "because the generator
+needs it"; the generator follows the schema, not vice versa).
+
+## Source-of-truth boundary at a glance
+
+| Entity | Authoritative source | Dashboard role |
+|---|---|---|
+| `User` identity, `managerId` | Azure AD + Deel | mirror; nightly reconcile |
+| `User.roleTag` | Deel | mirror; webhook-driven |
+| `License` (Cursor) | Cursor admin API + policy repo | mirror; writes go via PR |
+| `License` (Codex) | `codex-policies/policies/*.toml` | mirror; writes go via PR |
+| `License` (Claude) | Anthropic admin + policy repo | mirror; writes go via PR |
+| `License` (Copilot) | M365 admin centre via Microsoft Graph | mirror; writes via M365 admin |
+| `UsageRecord` | Gateway logs | mirror; nightly aggregate import |
+| `Decision` | Dashboard | **authoritative**, append-only, exported nightly to WORM Blob |
+| `ExceptionRequest` | Dashboard | **authoritative** |
+| `ReclamationEvent` | Dashboard (driven by gateway events) | **authoritative** |
+
+If you catch yourself reaching for a write to a mirror entity that isn't
+sourced from upstream, stop — the write belongs in a policy-repo PR, not in
+the dashboard.

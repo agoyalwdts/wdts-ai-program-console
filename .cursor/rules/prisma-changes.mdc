@@ -1,0 +1,59 @@
+---
+description: Discipline for Prisma schema changes — migration + seed + PR are required together
+globs: prisma/**/*,**/*.prisma
+alwaysApply: false
+---
+
+# Prisma schema changes
+
+Any change to `prisma/schema.prisma` (new model, new field, type change,
+relation change, index change) must land as a single PR that contains **all
+three** of:
+
+1. **A migration**, generated via `npx prisma migrate dev --name <short_intent>`.
+   Do **not** edit existing migrations under `prisma/migrations/`. If you need
+   to revise a migration, create a new one. The migration file's first comment
+   line must state the feature it enables (scoping §9.1).
+   - `npx prisma db push` is for prototype iteration only. v0.2+ uses
+     `prisma migrate dev` so the change is captured as an audited, replayable
+     SQL artifact. Don't ship a schema change to a PR without a migration file.
+2. **A seed update**, in `prisma/seed.ts`, so the deterministic dev dataset
+   exercises the new shape. The seed clears all rows before insert; keep it
+   idempotent.
+3. **A PR** — never push schema changes directly to `main`. PR description
+   must include: which feature this enables (link to F-number in scoping §2),
+   the migration name, and a one-line note on backfill / data-migration
+   strategy if existing rows are affected.
+
+## Concretely
+
+```bash
+# good — migration + seed + PR
+npx prisma migrate dev --name add_exception_request
+# edit prisma/seed.ts to insert representative ExceptionRequest rows
+git add prisma/schema.prisma prisma/migrations prisma/seed.ts
+git commit -m "feat(db): add ExceptionRequest model (F8)"
+gh pr create --fill
+```
+
+```bash
+# bad — schema change without a migration / seed / PR
+$ npx prisma db push                      # ❌ no migration artifact
+$ git push origin main                    # ❌ no PR
+```
+
+## Authoritative-state schema rules
+
+The dashboard owns authoritatively only `Decision`, `ExceptionRequest`, and
+`ReclamationEvent` (scoping §3.3). For these three, every new field must be:
+
+- **Append-only friendly.** No destructive defaults. Never drop a column once
+  rows exist — add a new column and stop writing the old one.
+- **Auditable.** Include a timestamp column where the row represents an event.
+- **Reconstructable.** A field that can't be reconstructed from the policy
+  repo + gateway log needs an explicit note in the migration comment
+  explaining why the dashboard is the only source.
+
+If the canonical schema in scoping §3.1 and `prisma/schema.prisma` disagree,
+fix the schema and update the scoping doc in the same PR (or a follow-up doc
+PR if the doc lives in another repo). See `data-model.mdc`.
