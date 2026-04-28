@@ -18,10 +18,21 @@ export type CursorSeat = {
   mtdSpendUsd: number;
 };
 
+export type CursorWaitlistReason =
+  | "LOANER_USAGE"
+  | "NEW_JOINER"
+  | "STEERING_EXCEPTION";
+
 export type CursorWaitlistEntry = {
   email: string;
   displayName: string;
-  reason: "LOANER_USAGE" | "NEW_JOINER" | "STEERING_EXCEPTION";
+  /** Free-form role tag from Deel (used in F4 row display). */
+  roleTag: string;
+  reason: CursorWaitlistReason;
+  /** Tier the user is waitlisted for. */
+  requestedTier: CursorSubTier;
+  /** Human-readable rationale (manager attestation excerpt etc.). */
+  rationale: string;
   position: number;
 };
 

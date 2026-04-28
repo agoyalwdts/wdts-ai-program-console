@@ -11,9 +11,11 @@
 import { prisma } from "@/lib/prisma";
 import { PRODUCTS, type ProductKey } from "@/lib/program";
 import type {
+  DailyProgramAggregate,
   GatewayClient,
   ManagerQueueRow,
   ProgramAggregate,
+  TopSpender,
   UsageAggregate,
   UsageDecision,
   UsageRecord,
@@ -97,6 +99,56 @@ export const syntheticGatewayClient: GatewayClient = {
       periodEnd,
       totalUsd: g._sum.costUsd ?? 0,
       requestCount: g._count._all,
+    }));
+  },
+
+  async aggregateByProgramDaily({ since, until }) {
+    const upper = until ?? new Date();
+    const rows = await prisma.usageRecord.findMany({
+      where: { ts: { gte: since, lte: upper } },
+      select: { product: true, costUsd: true, ts: true },
+    });
+
+    const days: DailyProgramAggregate[] = [];
+    const dayKey = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+    const startCursor = new Date(since);
+    startCursor.setHours(0, 0, 0, 0);
+    const endCursor = new Date(upper);
+    endCursor.setHours(0, 0, 0, 0);
+    for (
+      let d = new Date(startCursor);
+      d.getTime() <= endCursor.getTime();
+      d.setDate(d.getDate() + 1)
+    ) {
+      const empty = {} as Record<ProductKey, number>;
+      for (const p of PRODUCTS) empty[p.key] = 0;
+      days.push({ day: dayKey(d), byProduct: empty });
+    }
+    const idx = new Map(days.map((d, i) => [d.day, i]));
+
+    for (const r of rows) {
+      const k = dayKey(new Date(r.ts));
+      const i = idx.get(k);
+      if (i == null) continue;
+      const p = asProductKey(r.product);
+      days[i]!.byProduct[p] += r.costUsd ?? 0;
+    }
+    return days;
+  },
+
+  async topSpenders({ periodStart, periodEnd, limit }) {
+    const rows = await prisma.usageRecord.groupBy({
+      by: ["userId"],
+      where: { ts: { gte: periodStart, lte: periodEnd } },
+      _sum: { costUsd: true },
+      _count: { _all: true },
+      orderBy: { _sum: { costUsd: "desc" } },
+      take: Math.max(1, Math.min(limit ?? 10, 100)),
+    });
+    return rows.map<TopSpender>((r) => ({
+      userId: r.userId,
+      totalUsd: r._sum.costUsd ?? 0,
+      requestCount: r._count._all,
     }));
   },
 

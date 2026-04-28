@@ -4,7 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { BudgetBar } from "@/components/charts/budget-bar";
 import { SpendTrendChart, type SpendPoint } from "@/components/charts/spend-trend-chart";
-import { prisma } from "@/lib/prisma";
 import {
   COMBINED_CHATGPT_CODEX_CAP_MONTH,
   MONTHLY_BUDGET_USD,
@@ -12,6 +11,7 @@ import {
   type ProductKey,
 } from "@/lib/program";
 import { formatUsd } from "@/lib/utils";
+import { getAzureADClient, getDeelClient, getGatewayClient } from "@/lib/integrations";
 
 export const dynamic = "force-dynamic";
 
@@ -20,68 +20,56 @@ async function getF1Data() {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  // MTD spend per product.
-  const mtd = await prisma.usageRecord.groupBy({
-    by: ["product"],
-    where: { ts: { gte: startOfMonth }, decision: { in: ["ALLOWED", "PROMPTED"] } },
-    _sum: { costUsd: true },
-  });
-  const mtdMap = new Map<string, number>(
-    mtd.map((r) => [r.product, r._sum.costUsd ?? 0]),
+  const gateway = getGatewayClient();
+  const azuread = getAzureADClient();
+  const deel = getDeelClient();
+
+  const [programAgg, dailyAgg, topRaw, identityAll, deelAll] = await Promise.all([
+    gateway.aggregateByProgram({ periodStart: startOfMonth, periodEnd: now }),
+    gateway.aggregateByProgramDaily({ since: thirtyDaysAgo, until: now }),
+    gateway.topSpenders({ periodStart: startOfMonth, periodEnd: now, limit: 10 }),
+    azuread.listUsers(),
+    deel.listEmployees(),
+  ]);
+
+  const mtdMap = new Map<ProductKey, number>(
+    programAgg.map((r) => [r.product, r.totalUsd]),
   );
 
-  // Daily spend trend across the past 30 days, per product.
-  const usage = await prisma.usageRecord.findMany({
-    where: { ts: { gte: thirtyDaysAgo } },
-    select: { product: true, costUsd: true, ts: true },
-  });
+  const days: SpendPoint[] = dailyAgg.map((d) => ({
+    day: d.day,
+    CURSOR: d.byProduct.CURSOR,
+    CHATGPT: d.byProduct.CHATGPT,
+    CODEX: d.byProduct.CODEX,
+    CLAUDE_AI: d.byProduct.CLAUDE_AI,
+    M365_COPILOT: d.byProduct.M365_COPILOT,
+  }));
 
-  const days: SpendPoint[] = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-    days.push({
-      day: `${d.getMonth() + 1}/${d.getDate()}`,
-      CURSOR: 0,
-      CHATGPT: 0,
-      CODEX: 0,
-      CLAUDE_AI: 0,
-      M365_COPILOT: 0,
-    });
-  }
-  const dayKey = (d: Date) =>
-    `${d.getMonth() + 1}/${d.getDate()}`;
-  const idxByDay = new Map(days.map((d, i) => [d.day, i]));
-  for (const u of usage) {
-    const k = dayKey(new Date(u.ts));
-    const i = idxByDay.get(k);
-    if (i == null) continue;
-    const p = u.product as keyof SpendPoint;
-    if (p === "day") continue;
-    days[i]![p] = (days[i]![p] as number) + (u.costUsd ?? 0);
-  }
-
-  // Top 10 spenders MTD across all products.
-  const topRaw = await prisma.usageRecord.groupBy({
-    by: ["userId"],
-    where: { ts: { gte: startOfMonth } },
-    _sum: { costUsd: true },
-    orderBy: { _sum: { costUsd: "desc" } },
-    take: 10,
-  });
-  const userIds = topRaw.map((r) => r.userId);
-  const users = await prisma.user.findMany({
-    where: { id: { in: userIds } },
-    select: { id: true, displayName: true, email: true, roleTag: true, region: true },
-  });
-  const usersById = new Map(users.map((u) => [u.id, u]));
+  const identityById = new Map(identityAll.map((u) => [u.azureObjectId, u]));
+  const deelByEmail = new Map(deelAll.map((d) => [d.email, d]));
   const top = topRaw
-    .map((r) => ({
-      ...usersById.get(r.userId)!,
-      total: r._sum.costUsd ?? 0,
-    }))
-    .filter((r) => r.id);
+    .map((r) => {
+      const id = identityById.get(r.userId);
+      const hr = id ? deelByEmail.get(id.email) : undefined;
+      if (!id) return null;
+      return {
+        id: r.userId,
+        displayName: id.displayName,
+        email: id.email,
+        roleTag: hr?.roleTag ?? "—",
+        region: hr?.region ?? "—",
+        total: r.totalUsd,
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r != null);
 
-  return { mtdMap, days, top, combinedChatGptCodexMtd: (mtdMap.get("CHATGPT") ?? 0) + (mtdMap.get("CODEX") ?? 0) };
+  return {
+    mtdMap,
+    days,
+    top,
+    combinedChatGptCodexMtd:
+      (mtdMap.get("CHATGPT") ?? 0) + (mtdMap.get("CODEX") ?? 0),
+  };
 }
 
 export default async function HealthPage() {
@@ -158,7 +146,7 @@ export default async function HealthPage() {
           <CardHeader>
             <CardTitle>Daily spend, last 30 days</CardTitle>
             <CardDescription>
-              Stacked across all 5 products. Synthetic data.
+              Stacked across all 5 products. Source: <code className="font-mono">getGatewayClient().aggregateByProgramDaily()</code>.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -207,7 +195,9 @@ export default async function HealthPage() {
         </Card>
 
         <p className="text-xs text-slate-400">
-          v0.1 — synthetic data. F1 of Dashboard_Scoping_v1.md §2.
+          v0.2 — reads through gateway / azuread / deel clients (synthetic by default; flip
+          INTEGRATION_GATEWAY=real etc. once Phase 0 selects the gateway vendor).
+          F1 of Dashboard_Scoping_v1.md §2.
         </p>
       </div>
     </>

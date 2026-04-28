@@ -5,11 +5,13 @@ import type { GatewayClient } from "./types";
 
 export type { GatewayClient } from "./types";
 export type {
-  UsageRecord,
-  UsageDecision,
-  UsageAggregate,
-  ProgramAggregate,
+  DailyProgramAggregate,
   ManagerQueueRow,
+  ProgramAggregate,
+  TopSpender,
+  UsageAggregate,
+  UsageDecision,
+  UsageRecord,
 } from "./types";
 
 export function getGatewayClient(env: IntegrationEnv = process.env): GatewayClient {

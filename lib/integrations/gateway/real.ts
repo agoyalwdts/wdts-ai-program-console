@@ -22,6 +22,12 @@ export const realGatewayClient: GatewayClient = {
   async aggregateByProgram() {
     throw new NotImplementedError("gateway", "aggregateByProgram");
   },
+  async aggregateByProgramDaily() {
+    throw new NotImplementedError("gateway", "aggregateByProgramDaily");
+  },
+  async topSpenders() {
+    throw new NotImplementedError("gateway", "topSpenders");
+  },
   async managerQueue() {
     throw new NotImplementedError("gateway", "managerQueue");
   },

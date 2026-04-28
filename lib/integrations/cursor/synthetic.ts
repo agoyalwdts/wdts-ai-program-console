@@ -72,15 +72,50 @@ export const syntheticCursorClient: CursorClient = {
   },
 
   async listWaitlist(): Promise<CursorWaitlistEntry[]> {
-    return [
-      { email: "kai.hartley@wdts.com", displayName: "Kai Hartley", reason: "LOANER_USAGE", position: 1 },
-      { email: "tara.singh@wdts.com", displayName: "Tara Singh", reason: "NEW_JOINER", position: 2 },
-      { email: "uma.rivera@wdts.com", displayName: "Uma Rivera", reason: "LOANER_USAGE", position: 3 },
-      { email: "vince.choi@wdts.com", displayName: "Vince Choi", reason: "NEW_JOINER", position: 4 },
-      { email: "will.wang@wdts.com", displayName: "Will Wang", reason: "STEERING_EXCEPTION", position: 5 },
-      { email: "yara.tanaka@wdts.com", displayName: "Yara Tanaka", reason: "NEW_JOINER", position: 6 },
-      { email: "zane.smith@wdts.com", displayName: "Zane Smith", reason: "LOANER_USAGE", position: 7 },
-      { email: "noah.park@wdts.com", displayName: "Noah Park", reason: "NEW_JOINER", position: 8 },
+    // Drawn from §4.6.4 priority order: bottom-36 trial users with attestation
+    // + loaner usage, new joiners with manager attestation, then Steering
+    // exceptions. Deterministic — exposed as a stub until the v0.2 schema adds
+    // a real CursorWaitlistEntry model.
+    const seatHolders = await prisma.license.findMany({
+      where: { product: "CURSOR" },
+      select: { userId: true },
+    });
+    const seatHolderIds = new Set(seatHolders.map((s) => s.userId));
+    const candidates = await prisma.user.findMany({
+      where: { id: { notIn: [...seatHolderIds] } },
+      select: { displayName: true, email: true, roleTag: true },
+      orderBy: { displayName: "asc" },
+      take: 8,
+    });
+
+    const RATIONALES = [
+      "Auto-promotion: 2 consecutive months >50% Codex Standard cap utilisation",
+      "Manager attestation: dedicated agent-mode workload starting next quarter",
+      "Backfill following hugo.liu reclamation",
+      "New hire — onboarding cohort 2026-Q2",
+      "Demoted from trial seat; re-applying with attestation",
+      "Documentation team lead — mixed Cursor + Claude.ai workflow",
+      "Contractor renewal — needs Cursor for new gaming-systems project",
+      "Steering exception request pending",
     ];
+    const REASONS: CursorWaitlistEntry["reason"][] = [
+      "LOANER_USAGE",
+      "LOANER_USAGE",
+      "LOANER_USAGE",
+      "NEW_JOINER",
+      "LOANER_USAGE",
+      "NEW_JOINER",
+      "NEW_JOINER",
+      "STEERING_EXCEPTION",
+    ];
+    return candidates.map<CursorWaitlistEntry>((c, i) => ({
+      email: c.email,
+      displayName: c.displayName,
+      roleTag: c.roleTag,
+      reason: REASONS[i] ?? "NEW_JOINER",
+      requestedTier: i < 2 ? "POWER" : i < 5 ? "STANDARD" : "LIGHT",
+      rationale: RATIONALES[i] ?? "",
+      position: i + 1,
+    }));
   },
 };

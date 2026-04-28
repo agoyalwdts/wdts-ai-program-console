@@ -20,16 +20,24 @@
 
 export { getGatewayClient } from "./gateway";
 export type {
+  DailyProgramAggregate,
   GatewayClient,
   ManagerQueueRow,
   ProgramAggregate,
+  TopSpender,
   UsageAggregate,
   UsageDecision,
   UsageRecord,
 } from "./gateway";
 
 export { getCursorClient } from "./cursor";
-export type { CursorClient, CursorSeat, CursorSubTier, CursorWaitlistEntry } from "./cursor";
+export type {
+  CursorClient,
+  CursorSeat,
+  CursorSubTier,
+  CursorWaitlistEntry,
+  CursorWaitlistReason,
+} from "./cursor";
 
 export { getOpenAIClient } from "./openai";
 export type { OpenAIClient, ChatGptSeat, CodexSeat, CodexSubTier } from "./openai";
