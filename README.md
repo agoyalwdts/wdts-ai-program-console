@@ -28,8 +28,8 @@ npm install
 # 2. start Postgres
 docker compose up -d
 
-# 3. apply schema and seed deterministic synthetic data
-npx prisma db push
+# 3. apply schema migrations and seed deterministic synthetic data
+npx prisma migrate deploy   # applies prisma/migrations/* on a fresh DB
 npx prisma db seed
 
 # 4. run the dev server
@@ -50,15 +50,30 @@ docker compose down
 # nuke the data and start fresh
 docker compose down -v
 docker compose up -d
-npx prisma db push
+npx prisma migrate deploy
 npx prisma db seed
 ```
 
 There's also a one-shot reset:
 
 ```bash
-npm run db:reset      # equivalent to: prisma db push --force-reset && prisma db seed
+npm run db:reset      # prisma migrate reset --force (drops DB, re-applies migrations, re-seeds)
 ```
+
+### Schema changes
+
+v0.2 onwards uses Prisma migrations as the canonical workflow — `prisma db push`
+is for prototype iteration only. To change the schema:
+
+```bash
+# 1. edit prisma/schema.prisma
+# 2. generate + apply the migration
+npm run db:migrate -- --name <short_intent>
+# 3. update prisma/seed.ts so it exercises the new shape
+# 4. open a PR; never push schema changes directly to main
+```
+
+See `.cursor/rules/prisma-changes.mdc` for the full discipline.
 
 ### Postgres outside Docker?
 
@@ -72,7 +87,7 @@ createdb wdts_ai_console
 # then edit .env if your user / password / port differ
 ```
 
-Then run `npx prisma db push && npx prisma db seed && npm run dev` as usual.
+Then run `npx prisma migrate deploy && npx prisma db seed && npm run dev` as usual.
 
 ---
 

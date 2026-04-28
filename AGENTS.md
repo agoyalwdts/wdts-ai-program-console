@@ -124,15 +124,18 @@ docker compose up -d
 brew services start postgresql@16
 createdb wdts_ai_console   # one-time; expects the user/pass in .env
 
-# 3) apply schema + deterministic synthetic seed
-npx prisma db push
+# 3) apply migrations + deterministic synthetic seed
+npx prisma migrate deploy   # fresh setup; replays prisma/migrations/*
 npx prisma db seed
 
 # 4) dev server
 npm run dev          # http://localhost:3000 → redirects to /health
 
 # one-shot reset
-npm run db:reset     # prisma db push --force-reset && prisma db seed
+npm run db:reset     # prisma migrate reset --force (drops + re-migrates + re-seeds)
+
+# schema change (v0.2 canonical workflow)
+npm run db:migrate -- --name <short_intent>   # creates + applies migration
 ```
 
 ---
