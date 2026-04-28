@@ -218,8 +218,19 @@ pages to read through the clients is a separate `refactor:` PR.
 ## 7. Test discipline
 
 - **v0.1 had no tests.** v0.2 introduces them incrementally.
-- **Vitest** is wired (`npm test`, `npm run test:watch`) and used for unit /
-  pure-function tests under `lib/**/*.test.ts`. Run config: `vitest.config.ts`.
+- **Vitest** is wired (`npm test`, `npm run test:watch`). There are two
+  flavours of test, distinguished by file naming:
+  - **Unit / pure-function tests** in `**/*.test.ts` — no DB, no network.
+  - **DB-integration tests** in `**/*.db.test.ts` — connect to the test DB
+    and assert against the deterministic seed. Read-only (parallel workers
+    share the DB).
+- **Test database**: a separate Postgres database named
+  `<dev-db-name>_test` on the same instance as the dev DB. Vitest's
+  `globalSetup` (in `tests/global-setup.ts`) creates it if missing, runs
+  `prisma migrate deploy`, and reloads the seed every test run. Workers
+  override `DATABASE_URL` via `tests/setup-files.ts`.
+- **One-shot setup**: `npm run db:test:setup`. Idempotent. Useful when you
+  want to inspect the test DB with psql.
 - **Still to add**, per scoping §9.2:
   - **Vitest API route tests** for `app/api/**/route.ts` (e.g.
     `/api/decisions/export`).

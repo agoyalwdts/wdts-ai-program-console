@@ -75,6 +75,25 @@ npm run db:migrate -- --name <short_intent>
 
 See `.cursor/rules/prisma-changes.mdc` for the full discipline.
 
+### Tests
+
+```bash
+npm test               # run the full suite (unit + DB-integration)
+npm run test:watch     # watch mode for the test you're iterating on
+npm run db:test:setup  # one-shot: provision the test DB (idempotent)
+```
+
+Tests come in two flavours:
+
+- **Unit / pure tests** in `**/*.test.ts` — no DB, no network.
+- **DB-integration tests** in `**/*.db.test.ts` — connect to a separate
+  Postgres database (`<dev-db-name>_test`) that's auto-created and seeded
+  with the deterministic fixture every test run. Read-only.
+
+Vitest's `globalSetup` (in `tests/global-setup.ts`) handles the test DB
+provisioning automatically, so `npm test` works on a freshly-cloned repo
+without any extra steps. See `AGENTS.md` §7 for the full discipline.
+
 ### Postgres outside Docker?
 
 If you don't want Docker, install Postgres 16 natively and point `DATABASE_URL`
