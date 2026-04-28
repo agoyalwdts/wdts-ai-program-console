@@ -37,6 +37,7 @@ if (!tenantId || !clientId || !clientSecret) {
 
 const PUBLIC_PATHS = [
   "/api/auth", // Auth.js endpoints
+  "/api/webhooks", // vendor → dashboard webhooks (HMAC-authed, see route handlers)
   "/_next", // static + image optimisation
   "/favicon.ico",
   "/sitemap.xml",
