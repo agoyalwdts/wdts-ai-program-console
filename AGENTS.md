@@ -163,7 +163,8 @@ wdts-ai-program-console/
 │  ├─ prisma.ts             # singleton client
 │  ├─ auth.ts               # STUB — replace with NextAuth in v0.2
 │  ├─ program.ts            # program constants
-│  ├─ synthetic-data.ts     # STUB — synthetic generator (v0.2 swaps in real clients)
+│  ├─ synthetic-data.ts     # STUB — synthetic generator used by `prisma/seed.ts`
+│  ├─ integrations/         # vendor abstractions (scoping §4); see §6.1 below
 │  └─ utils.ts              # cn(), formatUsd(), initials()
 ├─ prisma/
 │  ├─ schema.prisma         # User / License / UsageRecord / Decision (v0.1 subset)
@@ -180,21 +181,55 @@ wdts-ai-program-console/
 in v0.1 — Server Components compute equivalents inline. v0.2+ should consider
 landing them as raw migrations once the data volume justifies it.
 
+### 6.1 Integration layer — `lib/integrations/`
+
+Eight vendor abstractions per scoping §4. Each has the same four-file shape:
+
+```
+lib/integrations/<name>/
+  types.ts       # interface definition
+  synthetic.ts   # deterministic implementation (reads from dev DB where applicable)
+  real.ts        # real vendor client — throws NotImplementedError until wired
+  index.ts       # exports get<Name>Client(env) — picks synthetic vs real by env var
+```
+
+| Client | Env var | Unlocks | Real status |
+|---|---|---|---|
+| `gateway`    | `INTEGRATION_GATEWAY`    | F1 / F2 / F3 / F11 / F12 | not implemented |
+| `cursor`     | `INTEGRATION_CURSOR`     | F4 / v1.1 reclamation    | not implemented |
+| `openai`     | `INTEGRATION_OPENAI`     | F1 / F2 / F10            | not implemented |
+| `anthropic`  | `INTEGRATION_ANTHROPIC`  | F1 / F2 (Claude)         | not implemented |
+| `m365graph`  | `INTEGRATION_M365GRAPH`  | F13 (Copilot)            | not implemented |
+| `azuread`    | `INTEGRATION_AZUREAD`    | identity sync, NextAuth  | not implemented |
+| `deel`       | `INTEGRATION_DEEL`       | role_tag / manager_id    | not implemented |
+| `policyrepo` | `INTEGRATION_POLICYREPO` | v1.1 write path          | not implemented |
+
+Defaults: every var unset = `synthetic`. Set to `real` per-env once the
+relevant N-question (scoping §8) is cleared and the real client is wired.
+See `lib/integrations/index.ts` for the comment block describing how to add
+a ninth client.
+
+The v0.1 pages (F1/F2/F4/F5) still query Prisma directly. v0.2 features
+(starting with F3 manager queue) consume the abstraction. Migrating the v0.1
+pages to read through the clients is a separate `refactor:` PR.
+
 ---
 
 ## 7. Test discipline
 
-- **v0.1: no tests.** Deliberate. The build was time-boxed to a working demo.
-- **v0.2 lands the test suite** per scoping §9.2:
-  - **Vitest** for unit tests on every utility and pure function in `lib/`.
-  - **Vitest + a fetch wrapper** for API route handlers
-    (`app/api/**/route.ts`).
+- **v0.1 had no tests.** v0.2 introduces them incrementally.
+- **Vitest** is wired (`npm test`, `npm run test:watch`) and used for unit /
+  pure-function tests under `lib/**/*.test.ts`. Run config: `vitest.config.ts`.
+- **Still to add**, per scoping §9.2:
+  - **Vitest API route tests** for `app/api/**/route.ts` (e.g.
+    `/api/decisions/export`).
   - **Playwright** end-to-end against the synthetic-data dev environment for
     each F-feature flow.
-  - **No feature ships without tests passing in CI.**
+  - **GitHub Actions CI** to run `npm test` and Playwright on every PR; no
+    feature ships once main is protected without green CI.
 
-When you add the first test, also add a `test` script in `package.json` and a
-GitHub Actions workflow to run it on PRs.
+When in doubt, follow the rule from scoping §9.2: ship tests with the
+feature, not as a follow-up PR.
 
 ---
 
@@ -239,7 +274,8 @@ They map to scoping §2.
 |---|---|---|
 | Auth | NextAuth + Azure AD wiring; replace `lib/auth.ts`; enforce 401 on routes | §4 #1, §6 Q2, §8 N2 |
 | F3 Manager queue | Per-manager direct-reports view (cap %, idle, pending tier moves) | §2 v1 row 3 |
-| Integration interfaces | `src/integrations/<gateway\|cursor\|openai\|anthropic\|m365graph\|deel\|policyrepo>/{types,synthetic,real}.ts` driven by `INTEGRATION_*=synthetic\|real` env vars | §4 |
+| Integration interfaces | Shape **landed** in `lib/integrations/`; real impls still throw `NotImplementedError`. v0.2 wires each `real.ts` per the §4 priority order | §4 |
+| F1/F2/F4/F5 → integration clients | Existing pages still call Prisma directly; migrate them to consume `getGatewayClient()` / `getCursorClient()` etc. in a refactor PR | §4 |
 | F6 Tier promotion / demotion | Write-path via policy-repo PR (GitHub API), SCIM update flow | §2 v1.1 row 1 |
 | F7 Reclamation + dispute | 5-business-day dispute window, trigger UI, notifications | §2 v1.1 row 2 |
 | F8 Exception flow | §16.3 manager attestation → FinOps → Steering routing, 30-day TTL | §2 v1.1 row 3 |
@@ -253,7 +289,7 @@ They map to scoping §2.
 | Schema gaps | `ExceptionRequest`, `ReclamationEvent`, `BudgetSnapshot`, `FrictionBudgetMetric` rows + the §3.2 SQL views | §3.1 |
 | Decision-log hardening | Trigger-level row immutability + nightly WORM export to Azure Blob | §3.3 |
 | Hosting | Azure App Service / Container Apps + Postgres Flexible Server + Key Vault + Front Door + GH Actions CI | §6 Q3 |
-| Tests + CI | Vitest unit + Vitest API + Playwright e2e + GH Actions | §9.2 |
+| Tests + CI | Vitest **landed** for unit/pure tests; Vitest API route tests, Playwright e2e, and GH Actions CI still to add | §9.2 |
 | Prisma 7 migration | Move `datasource.url` to `prisma.config.ts` adapter, lift the v6 pin | n/a (workaround note in `prisma/schema.prisma`) |
 | shadcn CLI re-gen | Re-run `npx shadcn add` for `components/ui/*` once the auth-prompt environment is sorted | n/a |
 
