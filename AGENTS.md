@@ -144,6 +144,8 @@ npm run db:migrate -- --name <short_intent>   # creates + applies migration
 
 ```
 wdts-ai-program-console/
+├─ auth.ts                       # Auth.js v5 root config (Microsoft Entra ID provider)
+├─ proxy.ts                      # Next 16 proxy (was middleware.ts) — gates everything
 ├─ app/
 │  ├─ (dashboard)/
 │  │  ├─ layout.tsx              # sidebar + topbar shell
@@ -155,7 +157,8 @@ wdts-ai-program-console/
 │  │  ├─ codex-ladder/page.tsx   # F9 — Codex tier distribution + queues
 │  │  ├─ chargeback/page.tsx     # F10 — per-team monthly bill
 │  │  └─ settings/page.tsx       # stub
-│  ├─ api/decisions/export/route.ts   # CSV export for F5
+│  ├─ api/auth/[...nextauth]/route.ts   # NextAuth handlers (signin, callback, signout, etc.)
+│  ├─ api/decisions/export/route.ts     # CSV export for F5 (auth-gated by proxy)
 │  ├─ layout.tsx                 # html shell
 │  └─ page.tsx                   # redirects → /health
 ├─ components/
@@ -164,7 +167,8 @@ wdts-ai-program-console/
 │  └─ dashboard/  # Sidebar, Topbar
 ├─ lib/
 │  ├─ prisma.ts             # singleton client
-│  ├─ auth.ts               # STUB — replace with NextAuth in v0.2
+│  ├─ auth.ts               # dashboard-facing auth helpers (requireUser/requireRole)
+│  ├─ auth-roles.ts         # pure role-mapping (testable; AAD groups + email rules)
 │  ├─ program.ts            # program constants
 │  ├─ synthetic-data.ts     # STUB — synthetic generator used by `prisma/seed.ts`
 │  ├─ integrations/         # vendor abstractions (scoping §4); see §6.1 below
@@ -287,7 +291,7 @@ They map to scoping §2.
 
 | Area | What's deferred | Scoping ref |
 |---|---|---|
-| Auth | NextAuth + Azure AD wiring; replace `lib/auth.ts`; enforce 401 on routes | §4 #1, §6 Q2, §8 N2 |
+| ~~Auth~~ | **Landed** — Auth.js v5 (`auth.ts` at root) + Microsoft Entra ID provider, JWT sessions, strict gating via `proxy.ts` (Next 16 rename of middleware), `requireUser()` / `requireRole()` helpers in `lib/auth.ts`, role mapping in `lib/auth-roles.ts` (testable). See `.cursor/rules/auth.mdc`. v0.3 wires real AAD group claims | §4 #1, §6 Q2, §8 N2 |
 | ~~F3 Manager queue~~ | **Landed** — `/managers` route reads through `getGatewayClient().managerQueue()` (synthetic). v0.2 evolves the "pending recommendations" surface from `Decision` rows to dedicated `ReclamationEvent` / `ExceptionRequest` models | §2 v1 row 3 |
 | ~~F1/F2/F4 → integration clients~~ | **Landed** — `health`, `users`, `cursor-seats` all consume `getGatewayClient()` / `getCursorClient()` / `getAzureADClient()` / `getDeelClient()`. F5 intentionally stays on Prisma | §4 |
 | ~~Test DB infra~~ | **Landed** — Vitest globalSetup provisions `<db>_test` and runs migrations + seed; `**/*.db.test.ts` files connect to it. First DB-integration test exercises `syntheticGatewayClient` | §9.2 |
