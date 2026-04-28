@@ -52,20 +52,25 @@ async function main() {
     }
   }
 
-  // Cursor seat allocation. Scaled to 30 users:
-  //   Power 4 (top seniors), Standard 9 (rest of seniors + top mids),
-  //   Light 4. Total ≈ 17 — preserves the 84/4 ratio (84 → ~21; we use 17 so the
-  //   distribution still looks like Power/Standard/Light = 17/42/25 scaled.)
+  // Cursor seat allocation. Scaled to the 30-user prototype, mirroring the
+  // §4.6.1 four-sub-tier shape (v2.0+ design, current at v2.3) —
+  // Power 17 / Standard 42 / Light 25 / Discovery 36 in the live program.
+  // We keep ~17 paid seats out of 30 users so the seat-board renders
+  // meaningfully and at least one seat per tier is filled in the demo.
   const seniors = users.filter((u) => u.role === "senior_engineer");
   const mids = users.filter((u) => u.role === "mid_engineer");
 
-  const cursorPower = seniors.slice(0, 4);
-  const cursorStandard = [...seniors.slice(4), ...mids.slice(0, 5)]; // 4 + 5 = 9
-  const cursorLight = mids.slice(5, 9); // 4
+  const cursorPower = seniors.slice(0, 3); // 3 — top seniors
+  const cursorStandard = [...seniors.slice(3), ...mids.slice(0, 4)]; // ~6
+  const cursorLight = mids.slice(4, 8); // 4
+  const cursorDiscovery = mids.slice(8, 12); // 4 — evaluation / occasional users
 
   console.log(
-    `[seed] cursor seats: power=${cursorPower.length}, standard=${cursorStandard.length}, light=${cursorLight.length}, total=${
-      cursorPower.length + cursorStandard.length + cursorLight.length
+    `[seed] cursor seats: power=${cursorPower.length}, standard=${cursorStandard.length}, light=${cursorLight.length}, discovery=${cursorDiscovery.length}, total=${
+      cursorPower.length +
+      cursorStandard.length +
+      cursorLight.length +
+      cursorDiscovery.length
     }`,
   );
 
@@ -163,6 +168,17 @@ async function main() {
       },
     });
   }
+  for (const u of cursorDiscovery) {
+    await prisma.license.create({
+      data: {
+        userId: emailToId.get(u.email)!,
+        product: "CURSOR",
+        subTier: "cursor_discovery",
+        capUsdMonth: CURSOR_TIERS.DISCOVERY.capUsdMonth,
+        source: "AUTO_PROVISIONED",
+      },
+    });
+  }
 
   for (const u of claudeUsers) {
     await prisma.license.create({
@@ -221,6 +237,7 @@ async function main() {
     if (cursorPower.includes(u) || codexPower.includes(u)) intensity = 0.95; // hot
     else if (cursorStandard.includes(u) || codexStandard.includes(u)) intensity = 0.65;
     else if (cursorLight.includes(u) || codexLight.includes(u)) intensity = 0.3;
+    else if (cursorDiscovery.includes(u)) intensity = 0.12; // low-cap evaluation tier
     else if (u.role === "documentation_heavy") intensity = 0.55;
     else if (u.role === "contractor") intensity = 0.15;
 
@@ -234,8 +251,14 @@ async function main() {
 
       // Distribute usage across products this user has licenses for.
       const products = ["CHATGPT", "CODEX"];
-      if (cursorPower.includes(u) || cursorStandard.includes(u) || cursorLight.includes(u)) {
+      if (
+        cursorPower.includes(u) ||
+        cursorStandard.includes(u) ||
+        cursorLight.includes(u)
+      ) {
         products.push("CURSOR", "CURSOR"); // weight Cursor higher for seat holders
+      } else if (cursorDiscovery.includes(u)) {
+        products.push("CURSOR"); // single weight — Discovery is low-but-real usage
       }
       if (claudeUsers.includes(u)) products.push("CLAUDE_AI");
       if (copilotUsers.includes(u)) products.push("M365_COPILOT");

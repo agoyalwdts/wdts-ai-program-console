@@ -1,6 +1,8 @@
 /**
- * Synthetic CursorClient — derives the 84-seat board from the dev DB
+ * Synthetic CursorClient — derives the 120-seat board from the dev DB
  * (License rows where product='CURSOR') and synthesises a small waitlist.
+ * Four sub-tiers per §4.6.1 (v2.0+ shape, current at v2.3): Power /
+ * Standard / Light / Discovery.
  *
  * The waitlist isn't represented in the v0.1 schema; the v0.2 schema will
  * add a CursorWaitlistEntry model. Until then, we synthesise a small
@@ -18,6 +20,8 @@ function asSubTier(s: string): CursorSubTier {
       return "STANDARD";
     case "cursor_light":
       return "LIGHT";
+    case "cursor_discovery":
+      return "DISCOVERY";
     default:
       throw new Error(`Unknown Cursor sub-tier from DB: ${s}`);
   }
@@ -108,12 +112,21 @@ export const syntheticCursorClient: CursorClient = {
       "NEW_JOINER",
       "STEERING_EXCEPTION",
     ];
+    // requestedTier distribution mirrors the §4.6.1 sub-tier shape (most
+    // waitlist requests are for Standard/Light; a couple are Discovery
+    // promotions, only one or two are Power-tier asks).
+    const requestedTier = (i: number): CursorSubTier => {
+      if (i < 1) return "POWER";
+      if (i < 4) return "STANDARD";
+      if (i < 6) return "LIGHT";
+      return "DISCOVERY";
+    };
     return candidates.map<CursorWaitlistEntry>((c, i) => ({
       email: c.email,
       displayName: c.displayName,
       roleTag: c.roleTag,
       reason: REASONS[i] ?? "NEW_JOINER",
-      requestedTier: i < 2 ? "POWER" : i < 5 ? "STANDARD" : "LIGHT",
+      requestedTier: requestedTier(i),
       rationale: RATIONALES[i] ?? "",
       position: i + 1,
     }));
