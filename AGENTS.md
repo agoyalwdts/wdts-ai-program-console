@@ -156,7 +156,7 @@ wdts-ai-program-console/
 │  │  ├─ health/page.tsx         # F1 — Program Health
 │  │  ├─ users/page.tsx          # F2 — Per-User
 │  │  ├─ managers/page.tsx       # F3 — Per-manager queue
-│  │  ├─ cursor-seats/page.tsx   # F4 — 84-seat board + waitlist
+│  │  ├─ cursor-seats/page.tsx   # F4 — 120-seat board (4 sub-tiers) + waitlist
 │  │  ├─ decisions/page.tsx      # F5 — append-only ledger
 │  │  ├─ codex-ladder/page.tsx   # F9 — Codex tier distribution + queues
 │  │  ├─ chargeback/page.tsx     # F10 — per-team monthly bill
@@ -383,6 +383,7 @@ Current index:
 | 0001 | v0.3 schema additions: ExceptionRequest, ReclamationEvent, BudgetSnapshot, FrictionBudgetMetric | proposed |
 | 0002 | Canonical cost-centre key on User | proposed |
 | 0003 | Production deploy target: Azure App Service + Postgres FS + Key Vault + GHA OIDC | accepted |
+| 0004 | Cursor is credit-bound, not seat-bound: 4 sub-tiers, 120-seat plan inside a $500K/yr envelope | accepted |
 
 The README in that folder explains the format and the proposed→accepted
 sign-off rule.

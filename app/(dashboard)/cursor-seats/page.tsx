@@ -28,6 +28,16 @@ type Cell =
     }
   | { kind: "empty"; tier: CursorSubTier };
 
+// Render order for the seat board — top tier first, Discovery last,
+// matching §4.6.1's "Discovery → Light → Standard → Power" promotion ladder
+// (rendered top-down, so heaviest at the top).
+const TIER_ORDER: readonly CursorSubTier[] = [
+  "POWER",
+  "STANDARD",
+  "LIGHT",
+  "DISCOVERY",
+] as const;
+
 async function getSeatBoard() {
   const cursor = getCursorClient();
   const [seats, waitlist] = await Promise.all([
@@ -52,22 +62,20 @@ async function getSeatBoard() {
     POWER: [],
     STANDARD: [],
     LIGHT: [],
+    DISCOVERY: [],
   };
   for (const s of seats) cellsByTier[s.subTier].push(toCell(s));
 
-  // Pad to the design quotas in §4.6.1 so the board always renders 84 cells.
-  for (const tier of ["POWER", "STANDARD", "LIGHT"] as const) {
+  // Pad to the design quotas in §4.6.1 so the board always renders the full
+  // 120-cell shape, even when only a subset of seats are filled.
+  for (const tier of TIER_ORDER) {
     const target = CURSOR_SEATS[tier];
     while (cellsByTier[tier].length < target) {
       cellsByTier[tier].push({ kind: "empty", tier });
     }
   }
 
-  const all: Cell[] = [
-    ...cellsByTier.POWER,
-    ...cellsByTier.STANDARD,
-    ...cellsByTier.LIGHT,
-  ];
+  const all: Cell[] = TIER_ORDER.flatMap((t) => cellsByTier[t]);
 
   return { all, cellsByTier, waitlist };
 }
@@ -82,15 +90,32 @@ export default async function CursorSeatsPage() {
     <>
       <Topbar
         title="Cursor Seat Board"
-        subtitle="F4 — visualise the 84 seats; track holders, idle days, and the waitlist."
+        subtitle={`F4 — visualise the ${CURSOR_TOTAL_SEATS} seats; track holders, idle days, and the waitlist.`}
       />
       <div className="p-6 space-y-6">
         {/* Stats row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Total seats" value={CURSOR_TOTAL_SEATS} sub="design quota (§4.6.1)" />
-          <StatCard label="Filled" value={filled} sub={`${CURSOR_TOTAL_SEATS - filled} open / waitlist eligible`} />
-          <StatCard label="Idle ≥ 14 days" value={idle} sub="candidates for §4.6.4 review" tone="amber" />
-          <StatCard label="Annual commitment" value={formatUsd(500_000)} sub="$41,667/mo" />
+          <StatCard
+            label="Allocated seats"
+            value={CURSOR_TOTAL_SEATS}
+            sub="120-seat plan, four sub-tiers (§4.6.1)"
+          />
+          <StatCard
+            label="Filled"
+            value={filled}
+            sub={`${CURSOR_TOTAL_SEATS - filled} open / waitlist eligible`}
+          />
+          <StatCard
+            label="Idle ≥ 14 days"
+            value={idle}
+            sub="candidates for §4.6.4 review"
+            tone="amber"
+          />
+          <StatCard
+            label="Credit envelope"
+            value={formatUsd(500_000)}
+            sub="$41,667/mo · binding constraint (§4.6.1)"
+          />
         </div>
 
         {/* Seat board */}
@@ -98,10 +123,14 @@ export default async function CursorSeatsPage() {
           <CardHeader>
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <CardTitle>The 84 seats</CardTitle>
+                <CardTitle>The {CURSOR_TOTAL_SEATS} seats</CardTitle>
                 <CardDescription>
-                  Hover a cell for the holder + idle days. Empty cells are unallocated /
-                  reclaimable per §4.6.4. Source:{" "}
+                  Vendor confirmed (April 2026) that Cursor is{" "}
+                  <em>credit-capped, not seat-capped</em> — the binding constraint
+                  is the $500K/yr envelope, not a seat count. The {CURSOR_TOTAL_SEATS}-seat
+                  shape below is WDTS&apos;s allocation plan that fits inside the
+                  envelope (~$41,400/mo cap-sum). Hover a cell for the holder + idle
+                  days; empty cells are unallocated / reclaimable per §4.6.4. Source:{" "}
                   <code className="font-mono">getCursorClient().listSeats()</code>.
                 </CardDescription>
               </div>
@@ -109,16 +138,25 @@ export default async function CursorSeatsPage() {
                 <LegendDot color="bg-violet-500" label={`Power ${CURSOR_SEATS.POWER}`} />
                 <LegendDot color="bg-sky-500" label={`Standard ${CURSOR_SEATS.STANDARD}`} />
                 <LegendDot color="bg-slate-400" label={`Light ${CURSOR_SEATS.LIGHT}`} />
-                <LegendDot color="bg-slate-200 border border-dashed border-slate-400" label="Empty" />
+                <LegendDot color="bg-stone-300" label={`Discovery ${CURSOR_SEATS.DISCOVERY}`} />
+                <LegendDot
+                  color="bg-slate-200 border border-dashed border-slate-400"
+                  label="Empty"
+                />
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <SeatGrid title="Power" tier="POWER" seats={data.cellsByTier.POWER} />
-            <div className="h-3" />
-            <SeatGrid title="Standard" tier="STANDARD" seats={data.cellsByTier.STANDARD} />
-            <div className="h-3" />
-            <SeatGrid title="Light" tier="LIGHT" seats={data.cellsByTier.LIGHT} />
+            {TIER_ORDER.map((tier, i) => (
+              <div key={tier}>
+                {i > 0 ? <div className="h-3" /> : null}
+                <SeatGrid
+                  title={CURSOR_TIERS[tier].label}
+                  tier={tier}
+                  seats={data.cellsByTier[tier]}
+                />
+              </div>
+            ))}
           </CardContent>
         </Card>
 
@@ -127,9 +165,11 @@ export default async function CursorSeatsPage() {
           <CardHeader>
             <CardTitle>Waitlist</CardTitle>
             <CardDescription>
-              Drawn from §4.6.4 priority order: bottom-36 trial users with attestation +
-              loaner usage, new joiners with manager attestation, then Steering exceptions.
-              Source: <code className="font-mono">getCursorClient().listWaitlist()</code>.
+              Drawn from §4.6.4 priority order: Discovery-tier users whose
+              consumption justifies a Light promotion, Light → Standard, Standard
+              → Power, then new joiners with manager attestation, then Steering
+              exceptions. Source:{" "}
+              <code className="font-mono">getCursorClient().listWaitlist()</code>.
             </CardDescription>
           </CardHeader>
           <CardContent className="px-0 pb-0">
@@ -154,15 +194,7 @@ export default async function CursorSeatsPage() {
                       <Badge variant="secondary">{w.roleTag}</Badge>
                     </TD>
                     <TD>
-                      <Badge
-                        variant={
-                          w.requestedTier === "POWER"
-                            ? "violet"
-                            : w.requestedTier === "STANDARD"
-                              ? "blue"
-                              : "slate"
-                        }
-                      >
+                      <Badge variant={waitlistBadge(w.requestedTier)}>
                         {w.requestedTier}
                       </Badge>
                     </TD>
@@ -220,6 +252,27 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   );
 }
 
+// Per-tier visuals — kept in sync with §4.6.1's Discovery → Light → Standard
+// → Power gradient. Discovery is the lightest because it's the floor of the
+// promotion ladder and the lowest-cap tier.
+const TIER_COLOURS: Record<CursorSubTier, string> = {
+  POWER: "bg-violet-500 text-white",
+  STANDARD: "bg-sky-500 text-white",
+  LIGHT: "bg-slate-400 text-white",
+  DISCOVERY: "bg-stone-300 text-stone-800",
+};
+
+const WAITLIST_BADGE: Record<CursorSubTier, "violet" | "blue" | "slate" | "secondary"> = {
+  POWER: "violet",
+  STANDARD: "blue",
+  LIGHT: "slate",
+  DISCOVERY: "secondary",
+};
+
+function waitlistBadge(t: CursorSubTier) {
+  return WAITLIST_BADGE[t];
+}
+
 function SeatGrid({
   title,
   tier,
@@ -229,12 +282,7 @@ function SeatGrid({
   tier: CursorSubTier;
   seats: Cell[];
 }) {
-  const colourFilled =
-    tier === "POWER"
-      ? "bg-violet-500 text-white"
-      : tier === "STANDARD"
-        ? "bg-sky-500 text-white"
-        : "bg-slate-400 text-white";
+  const colourFilled = TIER_COLOURS[tier];
   return (
     <div>
       <div className="flex items-center justify-between mb-2">

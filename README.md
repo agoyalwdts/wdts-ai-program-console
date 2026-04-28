@@ -143,7 +143,7 @@ wdts-ai-program-console/
 │  │  ├─ layout.tsx              # sidebar + main shell
 │  │  ├─ health/page.tsx         # F1 — Program Health
 │  │  ├─ users/page.tsx          # F2 — Per-User view
-│  │  ├─ cursor-seats/page.tsx   # F4 — 84-seat board + waitlist
+│  │  ├─ cursor-seats/page.tsx   # F4 — 120-seat board (4 sub-tiers) + waitlist
 │  │  ├─ decisions/page.tsx      # F5 — append-only decision ledger
 │  │  └─ settings/page.tsx       # stub
 │  ├─ api/
@@ -179,10 +179,15 @@ wdts-ai-program-console/
   rail of matches; right pane with the selected user's tier in each of the 5
   products, MTD + projected EOM spend, and the last 25 usage records. Macau
   (`apac-mo`) users get a §3.3 jurisdictional callout.
-- **F4 — Cursor Seats** (`/cursor-seats`): the 84 seats rendered as three rows
-  (17 Power purple / 42 Standard blue / 25 Light grey). Each filled cell shows
-  initials and tooltips with full name, idle days, MTD spend vs cap. Idle ≥14d
-  cells get an amber ring; ≥30d a rose ring. Below: a synthetic 8-row waitlist.
+- **F4 — Cursor Seats** (`/cursor-seats`): the 120 seats rendered as four rows
+  (17 Power purple / 42 Standard blue / 25 Light grey / 36 Discovery stone),
+  matching the v2.0 §4.6.1 sub-tier shape. Each filled cell shows initials and
+  tooltips with full name, idle days, MTD spend vs cap. Idle ≥14d cells get an
+  amber ring; ≥30d a rose ring. The header callout reframes the page around
+  the $500K/yr **credit envelope** as the binding constraint (Cursor confirmed
+  in April 2026 that licenses are uncapped within that envelope), with the
+  120-seat shape as WDTS's allocation plan inside it. Below: a synthetic
+  8-row waitlist.
 - **F5 — Decisions** (`/decisions`): append-only ledger with type chips and
   date-range chips at the top, plus a CSV export button that hits
   `/api/decisions/export` and respects the current filters.

@@ -213,7 +213,7 @@ export default async function SettingsPage() {
             <Row
               k="Cursor commitment"
               v={`${formatUsd(500_000)}/year`}
-              note="84 paid seats; §4.6.1"
+              note="$500K credit envelope · 120-seat plan, four sub-tiers; §4.6.1"
             />
             <Row k="Build" v="v0.2 (post-auth)" note="See git log for the full PR chain." />
           </CardContent>
