@@ -149,8 +149,11 @@ wdts-ai-program-console/
 │  │  ├─ layout.tsx              # sidebar + topbar shell
 │  │  ├─ health/page.tsx         # F1 — Program Health
 │  │  ├─ users/page.tsx          # F2 — Per-User
+│  │  ├─ managers/page.tsx       # F3 — Per-manager queue
 │  │  ├─ cursor-seats/page.tsx   # F4 — 84-seat board + waitlist
 │  │  ├─ decisions/page.tsx      # F5 — append-only ledger
+│  │  ├─ codex-ladder/page.tsx   # F9 — Codex tier distribution + queues
+│  │  ├─ chargeback/page.tsx     # F10 — per-team monthly bill
 │  │  └─ settings/page.tsx       # stub
 │  ├─ api/decisions/export/route.ts   # CSV export for F5
 │  ├─ layout.tsx                 # html shell
@@ -209,9 +212,10 @@ relevant N-question (scoping §8) is cleared and the real client is wired.
 See `lib/integrations/index.ts` for the comment block describing how to add
 a ninth client.
 
-The v0.1 pages (F1/F2/F4/F5) still query Prisma directly. v0.2 features
-(starting with F3 manager queue) consume the abstraction. Migrating the v0.1
-pages to read through the clients is a separate `refactor:` PR.
+F1/F2/F3/F4/F9/F10 read through the clients (gateway / cursor / openai /
+azuread / deel). F5 stays on Prisma directly: `Decision` is
+dashboard-authoritative (scoping §3.3), not a vendor mirror, so there's
+nothing to abstract.
 
 ---
 
@@ -285,13 +289,14 @@ They map to scoping §2.
 |---|---|---|
 | Auth | NextAuth + Azure AD wiring; replace `lib/auth.ts`; enforce 401 on routes | §4 #1, §6 Q2, §8 N2 |
 | ~~F3 Manager queue~~ | **Landed** — `/managers` route reads through `getGatewayClient().managerQueue()` (synthetic). v0.2 evolves the "pending recommendations" surface from `Decision` rows to dedicated `ReclamationEvent` / `ExceptionRequest` models | §2 v1 row 3 |
+| ~~F1/F2/F4 → integration clients~~ | **Landed** — `health`, `users`, `cursor-seats` all consume `getGatewayClient()` / `getCursorClient()` / `getAzureADClient()` / `getDeelClient()`. F5 intentionally stays on Prisma | §4 |
+| ~~Test DB infra~~ | **Landed** — Vitest globalSetup provisions `<db>_test` and runs migrations + seed; `**/*.db.test.ts` files connect to it. First DB-integration test exercises `syntheticGatewayClient` | §9.2 |
+| ~~F9 Codex ladder~~ | **Landed** — `/codex-ladder` shows tier distribution + promotion / demotion / dormancy queues using `getOpenAIClient().listCodexSeats()` | §2 v1.1 row 4 |
+| ~~F10 Overage / chargeback~~ | **Landed** — `/chargeback` groups spend by manager line (v0.2 stand-in for cost centre); v0.3 adds a real `User.costCentre` field + CSV export | §2 v1.1 row 5 |
 | Integration interfaces | Shape **landed** in `lib/integrations/`; real impls still throw `NotImplementedError`. v0.2 wires each `real.ts` per the §4 priority order | §4 |
-| F1/F2/F4/F5 → integration clients | Existing pages still call Prisma directly; migrate them to consume `getGatewayClient()` / `getCursorClient()` etc. in a refactor PR | §4 |
 | F6 Tier promotion / demotion | Write-path via policy-repo PR (GitHub API), SCIM update flow | §2 v1.1 row 1 |
 | F7 Reclamation + dispute | 5-business-day dispute window, trigger UI, notifications | §2 v1.1 row 2 |
 | F8 Exception flow | §16.3 manager attestation → FinOps → Steering routing, 30-day TTL | §2 v1.1 row 3 |
-| F9 Codex ladder | Power/Standard/Light/Discovery promotion + demotion + dormancy view | §2 v1.1 row 4 |
-| F10 Overage / chargeback | Per-team / per-cost-centre monthly view | §2 v1.1 row 5 |
 | F11 Friction Budget KPIs | §17.5 weekly metrics + auto-rollback indicator | §2 v1.2 row 1 |
 | F12 Anomaly detection | Outlier spend, sudden cap exhaustion, unusual model usage | §2 v1.2 row 2 |
 | F13 Copilot rationalisation | Telemetry + survey + Deel role tag cross-reference | §2 v1.2 row 3 |
