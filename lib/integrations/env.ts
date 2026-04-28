@@ -19,7 +19,8 @@ export type IntegrationName =
   | "m365graph"
   | "azuread"
   | "deel"
-  | "policyrepo";
+  | "policyrepo"
+  | "azureopenai";
 
 export const INTEGRATION_NAMES: readonly IntegrationName[] = [
   "gateway",
@@ -30,6 +31,7 @@ export const INTEGRATION_NAMES: readonly IntegrationName[] = [
   "azuread",
   "deel",
   "policyrepo",
+  "azureopenai",
 ] as const;
 
 const ENV_KEY: Record<IntegrationName, string> = {
@@ -41,6 +43,7 @@ const ENV_KEY: Record<IntegrationName, string> = {
   azuread: "INTEGRATION_AZUREAD",
   deel: "INTEGRATION_DEEL",
   policyrepo: "INTEGRATION_POLICYREPO",
+  azureopenai: "INTEGRATION_AZUREOPENAI",
 };
 
 /**
