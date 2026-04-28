@@ -1,12 +1,36 @@
-# WDTS AI Program Console — v0.1 prototype
+# WDTS AI Program Console — v0.2
 
-A working Next.js prototype dashboard for WDTS's AI Guardrails program. v0.1 is a
-read-only operator console that surfaces program-level state across the five
-approved AI products — **Cursor / ChatGPT / Codex / Claude.ai / M365 Copilot** —
-populated entirely by deterministic synthetic data so it can be run, demoed, and
-iterated on without any real vendor integrations. See
-`Dashboard_Scoping_v1.md` (in the sibling `ai-guardrails-pass/` folder) for the
-full v1 brief; this build implements the v0.1 cut described there.
+A Next.js operator dashboard for WDTS's AI Guardrails program, surfacing
+program-level state across the five approved AI products — **Cursor /
+ChatGPT / Codex / Claude.ai / M365 Copilot** — to FinOps, Engineering Mgmt,
+Security, and Steering.
+
+v0.2 lands:
+
+- **Auth** — Auth.js v5 with Microsoft Entra ID (sandbox tenant working;
+  AAD groups → roles is env-driven, no code change required for prod).
+- **All vendor integrations** — `cursor` (SCIM 2.0), `openai`, `anthropic`
+  (admin APIs), `m365graph` (Copilot reports), `azuread`, `deel`,
+  `policyrepo` (write path) all have working `real.ts` implementations
+  with mocked-fetch contract tests. `gateway` stays synthetic (vendor
+  TBD per Phase 0).
+- **Identity reconciler** — `npm run reconcile:azuread` mirrors Graph
+  users into Prisma, wraps each pass in a `Decision` row.
+- **Webhooks** — `/api/webhooks/deel` HMAC-verifies + records advisory
+  Decisions.
+- **CI** — GitHub Actions runs `typecheck + lint + 115 tests` on every
+  PR + push to `main`.
+- **F3 / F9 / F10** — manager queue, Codex ladder, per-team chargeback
+  views landed.
+
+What lights it up: each integration's runtime needs an external
+unblock — see [`AGENTS.md` §13 "Open blockers"](./AGENTS.md#13-open-blockers-operational)
+for the canonical list. The dashboard runs end-to-end against synthetic
+data with zero vendor credentials.
+
+See `Dashboard_Scoping_v1.md` (sibling `ai-guardrails-pass/` folder) for
+the full v1 brief, and `docs/decisions/` for in-flight architecture
+proposals.
 
 ---
 
@@ -166,27 +190,40 @@ wdts-ai-program-console/
 
 ---
 
-## v0.1 known limitations
+## v0.2 known limitations
 
-This is a proof-of-concept. The following are **deliberately stubbed**:
+The dashboard runs end-to-end against synthetic data with zero vendor
+credentials. The following are **operationally blocked** (need an external
+action to flip on, not a code change):
 
-- **Auth**: `lib/auth.ts` returns a hardcoded `admin@wdts.com` dev user. No
-  session, no SSO, no role-based access control. v0.2 wires NextAuth + Azure
-  AD per scoping §6 Q2.
-- **All vendor integrations**: there is no gateway / Cursor admin / OpenAI admin
-  / Anthropic admin / Microsoft Graph client. All data comes from
-  `lib/synthetic-data.ts` + `prisma/seed.ts`. v0.2 swaps in the
-  `synthetic|real` integration pattern from scoping §4.
-- **Write actions** (F6–F8): no tier promotion / demotion, no reclamation
-  workflow, no exception flow. The scoping doc puts the write path in v1.1.
-- **Decision log immutability**: enforced by convention only. v0.2 adds
-  trigger-level row immutability and nightly export to a WORM Azure Blob.
-- **Per-manager queue** (F3): not implemented in v0.1.
+- **AAD security groups → role mapping**. Env vars
+  `AZURE_AD_GROUP_{ADMIN,FINOPS,MANAGER}_IDS` ready; needs the actual
+  group object IDs from WDTS + the AAD app-reg `groupMembershipClaims`
+  setting.
+- **Vendor real-mode flips**. Each `INTEGRATION_*=real` requires its
+  vendor credentials (`OPENAI_ADMIN_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`,
+  `CURSOR_SCIM_BASE_URL` + `CURSOR_ADMIN_TOKEN`, `DEEL_API_TOKEN`,
+  `POLICYREPO_*`, etc.) plus admin consent on the AAD app reg for
+  `Reports.Read.All`. See `AGENTS.md` §13.
+- **`codex-policies` repo**. Needs to be created under the WDTS GitHub
+  org; the policy-repo client is wired but every write fails until the
+  repo + PAT exist.
+- **Write actions (F6–F8)**. The data plane (Decision row + policy-repo
+  PR) is plumbed; the UI surfaces (tier promotion, reclamation, exception
+  flow) land per scoping §2 v1.1.
+- **Decision log immutability**: enforced by convention. Trigger-level
+  row immutability + WORM export deferred per scoping §3.3.
 - **Anomaly detection / Friction Budget KPIs / Copilot rationalisation**
-  (F11–F15): out of scope for v0.1.
-- **Tests**: none. v0.2 lands the Vitest / Playwright suites described in
-  scoping §9.2.
-- **Azure deployment / CI**: local-only.
+  (F11–F15): out of scope for v0.2.
+- **Schema additions**: `ExceptionRequest`, `ReclamationEvent`,
+  `BudgetSnapshot`, `FrictionBudgetMetric` proposed in ADR 0001 — needs
+  sign-off before the migration lands.
+- **Cost-centre key**: proposed in ADR 0002 — needs FinOps sign-off on
+  the canonical key shape + the allowlist.
+- **Playwright e2e**: scoping §9.2 lists Playwright as part of the test
+  pyramid; not yet wired. Vitest suite covers unit + DB-integration +
+  mocked-API-route paths.
+- **Azure deployment**: still local + CI only.
 
 ### Workarounds taken during the build
 
@@ -205,35 +242,36 @@ This is a proof-of-concept. The following are **deliberately stubbed**:
 
 ---
 
-## v0.2 follow-ups
+## v0.3 follow-ups
 
-In rough priority order; the first three are the immediate next slice.
+In rough priority order:
 
-1. **Wire Azure AD via NextAuth** (scoping §4 integration #1, §6 Q2). Replace
-   `lib/auth.ts` with `getServerSession()`. Add a `.cursor/rules/auth.mdc`
-   enforcing 401 on missing session for every route handler.
-2. **F3 — Per-manager queue**. Each manager sees their direct reports' cap
-   utilisation, idle days, and any pending tier-move recommendations. Source:
-   the existing `User.managerId` column + gateway aggregates.
-3. **Synthetic-vs-real integration interfaces**. Stand up
-   `src/integrations/<gateway|cursor|openai|anthropic|m365graph|deel>/{types,synthetic,real}.ts`
-   per scoping §4. Drive selection by `INTEGRATION_<NAME>=synthetic|real` env
-   vars. Re-implement `lib/synthetic-data.ts` as the `synthetic` impl of each.
-4. **Write path (F6–F8)**: tier promotion/demotion via policy-repo PR (GitHub
-   API), reclamation flow with 5-business-day dispute window, exception flow
-   (§16.3) with manager attestation → FinOps → Steering routing.
-5. **Decision log hardening**: trigger-level row immutability, nightly WORM
-   export, evidence-link validation.
-6. **F9 — Codex ladder** visualisation. Promotion / demotion queues, dormancy
-   events, mirroring §4.6.2.
-7. **F10 — Overage / chargeback** view per team / per cost-centre.
-8. **F11 — Friction Budget KPI panel** (scoping §17.5) with auto-rollback
-   indicators.
-9. **F13 — M365 Copilot rationalisation review module** (cross-references
-   telemetry + survey + Deel role tag).
-10. **Production hardening**: Vitest + Playwright suites, GitHub Actions CI to
-    Azure App Service / Container Apps, Front Door + Key Vault wiring, ADR doc
-    set, `AGENTS.md` + `.cursor/rules/` per scoping §9.
+1. **Sign off the two ADRs** in `docs/decisions/`:
+   - 0001 — v0.3 schema additions (ExceptionRequest, ReclamationEvent,
+     BudgetSnapshot, FrictionBudgetMetric).
+   - 0002 — canonical `User.costCentre` key.
+   These unblock the v1.1 write-path UI and the FinOps showback view.
+2. **Operational unblocks** in `AGENTS.md` §13: AAD group object IDs,
+   vendor admin tokens, the `codex-policies` repo + PAT.
+3. **Write path (F6–F8)**: tier promotion / demotion via policy-repo PR
+   (the client is wired); reclamation flow with 5-business-day dispute
+   window; exception flow (§16.3) with manager attestation → FinOps →
+   Steering routing.
+4. **Reconciler scheduling**: nightly cron for `npm run reconcile:azuread`
+   (and a parallel Deel reconciler that consumes the webhook
+   advisory-Decision feed).
+5. **Manager hierarchy reconciliation**: `azuread` reconciler currently
+   skips `managerId` (would be N+1 on Graph). Add a `$expand=manager`
+   pass.
+6. **Money column types**: `Float` → `Decimal` per ADR-0001 follow-ups.
+7. **Decision log hardening**: trigger-level row immutability, nightly
+   WORM export.
+8. **F11 — Friction Budget KPI panel** (scoping §17.5).
+9. **F13 — M365 Copilot rationalisation review** (the data is now
+   reachable via the m365graph real client).
+10. **Playwright e2e** for the F-feature flows.
+11. **Production hardening**: Azure App Service / Container Apps + Front
+    Door + Key Vault + Postgres Flexible Server.
 
 ---
 

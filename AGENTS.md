@@ -194,31 +194,37 @@ landing them as raw migrations once the data volume justifies it.
 
 ### 6.1 Integration layer — `lib/integrations/`
 
-Eight vendor abstractions per scoping §4. Each has the same four-file shape:
+Nine vendor abstractions per scoping §4. Each has the same four-file shape:
 
 ```
 lib/integrations/<name>/
   types.ts       # interface definition
   synthetic.ts   # deterministic implementation (reads from dev DB where applicable)
-  real.ts        # real vendor client — throws NotImplementedError until wired
+  real.ts        # real vendor client — wired against the real vendor API
+  real.test.ts   # mocked-fetch contract tests for the real client
   index.ts       # exports get<Name>Client(env) — picks synthetic vs real by env var
 ```
 
 | Client | Env var | Unlocks | Real status |
 |---|---|---|---|
-| `gateway`    | `INTEGRATION_GATEWAY`    | F1 / F2 / F3 / F11 / F12 | not implemented |
-| `cursor`     | `INTEGRATION_CURSOR`     | F4 / v1.1 reclamation    | not implemented |
-| `openai`     | `INTEGRATION_OPENAI`     | F1 / F2 / F10            | not implemented |
-| `anthropic`  | `INTEGRATION_ANTHROPIC`  | F1 / F2 (Claude)         | not implemented |
-| `m365graph`  | `INTEGRATION_M365GRAPH`  | F13 (Copilot)            | not implemented |
-| `azuread`    | `INTEGRATION_AZUREAD`    | identity sync, NextAuth  | not implemented |
-| `deel`       | `INTEGRATION_DEEL`       | role_tag / manager_id    | not implemented |
-| `policyrepo` | `INTEGRATION_POLICYREPO` | v1.1 write path          | not implemented |
+| `gateway`     | `INTEGRATION_GATEWAY`     | F1 / F2 / F3 / F11 / F12 | **synthetic only** (vendor TBD per Phase 0) |
+| `cursor`      | `INTEGRATION_CURSOR`      | F4 / v1.1 reclamation    | **landed** — SCIM 2.0 |
+| `openai`      | `INTEGRATION_OPENAI`      | F1 / F2 / F10            | **landed** — Admin API `/organization/users` |
+| `anthropic`   | `INTEGRATION_ANTHROPIC`   | F1 / F2 (Claude)         | **landed** — Workspaces Admin API |
+| `m365graph`   | `INTEGRATION_M365GRAPH`   | F13 (Copilot)            | **landed** — Graph `/users` + `/reports` |
+| `azuread`     | `INTEGRATION_AZUREAD`     | identity sync, NextAuth  | **landed** — Graph `/users` + reconciler script |
+| `deel`        | `INTEGRATION_DEEL`        | role_tag / manager_id    | **landed** — REST `/people` + HMAC webhook |
+| `policyrepo`  | `INTEGRATION_POLICYREPO`  | v1.1 write path          | **landed** — GitHub Contents API |
+| `azureopenai` | `INTEGRATION_AZUREOPENAI` | future Codex bring-up    | **landed** — control-plane probe |
 
 Defaults: every var unset = `synthetic`. Set to `real` per-env once the
-relevant N-question (scoping §8) is cleared and the real client is wired.
-See `lib/integrations/index.ts` for the comment block describing how to add
-a ninth client.
+operational unblocks in §13 are cleared. See `lib/integrations/index.ts`
+for the comment block describing how to add a tenth client.
+
+A small shared HTTP helper (`lib/integrations/_http.ts`) provides
+`jsonGet` + `paginate` — used by every bearer-token / JSON real client to
+keep them small. Auth-bearing clients that hit Microsoft Graph reuse the
+token cache + paginator in `lib/integrations/azuread/graph.ts`.
 
 F1/F2/F3/F4/F9/F10 read through the clients (gateway / cursor / openai /
 azuread / deel). F5 stays on Prisma directly: `Decision` is
@@ -316,8 +322,10 @@ They map to scoping §2.
 | ~~F1/F2/F4 → integration clients~~ | **Landed** — `health`, `users`, `cursor-seats` all consume `getGatewayClient()` / `getCursorClient()` / `getAzureADClient()` / `getDeelClient()`. F5 intentionally stays on Prisma | §4 |
 | ~~Test DB infra~~ | **Landed** — Vitest globalSetup provisions `<db>_test` and runs migrations + seed; `**/*.db.test.ts` files connect to it. First DB-integration test exercises `syntheticGatewayClient` | §9.2 |
 | ~~F9 Codex ladder~~ | **Landed** — `/codex-ladder` shows tier distribution + promotion / demotion / dormancy queues using `getOpenAIClient().listCodexSeats()` | §2 v1.1 row 4 |
-| ~~F10 Overage / chargeback~~ | **Landed** — `/chargeback` groups spend by manager line (v0.2 stand-in for cost centre); v0.3 adds a real `User.costCentre` field + CSV export | §2 v1.1 row 5 |
-| Integration interfaces | Shape **landed** in `lib/integrations/`; real impls still throw `NotImplementedError`. v0.2 wires each `real.ts` per the §4 priority order | §4 |
+| ~~F10 Overage / chargeback~~ | **Landed** — `/chargeback` groups spend by manager line (v0.2 stand-in for cost centre); ADR 0002 (`docs/decisions/0002-cost-centre-key.md`) proposes the real `User.costCentre` field — needs sign-off | §2 v1.1 row 5 |
+| ~~Integration real clients~~ | **Landed** — every real client except `gateway` (vendor TBD) is wired with mocked-fetch contract tests. See §6.1 + §13 for what's still operationally blocked. | §4 |
+| ~~AzureAD identity reconciler~~ | **Landed** — `npm run reconcile:azuread` mirrors Graph users → Prisma; wraps each pass in a `Decision`. Needs a nightly cron once `INTEGRATION_AZUREAD=real` flips | §4 #2 |
+| ~~Deel webhook receiver~~ | **Landed** — `/api/webhooks/deel` HMAC-verifies + records a `Decision` row; needs `DEEL_WEBHOOK_SECRET` set + Deel-side webhook URL registered to go live | §4 #3 |
 | F6 Tier promotion / demotion | Write-path via policy-repo PR (GitHub API), SCIM update flow | §2 v1.1 row 1 |
 | F7 Reclamation + dispute | 5-business-day dispute window, trigger UI, notifications | §2 v1.1 row 2 |
 | F8 Exception flow | §16.3 manager attestation → FinOps → Steering routing, 30-day TTL | §2 v1.1 row 3 |
@@ -326,10 +334,10 @@ They map to scoping §2.
 | F13 Copilot rationalisation | Telemetry + survey + Deel role tag cross-reference | §2 v1.2 row 3 |
 | F14 Bypass-mechanism alerts | §11.6 — `--dangerously-bypass`, `approval_policy="never"`, Cursor Auto-Run | §2 v1.2 row 4 |
 | F15 Shadow-AI signals | Network egress to un-allowlisted AI endpoints | §2 v1.2 row 5 |
-| Schema gaps | `ExceptionRequest`, `ReclamationEvent`, `BudgetSnapshot`, `FrictionBudgetMetric` rows + the §3.2 SQL views | §3.1 |
+| Schema gaps | `ExceptionRequest`, `ReclamationEvent`, `BudgetSnapshot`, `FrictionBudgetMetric` rows + the §3.2 SQL views — proposed in ADR 0001 (`docs/decisions/0001-v0.3-schema.md`); needs sign-off | §3.1 |
 | Decision-log hardening | Trigger-level row immutability + nightly WORM export to Azure Blob | §3.3 |
 | Hosting | Azure App Service / Container Apps + Postgres Flexible Server + Key Vault + Front Door + GH Actions CI | §6 Q3 |
-| Tests + CI | Vitest **landed** for unit/pure tests; Vitest API route tests, Playwright e2e, and GH Actions CI still to add | §9.2 |
+| Tests + CI | **Landed**: Vitest (unit + DB + API-route mocked tests, 115/115 passing) + GitHub Actions CI on every PR + push to `main`. Playwright e2e still to add | §9.2 |
 | Prisma 7 migration | Move `datasource.url` to `prisma.config.ts` adapter, lift the v6 pin | n/a (workaround note in `prisma/schema.prisma`) |
 | shadcn CLI re-gen | Re-run `npx shadcn add` for `components/ui/*` once the auth-prompt environment is sorted | n/a |
 
@@ -359,3 +367,111 @@ Security / the human reviewer:
 - **Docker not auto-installed.** The build agent doesn't have permission to
   install Docker Desktop; the run order assumes the user starts Postgres
   themselves (Docker or native via Homebrew).
+
+---
+
+## 12. Architecture / program decisions
+
+`docs/decisions/` is the dashboard's lightweight decision-record (LDR)
+log. Read every record with `Status: accepted` before touching code that
+the record covers. **Proposed** records may not yet reflect the codebase.
+
+Current index:
+
+| # | Title | Status |
+|---|---|---|
+| 0001 | v0.3 schema additions: ExceptionRequest, ReclamationEvent, BudgetSnapshot, FrictionBudgetMetric | proposed |
+| 0002 | Canonical cost-centre key on User | proposed |
+
+The README in that folder explains the format and the proposed→accepted
+sign-off rule.
+
+---
+
+## 13. Open blockers (operational)
+
+Every real client landed in v0.2 — `INTEGRATION_*=real` flips them on, but
+each needs an external action before it can serve real data. This is the
+canonical list.
+
+### Auth + identity (Tracks 2, 3)
+
+- ✅ Auth.js + Microsoft Entra ID provider wired. Sandbox-tenant working.
+- ⏳ **AAD security groups** for ADMIN / FINOPS / MANAGER. Once WDTS
+  publishes the group object IDs, set
+  `AZURE_AD_GROUP_{ADMIN,FINOPS,MANAGER}_IDS` (comma-separated) in
+  `.env.local` (or the prod secret store). No code change.
+- ⏳ **AAD app registration: `groups` claim.** Configure
+  `Token configuration → groupMembershipClaims=SecurityGroup` so the JWT
+  carries the `groups` array. Then trim `EMAIL_ROLE_RULES` in
+  `lib/auth-roles.ts` to remove the sandbox bridge.
+- ⏳ **AzureAD reconciler schedule.** `npm run reconcile:azuread` is
+  invoke-by-hand today. Add a nightly cron (cloud schedule, GitHub
+  Actions schedule, or external runner — choose at deploy time).
+
+### Cursor (Track 4)
+
+- ⏳ **SCIM provisioning** enabled on the WDTS Cursor Enterprise
+  workspace. Then publish `CURSOR_SCIM_BASE_URL` (e.g.
+  `https://cursor.com/api/scim/v2`) and a `CURSOR_ADMIN_TOKEN`. Flip
+  `INTEGRATION_CURSOR=real` and verify via `/settings`.
+
+### OpenAI Enterprise (Track 5)
+
+- ⏳ **Admin API key** issued under organisation settings (distinct from
+  regular API keys). Set `OPENAI_ADMIN_API_KEY` + `OPENAI_ORG_ID`.
+
+### Anthropic (Track 6)
+
+- ⏳ **Workspace admin key**. Set `ANTHROPIC_ADMIN_API_KEY`,
+  `ANTHROPIC_ORG_ID`, `ANTHROPIC_WORKSPACE_ID`.
+
+### Microsoft Graph (Track 7)
+
+- ⏳ **Admin consent** on the AAD app registration for
+  `Reports.Read.All` (and `User.Read.All` if not already). Optionally
+  `M365_COPILOT_SKU_IDS` if WDTS uses non-default Copilot SKU variants.
+
+### Deel HRIS (Track 8)
+
+- ⏳ **Deel API token**. Set `DEEL_API_TOKEN`.
+- ⏳ **Webhook receiver**. Generate `DEEL_WEBHOOK_SECRET`, set on both
+  the dashboard side and in Deel admin, register
+  `https://<dashboard-host>/api/webhooks/deel` as the receiver URL.
+- ⏳ **Deel reconciler** (parallel to the AzureAD one) to apply
+  webhook-implied state changes to Prisma. Currently webhooks land a
+  `Decision` row but don't mutate `User`/`License` — by design (advisory
+  hints, not authoritative writes).
+
+### Policy repo (Track 9)
+
+- ⏳ **Create the `codex-policies` repo** under the WDTS GitHub org.
+  Decide owner / permissions in advance.
+- ⏳ **Branch protection** on the policy repo so the dashboard's PAT
+  cannot merge its own PRs.
+- ⏳ **Fine-grained PAT** scoped to the policy repo with
+  `contents:write` + `pull_requests:write`. Set `POLICYREPO_OWNER`,
+  `POLICYREPO_NAME`, `POLICYREPO_TOKEN`.
+
+### Schema + cost-centre (Tracks 10, 11)
+
+- ⏳ **Sign off** on ADR 0001 (v0.3 schema additions) and ADR 0002
+  (cost-centre key). Both in `docs/decisions/`.
+- ⏳ **Cost-centre allowlist** (FinOps-owned). The blocking external
+  decision for ADR 0002 — `docs/decisions/0002-cost-centre-key.md`
+  open follow-ups.
+
+### Hosting / production (scoping §6 Q3)
+
+- ⏳ Domain name for production deployment. Add as `AUTH_URL` /
+  `NEXTAUTH_URL` and as a redirect URI on the AAD app registration.
+- ⏳ Azure subscription + resource group + Postgres Flexible Server +
+  Key Vault + Front Door per scoping §6 Q3.
+
+### Credential hygiene
+
+- ⚠ **`AZURE_AD_CLIENT_SECRET` and `AZURE_OPENAI_API_KEY`** were pasted
+  into a Cursor agent chat on 2026-04-28 and exist in this machine's
+  agent-transcript JSONL on disk. Rotation deferred by user decision;
+  triggers for forced rotation are documented in the banner at the top
+  of `.env.local`.
