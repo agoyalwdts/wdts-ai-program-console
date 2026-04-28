@@ -74,10 +74,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (profile?.email) token.email = profile.email;
       // Microsoft Entra returns the user's display name in `name`.
       if (profile?.name) token.name = profile.name;
-      // Compute role once at sign-in / first JWT issue. AAD `groups` claim
-      // requires app-registration configuration (Token configuration →
-      // groupMembershipClaims=SecurityGroup) which we'll wire after the
-      // first signed-in user; until then roles fall back to email rules.
+      // Compute role once at sign-in / first JWT issue. The mapping is:
+      //   1. AAD `groups` claim → role, via the env-driven map in
+      //      lib/auth-roles.ts (AZURE_AD_GROUP_*_IDS env vars).
+      //   2. Email-pattern rules in lib/auth-roles.ts (sandbox bridge).
+      //   3. Default USER.
+      // Step 1 requires the AAD app registration to emit a `groups` claim
+      // (Token configuration → groupMembershipClaims=SecurityGroup) AND
+      // the env vars to be set. When neither is true, step 2 takes over.
       const groupsClaim = (profile as { groups?: string[] } | undefined)?.groups;
       const role: DashboardRole = roleFromClaims({
         email: token.email ?? "",
