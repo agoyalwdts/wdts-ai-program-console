@@ -382,6 +382,7 @@ Current index:
 |---|---|---|
 | 0001 | v0.3 schema additions: ExceptionRequest, ReclamationEvent, BudgetSnapshot, FrictionBudgetMetric | proposed |
 | 0002 | Canonical cost-centre key on User | proposed |
+| 0003 | Production deploy target: Azure App Service + Postgres FS + Key Vault + GHA OIDC | accepted |
 
 The README in that folder explains the format and the proposed→accepted
 sign-off rule.
@@ -465,10 +466,28 @@ canonical list.
 
 ### Hosting / production (scoping §6 Q3)
 
-- ⏳ Domain name for production deployment. Add as `AUTH_URL` /
-  `NEXTAUTH_URL` and as a redirect URI on the AAD app registration.
-- ⏳ Azure subscription + resource group + Postgres Flexible Server +
-  Key Vault + Front Door per scoping §6 Q3.
+Target shape pinned by ADR 0003 (`docs/decisions/0003-deploy-target.md`).
+Step-by-step in **`docs/deploy/azure.md`**; sample bootstrap script and
+sample GitHub Actions workflow live alongside it. None of those files
+auto-run.
+
+Inputs the runbook needs (Tier-0 unblocks):
+
+- ⏳ **WDTS-corp Azure subscription + resource group** (not the personal
+  sub the increment apps live on).
+- ⏳ **Region** — `centralindia` or `eastus` (LDR 0003 excludes
+  `australiaeast`).
+- ⏳ **Production Microsoft Entra ID app registration** — fresh,
+  separate from the dev/sandbox one in `.env.local`. The prod app gets
+  the `groups` claim configured and admin-consented Graph scopes
+  (`User.Read.All`, `Reports.Read.All`); the dev/sandbox app stays
+  low-privilege.
+- ⏳ **GitHub `production` environment** with at least one required
+  reviewer and `main`-only branch policy. Promotion of
+  `docs/deploy/deploy.yml.sample` → `.github/workflows/deploy.yml`
+  is gated on this.
+- ⏳ **Domain** — `*.azurewebsites.net` is enough for the v0.2 dev
+  preview. Custom domain + TLS is a v0.3 follow-up.
 
 ### Credential hygiene
 
