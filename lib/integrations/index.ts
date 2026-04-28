@@ -30,7 +30,7 @@ export type {
   UsageRecord,
 } from "./gateway";
 
-export { getCursorClient } from "./cursor";
+export { getCursorClient, makeRealCursorClient } from "./cursor";
 export type {
   CursorClient,
   CursorSeat,

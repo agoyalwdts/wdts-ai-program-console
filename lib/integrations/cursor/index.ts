@@ -10,6 +10,7 @@ export type {
   CursorWaitlistEntry,
   CursorWaitlistReason,
 } from "./types";
+export { makeRealCursorClient } from "./real";
 
 export function getCursorClient(env: IntegrationEnv = process.env): CursorClient {
   return getIntegrationMode("cursor", env) === "real"

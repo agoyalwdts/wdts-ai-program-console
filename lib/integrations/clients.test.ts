@@ -83,9 +83,10 @@ describe("real-mode clients throw NotImplementedError", () => {
     ).rejects.toThrow(/listUsageRecords/);
   });
 
-  it("cursor/real", async () => {
+  it("cursor/real surfaces missing env vars as IntegrationError", async () => {
+    // Detailed coverage in lib/integrations/cursor/real.test.ts.
     const c = getCursorClient({ INTEGRATION_CURSOR: "real" });
-    await expect(c.listSeats()).rejects.toThrow(/INTEGRATION_CURSOR=synthetic/);
+    await expect(c.listSeats()).rejects.toThrow(/CURSOR_SCIM_BASE_URL/);
   });
 
   it("openai/real surfaces missing env vars as IntegrationError", async () => {
