@@ -11,14 +11,22 @@ export type CodexSubTier = "POWER" | "STANDARD" | "LIGHT" | "DISCOVERY";
 export type ChatGptSeat = {
   userId: string;
   email: string;
+  displayName: string;
   capUsdMonth: number;
+  mtdSpendUsd: number;
 };
 
 export type CodexSeat = {
   userId: string;
   email: string;
+  displayName: string;
   subTier: CodexSubTier;
   capUsdMonth: number;
+  /** Month-to-date Codex spend in USD. */
+  mtdSpendUsd: number;
+  lastActivityTs: Date | null;
+  /** Days since last allowed Codex usage; null if never used. */
+  idleDays: number | null;
 };
 
 export type OpenAIClient = {
