@@ -88,17 +88,20 @@ describe("real-mode clients throw NotImplementedError", () => {
     await expect(c.listSeats()).rejects.toThrow(/INTEGRATION_CURSOR=synthetic/);
   });
 
-  it("policyrepo/real", async () => {
+  it("policyrepo/real surfaces missing env vars as IntegrationError", async () => {
+    // Real client tries to read POLICYREPO_OWNER/NAME/TOKEN at call-time;
+    // with INTEGRATION_POLICYREPO=real and no other env, openPullRequest
+    // should fail loudly rather than silently no-op. Detailed coverage is
+    // in lib/integrations/policyrepo/real.test.ts (mocked fetch).
     const c = getPolicyRepoClient({ INTEGRATION_POLICYREPO: "real" });
     await expect(
       c.openPullRequest({
         title: "t",
-        paths: [],
-        patch: "",
+        files: [{ path: "x.yaml", content: "" }],
         decisionId: "d",
         authorEmail: "a@b.c",
       }),
-    ).rejects.toThrow(/INTEGRATION_POLICYREPO=synthetic/);
+    ).rejects.toThrow(/POLICYREPO_OWNER/);
   });
 });
 
@@ -107,8 +110,9 @@ describe("policyrepo/synthetic returns a fake PR shape", () => {
     const c = getPolicyRepoClient({});
     const pr = await c.openPullRequest({
       title: "Promote alice to Codex Power",
-      paths: ["policies/codex.toml"],
-      patch: "+ alice@wdts.com -> POWER",
+      files: [
+        { path: "policies/codex.toml", content: "alice@wdts.com = POWER\n" },
+      ],
       decisionId: "decision-123",
       authorEmail: "actor@wdts.com",
     });

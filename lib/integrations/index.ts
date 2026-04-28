@@ -58,8 +58,13 @@ export { realAzureADClient } from "./azuread/real";
 export { getDeelClient } from "./deel";
 export type { DeelClient, DeelEmployee, DeelWebhookEvent } from "./deel";
 
-export { getPolicyRepoClient } from "./policyrepo";
-export type { PolicyRepoClient, PolicyChange, PolicyPullRequest } from "./policyrepo";
+export { getPolicyRepoClient, makeRealPolicyRepoClient } from "./policyrepo";
+export type {
+  PolicyRepoClient,
+  PolicyChange,
+  PolicyFile,
+  PolicyPullRequest,
+} from "./policyrepo";
 
 export { getAzureOpenAIClient } from "./azureopenai";
 export type { AzureOpenAIClient, AzureOpenAIDeployment } from "./azureopenai";
