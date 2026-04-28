@@ -205,9 +205,11 @@ action to flip on, not a code change):
   `CURSOR_SCIM_BASE_URL` + `CURSOR_ADMIN_TOKEN`, `DEEL_API_TOKEN`,
   `POLICYREPO_*`, etc.) plus admin consent on the AAD app reg for
   `Reports.Read.All`. See `AGENTS.md` §13.
-- **`codex-policies` repo**. Needs to be created under the WDTS GitHub
-  org; the policy-repo client is wired but every write fails until the
-  repo + PAT exist.
+- **Policy repo PAT**. The repo itself exists at
+  https://github.com/agoyalwdts/wdts-ai-policy and is wired into
+  `.env.local`; still needs branch protection enabled + a fine-grained
+  PAT (`contents:write` + `pull_requests:write`) before
+  `INTEGRATION_POLICYREPO=real` is safe to flip.
 - **Write actions (F6–F8)**. The data plane (Decision row + policy-repo
   PR) is plumbed; the UI surfaces (tier promotion, reclamation, exception
   flow) land per scoping §2 v1.1.
@@ -252,7 +254,8 @@ In rough priority order:
    - 0002 — canonical `User.costCentre` key.
    These unblock the v1.1 write-path UI and the FinOps showback view.
 2. **Operational unblocks** in `AGENTS.md` §13: AAD group object IDs,
-   vendor admin tokens, the `codex-policies` repo + PAT.
+   vendor admin tokens, branch protection + PAT on the
+   `agoyalwdts/wdts-ai-policy` repo.
 3. **Write path (F6–F8)**: tier promotion / demotion via policy-repo PR
    (the client is wired); reclamation flow with 5-business-day dispute
    window; exception flow (§16.3) with manager attestation → FinOps →

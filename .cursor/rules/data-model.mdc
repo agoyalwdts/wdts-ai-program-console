@@ -69,7 +69,7 @@ needs it"; the generator follows the schema, not vice versa).
 | `User` identity, `managerId` | Azure AD + Deel | mirror; nightly reconcile |
 | `User.roleTag` | Deel | mirror; webhook-driven |
 | `License` (Cursor) | Cursor admin API + policy repo | mirror; writes go via PR |
-| `License` (Codex) | `codex-policies/policies/*.toml` | mirror; writes go via PR |
+| `License` (Codex) | `wdts-ai-policy/policies/*.toml` | mirror; writes go via PR |
 | `License` (Claude) | Anthropic admin + policy repo | mirror; writes go via PR |
 | `License` (Copilot) | M365 admin centre via Microsoft Graph | mirror; writes via M365 admin |
 | `UsageRecord` | Gateway logs | mirror; nightly aggregate import |
