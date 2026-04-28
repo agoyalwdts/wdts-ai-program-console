@@ -29,7 +29,6 @@ if (!tenantId || !clientId || !clientSecret) {
   // Surface the missing var early — otherwise NextAuth fails opaquely on
   // the first sign-in attempt. In CI / tests the proxy short-circuits
   // before this matters; see tests/setup-files.ts.
-  // eslint-disable-next-line no-console
   console.warn(
     "[auth] Missing AZURE_AD_TENANT_ID / AZURE_AD_CLIENT_ID / AZURE_AD_CLIENT_SECRET. " +
       "Sign-in will 500 until these are set in .env.local.",

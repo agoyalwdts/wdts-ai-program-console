@@ -35,10 +35,11 @@ export default async function DecisionsPage(props: { searchParams: Promise<SP> }
   const type = (sp.type as (typeof TYPE_FILTERS)[number]) ?? "ALL";
   const since = sp.since ?? "all";
 
+  const now = new Date();
   const sinceDate =
     since === "all"
       ? undefined
-      : new Date(Date.now() - (DATE_FILTERS.find((d) => d.key === since)?.days ?? 9999) * 24 * 60 * 60 * 1000);
+      : new Date(now.getTime() - (DATE_FILTERS.find((d) => d.key === since)?.days ?? 9999) * 24 * 60 * 60 * 1000);
 
   const decisions = await prisma.decision.findMany({
     where: {
