@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Users, UserCog, LayoutGrid, ScrollText, Settings } from "lucide-react";
+import {
+  Activity,
+  Layers,
+  LayoutGrid,
+  Receipt,
+  ScrollText,
+  Settings,
+  UserCog,
+  Users,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -11,6 +20,8 @@ const NAV = [
   { href: "/managers", label: "Manager Queue", icon: UserCog, feature: "F3" },
   { href: "/cursor-seats", label: "Cursor Seats", icon: LayoutGrid, feature: "F4" },
   { href: "/decisions", label: "Decisions", icon: ScrollText, feature: "F5" },
+  { href: "/codex-ladder", label: "Codex Ladder", icon: Layers, feature: "F9" },
+  { href: "/chargeback", label: "Chargeback", icon: Receipt, feature: "F10" },
   { href: "/settings", label: "Settings", icon: Settings, feature: "stub" },
 ];
 
