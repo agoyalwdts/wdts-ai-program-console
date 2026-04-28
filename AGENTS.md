@@ -28,13 +28,17 @@ Read it end-to-end before touching code, then read the docs in §1 in the same o
    — only §0 (license footprint table) and §4.6 (tier model). Skim Appendix H
    (FinOps) if you need budget-allocation logic.
 4. The `.cursor/rules/*.mdc` files in this repo. They are short and binding.
-5. The most recent `Decision` row in the dev DB (it tells you what the previous
+5. `docs/decisions/` — the lightweight decision log. Read every record with
+   `Status: accepted`; **proposed** records are in flight and may not yet
+   reflect the codebase. The README in that folder explains the format and
+   the sign-off rule.
+6. The most recent `Decision` row in the dev DB (it tells you what the previous
    session decided, in case it predates a commit):
    ```bash
    PGPASSWORD=wdts_dev psql -h localhost -p 5432 -U wdts -d wdts_ai_console \
      -c 'SELECT ts, type, justification FROM "Decision" ORDER BY ts DESC LIMIT 5;'
    ```
-6. `git log --oneline -20` and `gh pr list --state open` to see what's in flight.
+7. `git log --oneline -20` and `gh pr list --state open` to see what's in flight.
 
 ---
 
