@@ -6,17 +6,33 @@
  *
  * Refs: Dashboard_Scoping_v1.md §4 integration #8; §6 Q12; .cursor/rules/data-model.mdc.
  *
- * v1.1 lands the real implementation. v0.1 only exposes the interface so
- * F6/F7/F8 can be coded against it once they start.
+ * v0.3 lands the real implementation. The shape supports a multi-file
+ * write applied as N successive commits on a fresh branch (one commit
+ * per file via the GitHub Contents API), then a PR is opened pointing
+ * at the new branch.
  */
+
+export type PolicyFile = {
+  /** Path relative to the policy repo's root, e.g. `tiers/codex.yaml`. */
+  path: string;
+  /** Full file contents (UTF-8). The real client base64-encodes for the
+   *  GitHub Contents API; the synthetic client just records the bytes
+   *  for later inspection. */
+  content: string;
+};
 
 export type PolicyChange = {
   /** Free-form intent — surfaces in the PR title. */
   title: string;
-  /** Which policy file(s) to touch. */
-  paths: string[];
-  /** Patch content to apply (applied as a single commit on a fresh branch). */
-  patch: string;
+  /** Files to write on the new branch. Each entry produces one commit
+   *  with message `<title> [decision: <decisionId>] (<path>)`. Multi-file
+   *  writes therefore appear as N commits in the PR — auditable, and
+   *  cheaper than synthesising a tree object via the Git Data API. */
+  files: PolicyFile[];
+  /** Optional Markdown body for the PR description. The real client
+   *  always appends a "Decision: <decisionId>" line so the link from
+   *  PR ↔ dashboard ledger is mechanical. */
+  body?: string;
   /** Reference to the Decision row that authorises this change. */
   decisionId: string;
   /** Author email — the human (or service principal) on whose behalf the
