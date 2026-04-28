@@ -2,8 +2,11 @@
  * Program-level constants.
  *
  * Source of truth: Executive_Policy_and_Guardrails.md §0 (footprint table)
- * and §4.6 (license inventory) in agoyalwdts/wdts-ai-policy. Numbers are
- * scaled-down for the v0.2 30-user prototype where they involve user counts.
+ * and §4.6 (license inventory) in agoyalwdts/wdts-ai-policy — currently at
+ * commit b9342e3, document version 2.3. The numbers below are pinned to
+ * that version; bump the commit fingerprint in this docstring whenever the
+ * constants are re-synced. Numbers are scaled down for the v0.2 30-user
+ * prototype where they involve user counts.
  *
  * The four §0 budget envelopes the dashboard renders on F1:
  *   - Cursor                        — **$500K/yr credit envelope** ($41,667/mo).
@@ -62,9 +65,10 @@ export const ANNUAL_BUDGET_USD: Record<ProductKey, number> = {
 
 export const COMBINED_CHATGPT_CODEX_CAP_MONTH = 150_000;
 
-/** Cursor sub-tiers (§4.6.1). v2.0: four sub-tiers — Discovery is the
- *  $50/mo floor of the promotion ladder (Discovery → Light → Standard → Power),
- *  parallel to Codex Discovery. The cap-sum across all four tiers
+/** Cursor sub-tiers (§4.6.1, four-sub-tier shape introduced in v2.0 and
+ *  carried unchanged through v2.3). Discovery is the $50/mo floor of the
+ *  promotion ladder (Discovery → Light → Standard → Power), parallel to
+ *  Codex Discovery. The cap-sum across all four tiers
  *  (17·900 + 42·400 + 25·300 + 36·50 = $41,400/mo, ~$496,800/yr) sits
  *  *inside* the $500K credit envelope — no overcommit, the §4.6.4
  *  dormancy/reclamation flow is the headroom mechanism. */
@@ -75,10 +79,11 @@ export const CURSOR_TIERS = {
   DISCOVERY: { label: "Discovery", capUsdMonth: 50, color: "stone" as const },
 };
 
-/** Cursor seat distribution per §4.6.1 of the v2.0 policy — 120 seats
- *  across four sub-tiers (was 84 across three in v1.x). Vendor confirmed
- *  (April 2026) that licenses are uncapped within the $500K envelope, so
- *  these numbers are an *allocation plan* not a vendor-imposed cap. */
+/** Cursor seat distribution per §4.6.1 (v2.0+ shape, current at v2.3) —
+ *  120 seats across four sub-tiers (was 84 across three in v1.x). Vendor
+ *  confirmed (April 2026) that licenses are uncapped within the $500K
+ *  envelope, so these numbers are an *allocation plan* not a
+ *  vendor-imposed cap. */
 export const CURSOR_SEATS = {
   POWER: 17,
   STANDARD: 42,

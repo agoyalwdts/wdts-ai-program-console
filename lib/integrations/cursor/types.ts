@@ -3,11 +3,12 @@
  * waitlist. v1.1 adds writes (seat grant / reclaim) via this interface +
  * a policy-repo PR (see scoping §4 integration #4, §4.6.1).
  *
- * Sub-tiers track Executive_Policy_and_Guardrails.md §4.6.1 (v2.0 policy):
- * four sub-tiers — DISCOVERY is the $50/mo floor of the Discovery → Light
- * → Standard → Power promotion ladder, added when the v2.0 policy retired
- * the v1.x "84 seats / 36 cuts" model in favour of the 120-seat
- * credit-bound shape ($500K/yr envelope, no vendor seat cap).
+ * Sub-tiers track Executive_Policy_and_Guardrails.md §4.6.1 (four-sub-tier
+ * shape introduced in v2.0, carried unchanged through v2.3). DISCOVERY is
+ * the $50/mo floor of the Discovery → Light → Standard → Power promotion
+ * ladder, added when the v2.0 revision retired the v1.x "84 seats / 36
+ * cuts" model in favour of the 120-seat credit-bound shape ($500K/yr
+ * envelope, no vendor seat cap).
  */
 
 export type CursorSubTier = "POWER" | "STANDARD" | "LIGHT" | "DISCOVERY";

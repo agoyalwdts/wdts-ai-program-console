@@ -6,6 +6,17 @@
 **Decider:** Anuj — flagged the drift in chat 2026-04-28, signed off in the
 same thread.
 
+**Policy provenance:** This LDR encodes the Cursor model as it exists at
+`agoyalwdts/wdts-ai-policy@b9342e3` (`Executive_Policy_and_Guardrails.md` —
+self-labelled *Document version 2.3 — DRAFT for executive review*). The
+Cursor four-sub-tier / credit-bound model was introduced in **v2.0** (April
+2026, after the vendor's April-2026 clarification that licenses are
+uncapped within the $500K envelope) and has been carried unchanged through
+v2.1, v2.2, and v2.3 — so "v2.0 design" and "current at v2.3" describe the
+same numbers in this document, and both phrasings appear below depending
+on whether the reference is structural (when did this shape land) or
+chronological (which doc version is HEAD).
+
 ## Context
 
 `lib/program.ts`, the F4 cursor-seats page, the synthetic seed, and several
@@ -21,8 +32,8 @@ docstrings were authored against the **v1.x** snapshot of
   constraint at the program level was the *seat count*, not the dollar
   envelope.
 
-The **v2.0** policy (live in `agoyalwdts/wdts-ai-policy` as of April 2026)
-reverses both premises:
+The current policy (v2.3 at HEAD; Cursor structural model unchanged since
+the v2.0 revision) reverses both premises:
 
 - **Vendor confirmed**: Cursor licenses are **uncapped within the credit
   envelope**. The binding constraint is the **$500K/yr** dollar envelope,
@@ -50,9 +61,9 @@ The dashboard treats Cursor as **credit-bound at the program level and
 allocation-planned at the user level**:
 
 - **Source of truth for sub-tier counts and caps** — §4.6.1 of
-  `Executive_Policy_and_Guardrails.md` in `agoyalwdts/wdts-ai-policy`,
-  reflected literally in `lib/program.ts` (`CURSOR_TIERS`,
-  `CURSOR_SEATS`).
+  `Executive_Policy_and_Guardrails.md` in `agoyalwdts/wdts-ai-policy`
+  (commit `b9342e3`, document version 2.3), reflected literally in
+  `lib/program.ts` (`CURSOR_TIERS`, `CURSOR_SEATS`).
 - **Sub-tiers** — `POWER` ($900/mo, 17 users), `STANDARD` ($400/mo, 42),
   `LIGHT` ($300/mo, 25), `DISCOVERY` ($50/mo, 36). `CURSOR_TOTAL_SEATS`
   derives to **120**.

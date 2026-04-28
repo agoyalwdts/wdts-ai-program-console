@@ -1,8 +1,8 @@
 /**
  * Synthetic CursorClient — derives the 120-seat board from the dev DB
  * (License rows where product='CURSOR') and synthesises a small waitlist.
- * Four sub-tiers per §4.6.1 of the v2.0 policy (Power / Standard / Light /
- * Discovery).
+ * Four sub-tiers per §4.6.1 (v2.0+ shape, current at v2.3): Power /
+ * Standard / Light / Discovery.
  *
  * The waitlist isn't represented in the v0.1 schema; the v0.2 schema will
  * add a CursorWaitlistEntry model. Until then, we synthesise a small

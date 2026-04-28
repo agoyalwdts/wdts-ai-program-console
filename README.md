@@ -181,7 +181,7 @@ wdts-ai-program-console/
   (`apac-mo`) users get a §3.3 jurisdictional callout.
 - **F4 — Cursor Seats** (`/cursor-seats`): the 120 seats rendered as four rows
   (17 Power purple / 42 Standard blue / 25 Light grey / 36 Discovery stone),
-  matching the v2.0 §4.6.1 sub-tier shape. Each filled cell shows initials and
+  matching the §4.6.1 sub-tier shape (v2.0+, current at v2.3). Each filled cell shows initials and
   tooltips with full name, idle days, MTD spend vs cap. Idle ≥14d cells get an
   amber ring; ≥30d a rose ring. The header callout reframes the page around
   the $500K/yr **credit envelope** as the binding constraint (Cursor confirmed

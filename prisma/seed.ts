@@ -53,10 +53,10 @@ async function main() {
   }
 
   // Cursor seat allocation. Scaled to the 30-user prototype, mirroring the
-  // §4.6.1 v2.0 four-sub-tier shape (Power 17 / Standard 42 / Light 25 /
-  // Discovery 36 in the live program). We keep ~17 paid seats out of 30
-  // users so the seat-board renders meaningfully and at least one seat per
-  // tier is filled in the demo.
+  // §4.6.1 four-sub-tier shape (v2.0+ design, current at v2.3) —
+  // Power 17 / Standard 42 / Light 25 / Discovery 36 in the live program.
+  // We keep ~17 paid seats out of 30 users so the seat-board renders
+  // meaningfully and at least one seat per tier is filled in the demo.
   const seniors = users.filter((u) => u.role === "senior_engineer");
   const mids = users.filter((u) => u.role === "mid_engineer");
 
