@@ -1,0 +1,140 @@
+# DRAFT / sample — production deploy workflow.
+#
+# This file is intentionally NOT under .github/workflows/. It is the
+# sample copy referenced by docs/deploy/azure.md §4. Promotion is a
+# deliberate manual step:
+#
+#   cp docs/deploy/deploy.yml.sample .github/workflows/deploy.yml
+#
+# Promote ONLY after every item in docs/deploy/azure.md §0 + §1–§4 is
+# done:
+#   - Production resource group, web app, Postgres, Key Vault exist
+#   - Production Microsoft Entra ID app registration exists, with
+#     admin consent granted for Reports.Read.All / User.Read.All
+#   - Service principal exists, federated credential bound to
+#     `repo:agoyalwdts/wdts-ai-program-console:environment:production`
+#   - GitHub `production` environment exists with at least one
+#     required reviewer and `main`-only branch policy
+#   - The three OIDC env vars are set as `production` environment
+#     secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#
+# Authority for the choices below: docs/decisions/0003-deploy-target.md.
+
+name: Deploy (production)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why are you running an out-of-band deploy?"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false  # never cancel a deploy in flight
+
+permissions:
+  contents: read
+  id-token: write   # required for OIDC federation to AAD
+
+jobs:
+  deploy:
+    name: Build + deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # The `production` environment gates this job behind a manual
+    # approver and pins the federated-credential subject claim.
+    environment:
+      name: production
+      url: https://wdts-ai-program-console.azurewebsites.net
+
+    env:
+      AZURE_RESOURCE_GROUP: wdts-ai-program-console-rg
+      AZURE_WEBAPP_NAME: wdts-ai-program-console
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      # No DATABASE_URL at build time — Next.js doesn't need it for
+      # `next build`, and we don't want a build-step DB connection
+      # from GitHub-hosted runners. `prisma generate` works without
+      # a live DB; `prisma migrate deploy` runs against the prod DB
+      # only on the App Service side, after this workflow finishes.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build Next.js (standalone)
+        run: npm run build
+        env:
+          # Auth.js requires AUTH_SECRET to be set during build (it
+          # imports auth.ts). We don't ship the build-time value; the
+          # runtime value comes from Key Vault.
+          AUTH_SECRET: build-time-only-not-used-at-runtime
+
+      - name: Package deploy artifact
+        run: |
+          # Zip the standalone server + the static assets the app
+          # serves. App Service runs `node server.js` as configured
+          # in the bootstrap script.
+          mkdir -p deploy-pkg
+          cp -r .next/standalone/. deploy-pkg/
+          mkdir -p deploy-pkg/.next
+          cp -r .next/static deploy-pkg/.next/static
+          if [ -d public ]; then cp -r public deploy-pkg/public; fi
+          (cd deploy-pkg && zip -qr ../deploy.zip .)
+
+      - name: Azure login (OIDC federated)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Migrate production DB
+        # Run against the live DB *before* swapping in the new code.
+        # The deploy SP must have `Contributor` on the RG, which
+        # implicitly allows access to the Postgres server's admin
+        # connection string via the Key Vault secret. We pull the
+        # DATABASE_URL out of Key Vault rather than caching it as a
+        # GitHub secret, so rotations are zero-touch.
+        run: |
+          DATABASE_URL=$(az keyvault secret show \
+            --vault-name "${AZURE_WEBAPP_NAME}-kv" \
+            --name DATABASE-URL \
+            --query value -o tsv)
+          export DATABASE_URL
+          npx prisma migrate deploy
+
+      - name: Deploy to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          resource-group-name: ${{ env.AZURE_RESOURCE_GROUP }}
+          package: deploy.zip
+
+      - name: Smoke check
+        run: |
+          for i in {1..12}; do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" \
+              "https://${AZURE_WEBAPP_NAME}.azurewebsites.net/")
+            if [[ "$code" == "200" || "$code" == "302" ]]; then
+              echo "Smoke OK (HTTP $code)"
+              exit 0
+            fi
+            echo "Try $i: HTTP $code; retrying in 10s"
+            sleep 10
+          done
+          echo "Smoke check failed: app did not return 200/302 within 2 min"
+          exit 1

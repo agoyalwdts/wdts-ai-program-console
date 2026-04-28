@@ -48,3 +48,4 @@ re-asks.
 |---|---|---|
 | 0001 | v0.3 schema additions: ExceptionRequest, ReclamationEvent, BudgetSnapshot, FrictionBudgetMetric | proposed |
 | 0002 | Canonical cost-centre key on User | proposed |
+| 0003 | Production deploy target: Azure App Service + Postgres FS + Key Vault + GHA OIDC | accepted |

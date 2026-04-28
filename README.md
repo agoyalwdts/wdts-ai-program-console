@@ -273,8 +273,11 @@ In rough priority order:
 9. **F13 — M365 Copilot rationalisation review** (the data is now
    reachable via the m365graph real client).
 10. **Playwright e2e** for the F-feature flows.
-11. **Production hardening**: Azure App Service / Container Apps + Front
-    Door + Key Vault + Postgres Flexible Server.
+11. **Production hardening**: Azure App Service + Postgres Flexible
+    Server + Key Vault + GitHub Actions OIDC. Pinned by
+    `docs/decisions/0003-deploy-target.md`; step-by-step in
+    [`docs/deploy/azure.md`](docs/deploy/azure.md). Custom domain and
+    Front Door / WAF stay as later follow-ups.
 
 ---
 
