@@ -55,8 +55,18 @@ export type { AzureADClient, IdentityUser } from "./azuread";
 // this export exists for the explicit probe-the-real-thing case.
 export { realAzureADClient } from "./azuread/real";
 
-export { getDeelClient } from "./deel";
-export type { DeelClient, DeelEmployee, DeelWebhookEvent } from "./deel";
+export {
+  getDeelClient,
+  makeRealDeelClient,
+  parseDeelWebhook,
+  verifyDeelSignature,
+} from "./deel";
+export type {
+  DeelClient,
+  DeelEmployee,
+  DeelWebhookEvent,
+  DeelWebhookEnvelope,
+} from "./deel";
 
 export { getPolicyRepoClient, makeRealPolicyRepoClient } from "./policyrepo";
 export type {
