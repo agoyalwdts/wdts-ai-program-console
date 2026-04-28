@@ -42,3 +42,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Deploy artefacts (Azure App Service zip-deploy staging).
+# `.deploy/` is the standalone-bundle staging dir, `deploy.zip` is the
+# zip-deploy payload — both are ad-hoc outputs of the manual deploy flow
+# documented in docs/deploy/azure.md. Never tracked.
+/.deploy/
+/deploy.zip

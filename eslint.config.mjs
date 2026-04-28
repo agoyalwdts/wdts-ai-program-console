@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Deploy artefacts — staged standalone bundle for the Azure zip-deploy
+    // flow documented in docs/deploy/azure.md. Generated, never authored.
+    ".deploy/**",
   ]),
 ]);
 

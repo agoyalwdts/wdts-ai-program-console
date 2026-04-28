@@ -44,7 +44,15 @@ const PUBLIC_PATHS = [
   "/robots.txt",
 ];
 
+// AUTH_DEBUG=true unmasks the underlying error for /api/auth/error?error=Configuration
+// (MissingSecret, OAuthCallbackError, JWTSessionError, etc.). Off by default
+// because debug logging includes the full token payload. Toggle on the App
+// Service via `az webapp config appsettings set ... AUTH_DEBUG=true`, then
+// turn it back off once the root cause is captured.
+const debug = process.env.AUTH_DEBUG === "true";
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  debug,
   providers: [
     MicrosoftEntraID({
       clientId: clientId ?? "",
@@ -54,6 +62,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         : undefined,
     }),
   ],
+  logger: {
+    error(error) {
+      console.error("[auth][error]", error?.name, error?.message, error?.stack);
+    },
+    warn(code) {
+      console.warn("[auth][warn]", code);
+    },
+    debug(message, metadata) {
+      if (debug) console.log("[auth][debug]", message, metadata);
+    },
+  },
   session: { strategy: "jwt" },
   callbacks: {
     /**

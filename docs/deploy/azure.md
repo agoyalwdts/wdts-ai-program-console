@@ -1,7 +1,10 @@
 # Azure deploy runbook — `wdts-ai-program-console`
 
-> **Status:** draft, pending IT sign-off (`AGENTS.md` §10 N1, §13).
-> **Authority for the choices below:**
+> **Status:** v0.2 preview live at
+> https://wdts-ai-program-console.azurewebsites.net/. Authentication
+> end-to-end verified against the WDTS Microsoft Entra ID tenant on
+> 2026-04-28. Two known deviations from LDR 0003 in this preview shape;
+> see §7. **Authority for the choices below:**
 > [`docs/decisions/0003-deploy-target.md`](../decisions/0003-deploy-target.md).
 > Read that LDR first if you're new to this; the rationale lives there,
 > the steps live here.
@@ -47,6 +50,15 @@ Bullet-list pass / fail. Every line must be `[x]` before step 1.
   - Key Vaults.
   - Microsoft Entra ID app registrations + grant admin consent.
   - GitHub Actions environments + repository secrets.
+- [ ] You know which Key Vault auth mode you want. Plain **Contributor**
+  on the resource group is **not** enough to assign RBAC roles on a
+  Key Vault — that requires `Microsoft.Authorization/roleAssignments/write`,
+  which sits with **Owner** or **User Access Administrator**. If you only
+  have Contributor, use the bootstrap script's default
+  `KV_AUTH_MODE=access-policy` (the v0.2 preview path). Switching from
+  access-policy mode to RBAC mode in-place also requires `roleAssignments/write`,
+  so this is a "decide before creating the vault" choice. See §7 for the
+  full deviation note.
 - [ ] GitHub: branch protection on `main` (so the deploy workflow only
   runs on reviewed code).
 - [ ] At least one human reviewer named for the GitHub `production`
@@ -62,15 +74,17 @@ Run `docs/deploy/azure-bootstrap.sh`. It is parameterised at the top of
 the file:
 
 ```bash
-SUBSCRIPTION_ID=""        # az account show --query id -o tsv
+SUBSCRIPTION_ID=""               # az account show --query id -o tsv
 RESOURCE_GROUP="wdts-ai-program-console-rg"
-LOCATION="centralindia"   # or eastus
+LOCATION="centralindia"          # or eastus
 APP_NAME="wdts-ai-program-console"
-PLAN_SKU="B2"             # B2 by default; Linux
+PLAN_SKU="B2"                    # B2 by default; Linux
 PG_NAME="${APP_NAME}-db"
 PG_SKU="Standard_B1ms"
 PG_VERSION="16"
-KV_NAME="${APP_NAME}-kv"  # must be globally unique; tweak if collision
+KV_NAME="${APP_NAME}-kv"         # must be globally unique; tweak if collision
+KV_AUTH_MODE="access-policy"     # or "rbac" — needs Owner; see §0 + §7
+PG_PUBLIC_ACCESS="Enabled"       # or "Disabled" — needs VNet integration
 ```
 
 Read the script before you run it. It is the sample — not a
@@ -80,15 +94,21 @@ production-ready operator script. The bootstrap script:
 2. Creates the App Service Plan (Linux, B2).
 3. Creates the web app with `NODE:20-lts`, `WEBSITES_PORT=3000`,
    `--https-only true`.
-4. Creates the Postgres Flexible Server (PG16, B1ms), with a
-   randomly-generated admin password that is written **only** to
-   Key Vault, never echoed to the terminal or to `~/.azure`.
-5. Disables Postgres public network access; grants the App Service's
-   outbound subnet access via VNet rule.
-6. Creates the Key Vault and stores every secret listed in the
-   "Secrets" section below.
-7. Enables system-assigned managed identity on the web app and grants
-   it `Key Vault Secrets User` on the vault.
+4. Creates the Postgres Flexible Server (PG16, B1ms) with public access
+   per `PG_PUBLIC_ACCESS`. When `Enabled` (preview default), it adds
+   firewall rules for Azure services and the operator's current IP.
+   When `Disabled` (LDR 0003 target), VNet integration must be wired
+   separately before the App Service can reach the DB. The admin
+   password is randomly generated and written **only** to Key Vault.
+5. Creates the Key Vault per `KV_AUTH_MODE`. In `access-policy` mode
+   (preview default) the script then sets explicit access policies for
+   the operator and the web app's managed identity. In `rbac` mode
+   (LDR 0003 target) the script assigns `Key Vault Secrets Officer`
+   to the operator and `Key Vault Secrets User` to the managed
+   identity — those calls require Owner / User Access Administrator.
+6. Stores every secret listed in the "Secrets" section below as
+   placeholders.
+7. Enables system-assigned managed identity on the web app.
 8. Wires App Settings as Key Vault references (one per secret).
 
 The script is idempotent on re-run — every `az ... create` is wrapped
@@ -268,7 +288,103 @@ After the first successful deploy:
 
 ---
 
-## 6. Things this runbook deliberately does not do
+## 7. Operational notes from the first preview deploy
+
+Captured live from the 2026-04-28 v0.2 preview rollout. These are the
+gotchas a future operator will hit if they don't read first.
+
+### v0.2 preview deviations from LDR 0003
+
+Two intentional deviations live behind the bootstrap script's defaults:
+
+| LDR 0003 target | v0.2 preview reality | Why | Bootstrap flag |
+|---|---|---|---|
+| Key Vault in **RBAC** mode (`--enable-rbac-authorization true`), with `Key Vault Secrets User` on the managed identity | Key Vault in **access-policy** mode, with `set-policy` granting `get,list` to the managed identity and `get,list,set,delete` to the operator | The operator's `Contributor` role on the RG does not include `Microsoft.Authorization/roleAssignments/write`, which RBAC role-assignment-on-vault needs. Switching from access-policy to RBAC after creation needs the same permission, so this is a one-shot decision at create time | `KV_AUTH_MODE=rbac` once the operator has Owner / User Access Administrator |
+| Postgres with **`--public-access Disabled`** + VNet integration + private endpoint | Postgres with **`--public-access Enabled`** + two firewall rules (allow-Azure-services + operator IP) | We don't yet have a subnet for the App Service, and `az webapp vnet-integration add` needs that before public access can be turned off without losing reachability | `PG_PUBLIC_ACCESS=Disabled` once the VNet + private endpoint story is built |
+
+Both upgrades land in v0.3 alongside the custom domain. Until then, the
+preview is closed-over-HTTPS but not network-isolated. Don't promote
+this exact shape to "production" — promote it to "preview" and run the
+v0.3 hardening pass before flipping any vendor `INTEGRATION_*=real`.
+
+### Diagnosing the live deploy
+
+App Service exposes a few toggles that are off by default and stay off
+in steady state. Turn them **on** when something's broken, **off** when
+you're done:
+
+| Toggle | Effect | Why default off |
+|---|---|---|
+| `AUTH_DEBUG=true` (App Setting) | Auth.js logs the full sign-in flow including PKCE state, `account.access_token`, `id_token`, `profile`, and (on error) the underlying error class — `MissingSecret` / `InvalidCheck` / `OAuthCallbackError` etc. — which all map to the generic `error=Configuration` page in the UI | Debug logs include OAuth tokens. Treat the captured stream as a credential. |
+| Kudu basic-auth publishing creds | Lets you POST to `/api/command` and read `/api/logstream/application` over HTTPS Basic with the publishing user/pass | Long-lived static creds; rotate or disable when not in use |
+| `az webapp ssh` | Interactive shell into the running container | Same risk profile as the toggle above |
+
+Useful one-liners (run with `az login`):
+
+```bash
+# Live application stream (needs Kudu basic auth on first)
+az resource update -g <rg> -n scm --namespace Microsoft.Web \
+  --resource-type basicPublishingCredentialsPolicies \
+  --parent sites/<app> --set properties.allow=true
+PASS=$(az webapp deployment list-publishing-credentials \
+  -g <rg> -n <app> --query publishingPassword -o tsv)
+curl -sS --no-buffer -u "\$<app>:$PASS" \
+  "https://<app>.scm.azurewebsites.net/api/logstream/application"
+
+# Verify Key Vault references actually resolved
+az rest --method get --uri "https://management.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Web/sites/<app>/config/configreferences/appsettings?api-version=2023-01-01"
+
+# Probe runtime env from inside the container (env names only, values redacted)
+curl -sS -u "\$<app>:$PASS" \
+  -X POST "https://<app>.scm.azurewebsites.net/api/command" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"sh -c \"printenv | cut -d= -f1 | sort\"","dir":"site"}'
+```
+
+When you're done: turn `AUTH_DEBUG` back to `false`, set
+`basicPublishingCredentialsPolicies.allow=false`, and shred any local
+log files you captured — they may contain Bearer tokens.
+
+### Sign-in failure mode that is *not* a config bug
+
+If a user reports `/api/auth/error?error=Configuration` immediately
+after a fresh deploy, before assuming the AAD app or the Key Vault
+references are wrong, check whether the user retried with stale
+cookies. Auth.js encrypts the PKCE verifier with `AUTH_SECRET`; a
+restart that doesn't change `AUTH_SECRET` is fine, but an in-flight
+sign-in that started on the *previous* container is finished by the
+*new* one with a now-undecryptable cookie → `InvalidCheck`. The fix is
+"clear cookies for the host and retry." The same Configuration error
+also covers `OAuthCallbackError: invalid_grant`, which is just a
+single-use OAuth code being replayed — usually because the user hit
+back/refresh on the callback URL.
+
+### Browser-level Safe Browsing flag on `*.azurewebsites.net`
+
+Chrome's Safe Browsing has an anti-phishing heuristic that flags any
+`<thing>.azurewebsites.net/api/auth/signin/microsoft-entra-id` URL
+because the host claims "azure" and the path claims "microsoft sign-in"
+but the hostname is not a Microsoft domain. The user-facing fix is the
+v0.3 custom-domain item; the workaround is "Hide details → this unsafe
+site" per browser profile, or submit a reclassification request at
+<https://safebrowsing.google.com/safebrowsing/report_error/>.
+
+### Build conventions the deploy assumes
+
+Both checked into the repo, both required for a working App Service
+Linux deploy:
+
+- `next.config.ts` → `output: "standalone"`. Without this the deploy
+  bundle ships the entire `node_modules/`, slowing zip-deploy from
+  ~30 s to a few minutes and risking timeouts on B-tier plans.
+- `prisma/schema.prisma` → `binaryTargets = ["native", "debian-openssl-3.0.x"]`.
+  Without the second target, `prisma generate` on a Mac doesn't emit
+  a Linux Prisma engine, and the App Service container 500s on first
+  query.
+
+---
+
+## 8. Things this runbook deliberately does not do
 
 - **Custom domain / TLS.** v0.3 follow-up. `*.azurewebsites.net` is
   enough for v0.2 dev preview.
