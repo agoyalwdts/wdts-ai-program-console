@@ -1,6 +1,7 @@
 /**
- * Real PolicyRepoClient — opens PRs against `codex-policies/` (or whatever
- * repo `POLICYREPO_OWNER/POLICYREPO_NAME` points at) via the GitHub REST
+ * Real PolicyRepoClient — opens PRs against the policy repo
+ * (`agoyalwdts/wdts-ai-policy` by default, configurable via
+ * `POLICYREPO_OWNER/POLICYREPO_NAME`) via the GitHub REST
  * API. Used when `INTEGRATION_POLICYREPO=real` (see lib/integrations/env.ts).
  *
  * Flow for `openPullRequest`:

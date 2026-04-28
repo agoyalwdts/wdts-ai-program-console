@@ -1,8 +1,9 @@
 /**
  * PolicyRepoClient — write path. Every dashboard write (tier promotion /
- * demotion, reclamation, exception grant) opens a PR in the
- * `codex-policies/` repo via the GitHub API. The dashboard never writes
- * directly to a vendor API.
+ * demotion, reclamation, exception grant) opens a PR in the policy
+ * repo (`agoyalwdts/wdts-ai-policy`, configurable via
+ * `POLICYREPO_OWNER` / `POLICYREPO_NAME`) via the GitHub API. The
+ * dashboard never writes directly to a vendor API.
  *
  * Refs: Dashboard_Scoping_v1.md §4 integration #8; §6 Q12; .cursor/rules/data-model.mdc.
  *

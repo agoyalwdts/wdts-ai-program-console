@@ -59,7 +59,7 @@ The dashboard is a **thin workflow layer**, not the source of truth — see §3.
 
 Authoritative state lives in:
 
-- The policy repo `codex-policies/` (separate repo; not in this build yet).
+- The policy repo at https://github.com/agoyalwdts/wdts-ai-policy (separate repo; the dashboard reads/writes via PRs against it, never directly).
 - The IdP — Azure AD / Entra ID.
 - The gateway audit log (vendor TBD per scoping §8 N-series).
 
@@ -445,13 +445,15 @@ canonical list.
 
 ### Policy repo (Track 9)
 
-- ⏳ **Create the `codex-policies` repo** under the WDTS GitHub org.
-  Decide owner / permissions in advance.
+- ✅ **Repo created**: https://github.com/agoyalwdts/wdts-ai-policy.
+  `POLICYREPO_OWNER` + `POLICYREPO_NAME` already populated in
+  `.env.local`.
 - ⏳ **Branch protection** on the policy repo so the dashboard's PAT
-  cannot merge its own PRs.
+  cannot merge its own PRs. **Do this BEFORE issuing the PAT** —
+  otherwise the PAT can self-merge.
 - ⏳ **Fine-grained PAT** scoped to the policy repo with
-  `contents:write` + `pull_requests:write`. Set `POLICYREPO_OWNER`,
-  `POLICYREPO_NAME`, `POLICYREPO_TOKEN`.
+  `contents:write` + `pull_requests:write`. Set `POLICYREPO_TOKEN` in
+  `.env.local`, then flip `INTEGRATION_POLICYREPO=real`.
 
 ### Schema + cost-centre (Tracks 10, 11)
 

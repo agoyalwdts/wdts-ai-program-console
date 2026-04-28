@@ -111,7 +111,7 @@ const INTEGRATION_NOTES: Record<IntegrationName, string> = {
   azuread:
     "Real client wired (PR #9). Default still synthetic until the v0.3 reconciler mirrors Graph users into the local User table.",
   deel: "Deel API token + webhook receiver URL.",
-  policyrepo: "GitHub PAT or App credentials; targets the codex-policies repo.",
+  policyrepo: "GitHub PAT or App credentials; targets agoyalwdts/wdts-ai-policy.",
   azureopenai:
     "Resource API key from Azure Portal → Keys and Endpoint. Data plane only.",
 };

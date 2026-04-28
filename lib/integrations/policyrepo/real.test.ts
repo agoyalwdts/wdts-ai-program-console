@@ -41,7 +41,7 @@ function makeMockFetch(
 
 const ENV = {
   POLICYREPO_OWNER: "wdts",
-  POLICYREPO_NAME: "codex-policies",
+  POLICYREPO_NAME: "wdts-ai-policy",
   POLICYREPO_TOKEN: "ghp_test_token",
   POLICYREPO_DEFAULT_BRANCH: "main",
 };
@@ -89,7 +89,7 @@ describe("makeRealPolicyRepoClient", () => {
           status: 201,
           body: {
             number: 7,
-            html_url: "https://github.com/wdts/codex-policies/pull/7",
+            html_url: "https://github.com/wdts/wdts-ai-policy/pull/7",
             state: "open",
           },
         };
@@ -102,7 +102,7 @@ describe("makeRealPolicyRepoClient", () => {
 
     expect(pr).toEqual({
       number: 7,
-      url: "https://github.com/wdts/codex-policies/pull/7",
+      url: "https://github.com/wdts/wdts-ai-policy/pull/7",
       branch: "dashboard/dec_abc123",
       state: "OPEN",
     });
@@ -267,7 +267,7 @@ describe("makeRealPolicyRepoClient", () => {
       status: 200,
       body: {
         number: 9,
-        html_url: "https://github.com/wdts/codex-policies/pull/9",
+        html_url: "https://github.com/wdts/wdts-ai-policy/pull/9",
         state: "merged",
         head: { ref: "dashboard/dec_z" },
       },
@@ -275,7 +275,7 @@ describe("makeRealPolicyRepoClient", () => {
     const client = makeRealPolicyRepoClient({ fetchImpl, env: ENV });
     expect(await client.getPullRequest(9)).toEqual({
       number: 9,
-      url: "https://github.com/wdts/codex-policies/pull/9",
+      url: "https://github.com/wdts/wdts-ai-policy/pull/9",
       branch: "dashboard/dec_z",
       state: "MERGED",
     });
