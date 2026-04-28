@@ -39,10 +39,10 @@ export type {
   CursorWaitlistReason,
 } from "./cursor";
 
-export { getOpenAIClient } from "./openai";
+export { getOpenAIClient, makeRealOpenAIClient } from "./openai";
 export type { OpenAIClient, ChatGptSeat, CodexSeat, CodexSubTier } from "./openai";
 
-export { getAnthropicClient } from "./anthropic";
+export { getAnthropicClient, makeRealAnthropicClient } from "./anthropic";
 export type { AnthropicClient, ClaudeSeat } from "./anthropic";
 
 export { getM365GraphClient } from "./m365graph";
