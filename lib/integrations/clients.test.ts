@@ -22,6 +22,8 @@ describe("client factories return the expected method surface", () => {
     expect(typeof c.listUsageRecords).toBe("function");
     expect(typeof c.aggregateByUser).toBe("function");
     expect(typeof c.aggregateByProgram).toBe("function");
+    expect(typeof c.aggregateByProgramDaily).toBe("function");
+    expect(typeof c.topSpenders).toBe("function");
     expect(typeof c.managerQueue).toBe("function");
   });
 

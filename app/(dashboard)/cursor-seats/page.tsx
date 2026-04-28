@@ -1,78 +1,61 @@
 import { Topbar } from "@/components/dashboard/topbar";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
-import { prisma } from "@/lib/prisma";
+import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { CURSOR_SEATS, CURSOR_TIERS, CURSOR_TOTAL_SEATS } from "@/lib/program";
 import { cn, formatUsd, initials } from "@/lib/utils";
+import { getCursorClient } from "@/lib/integrations";
+import type { CursorSeat as ApiCursorSeat, CursorSubTier } from "@/lib/integrations";
 
 export const dynamic = "force-dynamic";
 
-type Seat =
-  | { kind: "filled"; tier: "POWER" | "STANDARD" | "LIGHT"; userId: string; displayName: string; email: string; idleDays: number; mtdSpend: number; capUsd: number }
-  | { kind: "empty"; tier: "POWER" | "STANDARD" | "LIGHT" };
+type Cell =
+  | {
+      kind: "filled";
+      tier: CursorSubTier;
+      userId: string;
+      displayName: string;
+      email: string;
+      idleDays: number;
+      mtdSpend: number;
+      capUsd: number;
+    }
+  | { kind: "empty"; tier: CursorSubTier };
 
 async function getSeatBoard() {
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const seatLicenses = await prisma.license.findMany({
-    where: { product: "CURSOR" },
-    include: {
-      user: { select: { id: true, displayName: true, email: true, region: true } },
-    },
-  });
+  const cursor = getCursorClient();
+  const [seats, waitlist] = await Promise.all([
+    cursor.listSeats(),
+    cursor.listWaitlist(),
+  ]);
 
-  // Per-user MTD Cursor spend.
-  const cursorMtd = await prisma.usageRecord.groupBy({
-    by: ["userId"],
-    where: { product: "CURSOR", ts: { gte: startOfMonth } },
-    _sum: { costUsd: true },
-  });
-  const cursorMtdMap = new Map(cursorMtd.map((r) => [r.userId, r._sum.costUsd ?? 0]));
-
-  // Idle days = days since last Cursor request.
-  const lastSeen = await prisma.usageRecord.groupBy({
-    by: ["userId"],
-    where: { product: "CURSOR" },
-    _max: { ts: true },
-  });
-  const lastSeenMap = new Map(lastSeen.map((r) => [r.userId, r._max.ts]));
-
-  function tierFromSubTier(s: string): "POWER" | "STANDARD" | "LIGHT" | null {
-    if (s === "cursor_power") return "POWER";
-    if (s === "cursor_standard") return "STANDARD";
-    if (s === "cursor_light") return "LIGHT";
-    return null;
+  function toCell(s: ApiCursorSeat): Cell {
+    return {
+      kind: "filled",
+      tier: s.subTier,
+      userId: s.userId,
+      displayName: s.displayName,
+      email: s.email,
+      idleDays: s.idleDays ?? 999,
+      mtdSpend: s.mtdSpendUsd,
+      capUsd: CURSOR_TIERS[s.subTier].capUsdMonth,
+    };
   }
 
-  // Build the 84-cell board. We have N actual holders; pad with empty cells per
-  // tier up to the design quotas in §4.6.1 (17 / 42 / 25).
-  const cellsByTier: Record<"POWER" | "STANDARD" | "LIGHT", Seat[]> = {
+  const cellsByTier: Record<CursorSubTier, Cell[]> = {
     POWER: [],
     STANDARD: [],
     LIGHT: [],
   };
+  for (const s of seats) cellsByTier[s.subTier].push(toCell(s));
 
-  for (const l of seatLicenses) {
-    const tier = tierFromSubTier(l.subTier);
-    if (!tier) continue;
-    const last = lastSeenMap.get(l.userId);
-    const idleDays = last
-      ? Math.max(0, Math.floor((now.getTime() - new Date(last).getTime()) / (24 * 60 * 60 * 1000)))
-      : 999;
-    cellsByTier[tier].push({
-      kind: "filled",
-      tier,
-      userId: l.userId,
-      displayName: l.user.displayName,
-      email: l.user.email,
-      idleDays,
-      mtdSpend: cursorMtdMap.get(l.userId) ?? 0,
-      capUsd: l.capUsdMonth ?? CURSOR_TIERS[tier].capUsdMonth,
-    });
-  }
-
-  // Pad with empty seats up to the design quotas for the visualisation.
+  // Pad to the design quotas in §4.6.1 so the board always renders 84 cells.
   for (const tier of ["POWER", "STANDARD", "LIGHT"] as const) {
     const target = CURSOR_SEATS[tier];
     while (cellsByTier[tier].length < target) {
@@ -80,35 +63,11 @@ async function getSeatBoard() {
     }
   }
 
-  const all: Seat[] = [
+  const all: Cell[] = [
     ...cellsByTier.POWER,
     ...cellsByTier.STANDARD,
     ...cellsByTier.LIGHT,
   ];
-
-  // Synthetic waitlist — users with ChatGPT but no Cursor seat.
-  const allUsers = await prisma.user.findMany({
-    select: { id: true, displayName: true, email: true, roleTag: true },
-  });
-  const seatHolderIds = new Set(seatLicenses.map((l) => l.userId));
-  const waitlist = allUsers
-    .filter((u) => !seatHolderIds.has(u.id))
-    .slice(0, 8)
-    .map((u, i) => ({
-      ...u,
-      position: i + 1,
-      requestedTier: i < 2 ? "POWER" : i < 5 ? "STANDARD" : "LIGHT",
-      reason: [
-        "Auto-promotion: 2 consecutive months >50% Codex Standard cap utilisation",
-        "Manager attestation: dedicated agent-mode workload starting next quarter",
-        "Backfill following hugo.liu reclamation",
-        "New hire — onboarding cohort 2026-Q2",
-        "Demoted from trial seat; re-applying with attestation",
-        "Documentation team lead — mixed Cursor + Claude.ai workflow",
-        "Contractor renewal — needs Cursor for new gaming-systems project",
-        "Steering exception request pending",
-      ][i],
-    }));
 
   return { all, cellsByTier, waitlist };
 }
@@ -142,7 +101,8 @@ export default async function CursorSeatsPage() {
                 <CardTitle>The 84 seats</CardTitle>
                 <CardDescription>
                   Hover a cell for the holder + idle days. Empty cells are unallocated /
-                  reclaimable per §4.6.4.
+                  reclaimable per §4.6.4. Source:{" "}
+                  <code className="font-mono">getCursorClient().listSeats()</code>.
                 </CardDescription>
               </div>
               <div className="flex items-center gap-3 text-xs">
@@ -165,10 +125,11 @@ export default async function CursorSeatsPage() {
         {/* Waitlist */}
         <Card>
           <CardHeader>
-            <CardTitle>Waitlist (synthetic)</CardTitle>
+            <CardTitle>Waitlist</CardTitle>
             <CardDescription>
               Drawn from §4.6.4 priority order: bottom-36 trial users with attestation +
               loaner usage, new joiners with manager attestation, then Steering exceptions.
+              Source: <code className="font-mono">getCursorClient().listWaitlist()</code>.
             </CardDescription>
           </CardHeader>
           <CardContent className="px-0 pb-0">
@@ -185,7 +146,7 @@ export default async function CursorSeatsPage() {
               </THead>
               <TBody>
                 {data.waitlist.map((w) => (
-                  <TR key={w.id}>
+                  <TR key={w.email}>
                     <TD className="pl-5 font-mono text-slate-500">{w.position}</TD>
                     <TD className="font-medium text-slate-900">{w.displayName}</TD>
                     <TD className="text-slate-600">{w.email}</TD>
@@ -205,7 +166,7 @@ export default async function CursorSeatsPage() {
                         {w.requestedTier}
                       </Badge>
                     </TD>
-                    <TD className="pr-5 text-slate-600 text-xs">{w.reason}</TD>
+                    <TD className="pr-5 text-slate-600 text-xs">{w.rationale}</TD>
                   </TR>
                 ))}
               </TBody>
@@ -214,7 +175,7 @@ export default async function CursorSeatsPage() {
         </Card>
 
         <p className="text-xs text-slate-400">
-          v0.1 — write actions (seat grant / reclaim) deferred to v1.1 per scoping §5.
+          v0.2 — write actions (seat grant / reclaim) deferred to v1.1 per scoping §5.
         </p>
       </div>
     </>
@@ -265,8 +226,8 @@ function SeatGrid({
   seats,
 }: {
   title: string;
-  tier: "POWER" | "STANDARD" | "LIGHT";
-  seats: Seat[];
+  tier: CursorSubTier;
+  seats: Cell[];
 }) {
   const colourFilled =
     tier === "POWER"
@@ -278,7 +239,10 @@ function SeatGrid({
     <div>
       <div className="flex items-center justify-between mb-2">
         <div className="text-sm font-medium text-slate-700">
-          {title} <span className="text-slate-400 font-normal">· cap {formatUsd(CURSOR_TIERS[tier].capUsdMonth)}/mo</span>
+          {title}{" "}
+          <span className="text-slate-400 font-normal">
+            · cap {formatUsd(CURSOR_TIERS[tier].capUsdMonth)}/mo
+          </span>
         </div>
         <div className="text-xs text-slate-500">
           {seats.filter((s) => s.kind === "filled").length} / {seats.length} filled

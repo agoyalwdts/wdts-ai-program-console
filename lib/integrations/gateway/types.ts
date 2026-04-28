@@ -46,6 +46,20 @@ export type ProgramAggregate = {
   requestCount: number;
 };
 
+export type DailyProgramAggregate = {
+  /** Local-time date string in `M/D` form so it can drive a chart x-axis. */
+  day: string;
+  /** Per-product spend for that day, USD. */
+  byProduct: Record<ProductKey, number>;
+};
+
+export type TopSpender = {
+  userId: string;
+  totalUsd: number;
+  /** Number of usage records the user produced in the window. */
+  requestCount: number;
+};
+
 export type ManagerQueueRow = {
   userId: string;
   email: string;
@@ -84,6 +98,26 @@ export type GatewayClient = {
     periodStart: Date;
     periodEnd: Date;
   }): Promise<ProgramAggregate[]>;
+
+  /**
+   * Per-day program-level aggregates per product across the given window.
+   * Returns one row per calendar day in `[since, until]` (zero-filled if no
+   * activity). Used by the F1 daily-spend stacked area chart.
+   */
+  aggregateByProgramDaily(args: {
+    since: Date;
+    until?: Date;
+  }): Promise<DailyProgramAggregate[]>;
+
+  /**
+   * Top spenders in the window, sorted by total USD descending. Used by
+   * F1 (top-10 board) and F10 (overage / chargeback).
+   */
+  topSpenders(args: {
+    periodStart: Date;
+    periodEnd: Date;
+    limit?: number;
+  }): Promise<TopSpender[]>;
 
   /**
    * Manager-queue view: each direct report's cap utilisation, idle days, and

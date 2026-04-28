@@ -1,47 +1,77 @@
 import Link from "next/link";
 import { Topbar } from "@/components/dashboard/topbar";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { prisma } from "@/lib/prisma";
 import { formatUsd, initials } from "@/lib/utils";
 import { PRODUCTS, type ProductKey } from "@/lib/program";
+import {
+  getAzureADClient,
+  getDeelClient,
+  getGatewayClient,
+} from "@/lib/integrations";
+import type { DeelEmployee, IdentityUser, UsageRecord } from "@/lib/integrations";
 import { Search, ChevronRight, AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 type SP = { q?: string; user?: string };
 
-async function getUsers(q?: string) {
-  return prisma.user.findMany({
-    where: q
-      ? {
-          OR: [
-            { email: { contains: q, mode: "insensitive" } },
-            { displayName: { contains: q, mode: "insensitive" } },
-            { roleTag: { contains: q, mode: "insensitive" } },
-          ],
-        }
-      : undefined,
-    orderBy: { displayName: "asc" },
-    take: 50,
-    select: {
-      id: true,
-      email: true,
-      displayName: true,
-      roleTag: true,
-      region: true,
-      status: true,
-    },
-  });
+function matches(u: DeelEmployee, q: string) {
+  if (!q) return true;
+  const needle = q.toLowerCase();
+  return (
+    u.email.toLowerCase().includes(needle) ||
+    u.displayName.toLowerCase().includes(needle) ||
+    u.roleTag.toLowerCase().includes(needle)
+  );
 }
 
-async function getSelectedUserDetail(userId: string) {
+async function getDirectory(q: string) {
+  // Identity + role tag come through Deel + Azure AD per scoping §3.3.
+  // Synthetic clients read from Postgres; real clients hit the IdP / HRIS.
+  const [employees, identityAll] = await Promise.all([
+    getDeelClient().listEmployees(),
+    getAzureADClient().listUsers(),
+  ]);
+  const idByEmail = new Map(identityAll.map((u) => [u.email, u]));
+
+  const matched = employees
+    .filter((e) => matches(e, q))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName))
+    .slice(0, 50)
+    .map((e) => {
+      const id = idByEmail.get(e.email);
+      return {
+        id: id?.azureObjectId ?? e.email,
+        email: e.email,
+        displayName: e.displayName,
+        roleTag: e.roleTag,
+        region: e.region,
+        status: e.status,
+      };
+    });
+
+  return matched;
+}
+
+async function getUserDetail(userId: string) {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
+  // The local User table is the identity cache; in v0.2 reconcilers populate
+  // it from Azure AD + Deel nightly. Reading from it here is fine — it's a
+  // cache of the integration clients' data, scoped to a single user with
+  // their licences pre-joined. See .cursor/rules/data-model.mdc.
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: {
@@ -51,37 +81,41 @@ async function getSelectedUserDetail(userId: string) {
   });
   if (!user) return null;
 
-  const mtd = await prisma.usageRecord.groupBy({
-    by: ["product"],
-    where: { userId, ts: { gte: startOfMonth } },
-    _sum: { costUsd: true },
-    _count: { _all: true },
-  });
-  const mtdMap = new Map<string, { sum: number; count: number }>(
-    mtd.map((r) => [r.product, { sum: r._sum.costUsd ?? 0, count: r._count._all }]),
-  );
+  const gateway = getGatewayClient();
+  const since = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); // 90 days
+  const [aggs, recent, deelEmp]: [
+    Awaited<ReturnType<typeof gateway.aggregateByUser>>,
+    UsageRecord[],
+    DeelEmployee | null,
+  ] = await Promise.all([
+    gateway.aggregateByUser({ userIds: [userId], periodStart: startOfMonth, periodEnd: now }),
+    gateway.listUsageRecords({ userId, since, limit: 25 }),
+    getDeelClient().getEmployeeByEmail(user.email),
+  ]);
 
-  const recentUsage = await prisma.usageRecord.findMany({
-    where: { userId },
-    orderBy: { ts: "desc" },
-    take: 25,
-  });
+  const mtdMap = new Map<ProductKey, { sum: number; count: number }>();
+  for (const a of aggs) {
+    const prev = mtdMap.get(a.product) ?? { sum: 0, count: 0 };
+    mtdMap.set(a.product, {
+      sum: prev.sum + a.totalUsd,
+      count: prev.count + a.requestCount,
+    });
+  }
 
-  // Projected EOM: linearly extrapolate this month's days elapsed.
   const dayOfMonth = now.getDate();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const totalMtd = Array.from(mtdMap.values()).reduce((acc, v) => acc + v.sum, 0);
   const projectedEom = dayOfMonth > 0 ? (totalMtd / dayOfMonth) * daysInMonth : totalMtd;
 
-  return { user, mtdMap, recentUsage, totalMtd, projectedEom };
+  return { user, deelEmp, mtdMap, recent, totalMtd, projectedEom };
 }
 
 export default async function UsersPage(props: { searchParams: Promise<SP> }) {
   const sp = await props.searchParams;
   const q = sp.q?.trim() || "";
-  const users = await getUsers(q);
-  const selectedId = sp.user || users[0]?.id;
-  const detail = selectedId ? await getSelectedUserDetail(selectedId) : null;
+  const directory = await getDirectory(q);
+  const selectedId = sp.user || directory[0]?.id;
+  const detail = selectedId ? await getUserDetail(selectedId) : null;
 
   return (
     <>
@@ -117,13 +151,17 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
             <CardHeader>
               <CardTitle>Results</CardTitle>
               <CardDescription>
-                {users.length} user{users.length === 1 ? "" : "s"} matching{" "}
-                <code className="font-mono text-slate-700">{q || "all"}</code>
+                {directory.length} user{directory.length === 1 ? "" : "s"} matching{" "}
+                <code className="font-mono text-slate-700">{q || "all"}</code>. Source:{" "}
+                <code className="font-mono text-slate-700">
+                  getDeelClient().listEmployees()
+                </code>
+                .
               </CardDescription>
             </CardHeader>
             <CardContent className="px-0 pb-0">
               <ul className="divide-y divide-slate-100 max-h-[680px] overflow-y-auto">
-                {users.map((u) => {
+                {directory.map((u) => {
                   const isActive = u.id === selectedId;
                   return (
                     <li key={u.id}>
@@ -151,7 +189,7 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
                     </li>
                   );
                 })}
-                {users.length === 0 ? (
+                {directory.length === 0 ? (
                   <li className="p-5 text-sm text-slate-500">No users matched.</li>
                 ) : null}
               </ul>
@@ -160,7 +198,9 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
 
           {/* Detail */}
           <div className="lg:col-span-2 space-y-4">
-            {detail ? <UserDetail detail={detail} /> : (
+            {detail ? (
+              <UserDetail detail={detail} />
+            ) : (
               <Card>
                 <CardContent className="p-10 text-sm text-slate-500">
                   Select a user.
@@ -174,10 +214,15 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
   );
 }
 
-function UserDetail({ detail }: { detail: NonNullable<Awaited<ReturnType<typeof getSelectedUserDetail>>> }) {
-  const { user, mtdMap, recentUsage, totalMtd, projectedEom } = detail;
+function UserDetail({
+  detail,
+}: {
+  detail: NonNullable<Awaited<ReturnType<typeof getUserDetail>>>;
+}) {
+  const { user, deelEmp, mtdMap, recent, totalMtd, projectedEom } = detail;
   const licensesByProduct = new Map(user.licenses.map((l) => [l.product, l]));
-  const isMacau = user.region === "apac-mo";
+  const isMacau = (deelEmp?.region ?? user.region) === "apac-mo";
+  void deelEmp; // role tag already on user; deelEmp is a freshness check.
 
   return (
     <>
@@ -223,7 +268,10 @@ function UserDetail({ detail }: { detail: NonNullable<Awaited<ReturnType<typeof 
       <Card>
         <CardHeader>
           <CardTitle>Tier &amp; spend per product</CardTitle>
-          <CardDescription>One row per product; tiers from §4.6.</CardDescription>
+          <CardDescription>
+            One row per product; tiers from §4.6. MTD aggregates via{" "}
+            <code className="font-mono">getGatewayClient().aggregateByUser()</code>.
+          </CardDescription>
         </CardHeader>
         <CardContent className="px-0 pb-0">
           <Table>
@@ -240,7 +288,7 @@ function UserDetail({ detail }: { detail: NonNullable<Awaited<ReturnType<typeof 
             <TBody>
               {PRODUCTS.map(({ key, label }) => {
                 const lic = licensesByProduct.get(key as ProductKey);
-                const usage = mtdMap.get(key) ?? { sum: 0, count: 0 };
+                const usage = mtdMap.get(key as ProductKey) ?? { sum: 0, count: 0 };
                 return (
                   <TR key={key}>
                     <TD className="pl-5 font-medium text-slate-900">{label}</TD>
@@ -278,7 +326,10 @@ function UserDetail({ detail }: { detail: NonNullable<Awaited<ReturnType<typeof 
       <Card>
         <CardHeader>
           <CardTitle>Recent usage records</CardTitle>
-          <CardDescription>Last 25 events.</CardDescription>
+          <CardDescription>
+            Last 25 events from{" "}
+            <code className="font-mono">getGatewayClient().listUsageRecords()</code>.
+          </CardDescription>
         </CardHeader>
         <CardContent className="px-0 pb-0">
           <Table>
@@ -293,8 +344,8 @@ function UserDetail({ detail }: { detail: NonNullable<Awaited<ReturnType<typeof 
               </TR>
             </THead>
             <TBody>
-              {recentUsage.map((r) => (
-                <TR key={r.id}>
+              {recent.map((r) => (
+                <TR key={`${r.userId}-${r.ts.toISOString()}-${r.model}`}>
                   <TD className="pl-5 text-slate-600 font-mono text-xs">
                     {r.ts.toISOString().slice(0, 16).replace("T", " ")}
                   </TD>
@@ -303,7 +354,8 @@ function UserDetail({ detail }: { detail: NonNullable<Awaited<ReturnType<typeof 
                   </TD>
                   <TD className="text-slate-600 font-mono text-xs">{r.model}</TD>
                   <TD className="text-slate-600 text-xs">
-                    {r.tokensIn?.toLocaleString() ?? "?"} → {r.tokensOut?.toLocaleString() ?? "?"}
+                    {r.tokensIn?.toLocaleString() ?? "?"} →{" "}
+                    {r.tokensOut?.toLocaleString() ?? "?"}
                   </TD>
                   <TD>
                     <Badge
@@ -323,7 +375,7 @@ function UserDetail({ detail }: { detail: NonNullable<Awaited<ReturnType<typeof 
                   </TD>
                 </TR>
               ))}
-              {recentUsage.length === 0 ? (
+              {recent.length === 0 ? (
                 <TR>
                   <TD className="px-5 py-6 text-sm text-slate-500" colSpan={6}>
                     No usage records.
