@@ -4,6 +4,7 @@ import { syntheticAnthropicClient } from "./synthetic";
 import type { AnthropicClient } from "./types";
 
 export type { AnthropicClient, ClaudeSeat } from "./types";
+export { makeRealAnthropicClient } from "./real";
 
 export function getAnthropicClient(env: IntegrationEnv = process.env): AnthropicClient {
   return getIntegrationMode("anthropic", env) === "real"

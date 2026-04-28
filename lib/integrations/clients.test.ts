@@ -88,6 +88,18 @@ describe("real-mode clients throw NotImplementedError", () => {
     await expect(c.listSeats()).rejects.toThrow(/INTEGRATION_CURSOR=synthetic/);
   });
 
+  it("openai/real surfaces missing env vars as IntegrationError", async () => {
+    // Detailed coverage in lib/integrations/openai/real.test.ts.
+    const c = getOpenAIClient({ INTEGRATION_OPENAI: "real" });
+    await expect(c.listChatGptSeats()).rejects.toThrow(/OPENAI_ADMIN_API_KEY/);
+  });
+
+  it("anthropic/real surfaces missing env vars as IntegrationError", async () => {
+    // Detailed coverage in lib/integrations/anthropic/real.test.ts.
+    const c = getAnthropicClient({ INTEGRATION_ANTHROPIC: "real" });
+    await expect(c.listSeats()).rejects.toThrow(/ANTHROPIC_ADMIN_API_KEY/);
+  });
+
   it("policyrepo/real surfaces missing env vars as IntegrationError", async () => {
     // Real client tries to read POLICYREPO_OWNER/NAME/TOKEN at call-time;
     // with INTEGRATION_POLICYREPO=real and no other env, openPullRequest
