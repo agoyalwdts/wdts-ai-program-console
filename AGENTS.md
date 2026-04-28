@@ -398,14 +398,22 @@ canonical list.
 ### Auth + identity (Tracks 2, 3)
 
 - ✅ Auth.js + Microsoft Entra ID provider wired. Sandbox-tenant working.
-- ⏳ **AAD security groups** for ADMIN / FINOPS / MANAGER. Once WDTS
-  publishes the group object IDs, set
-  `AZURE_AD_GROUP_{ADMIN,FINOPS,MANAGER}_IDS` (comma-separated) in
-  `.env.local` (or the prod secret store). No code change.
-- ⏳ **AAD app registration: `groups` claim.** Configure
-  `Token configuration → groupMembershipClaims=SecurityGroup` so the JWT
-  carries the `groups` array. Then trim `EMAIL_ROLE_RULES` in
-  `lib/auth-roles.ts` to remove the sandbox bridge.
+- ✅ **Production AAD app registration** live in the WDTS Entra tenant
+  (`wdts-ai-program-console (prod)`, separate from the dev/sandbox app).
+  Admin consent granted for `User.Read.All` and `Reports.Read.All`.
+  The `groups` claim is configured (`groupMembershipClaims=SecurityGroup`)
+  and verified end-to-end in production: the live JWT includes a
+  14-element `groups` array.
+- ⏳ **AAD security groups** for ADMIN / FINOPS / MANAGER. The 14 group
+  OIDs the production user is a member of are captured (see
+  `docs/decisions/0003-deploy-target.md` follow-ups; the OIDs themselves
+  are non-secret but live in Key Vault for boot-time reads). Map them to
+  names in the Entra portal and set
+  `AZURE_AD_GROUP_{ADMIN,FINOPS,MANAGER}_IDS` (comma-separated) in Key
+  Vault. Until then, role assignment falls back to the email-pattern
+  rules in `lib/auth-roles.ts`.
+- ⏳ **`EMAIL_ROLE_RULES` cleanup.** Once the group OIDs above are wired
+  and verified, trim the sandbox bridge in `lib/auth-roles.ts`.
 - ⏳ **AzureAD reconciler schedule.** `npm run reconcile:azuread` is
   invoke-by-hand today. Add a nightly cron (cloud schedule, GitHub
   Actions schedule, or external runner — choose at deploy time).
@@ -429,9 +437,12 @@ canonical list.
 
 ### Microsoft Graph (Track 7)
 
-- ⏳ **Admin consent** on the AAD app registration for
-  `Reports.Read.All` (and `User.Read.All` if not already). Optionally
-  `M365_COPILOT_SKU_IDS` if WDTS uses non-default Copilot SKU variants.
+- ✅ **Admin consent granted** on the production AAD app for
+  `User.Read.All` and `Reports.Read.All` (verified in the Entra portal
+  on 2026-04-28). `INTEGRATION_M365GRAPH=real` will flip cleanly once
+  the dashboard's prod App Service has the secrets it needs.
+- ⏳ Optional **`M365_COPILOT_SKU_IDS`** if WDTS uses non-default
+  Copilot SKU variants.
 
 ### Deel HRIS (Track 8)
 
@@ -468,26 +479,44 @@ canonical list.
 
 Target shape pinned by ADR 0003 (`docs/decisions/0003-deploy-target.md`).
 Step-by-step in **`docs/deploy/azure.md`**; sample bootstrap script and
-sample GitHub Actions workflow live alongside it. None of those files
-auto-run.
+sample GitHub Actions workflow live alongside it.
 
-Inputs the runbook needs (Tier-0 unblocks):
+**v0.2 preview is live**:
+<https://wdts-ai-program-console.azurewebsites.net/>. Authentication
+end-to-end against the WDTS Entra tenant verified on 2026-04-28. The
+preview shape has two intentional deviations from LDR 0003 (Key Vault
+in access-policy mode, Postgres with public access + firewall rules);
+both are documented in `docs/deploy/azure.md` §7 and exposed as
+`KV_AUTH_MODE` / `PG_PUBLIC_ACCESS` flags in `azure-bootstrap.sh`.
 
-- ⏳ **WDTS-corp Azure subscription + resource group** (not the personal
-  sub the increment apps live on).
-- ⏳ **Region** — `centralindia` or `eastus` (LDR 0003 excludes
-  `australiaeast`).
-- ⏳ **Production Microsoft Entra ID app registration** — fresh,
-  separate from the dev/sandbox one in `.env.local`. The prod app gets
-  the `groups` claim configured and admin-consented Graph scopes
-  (`User.Read.All`, `Reports.Read.All`); the dev/sandbox app stays
-  low-privilege.
+Tier-0 unblocks status:
+
+- ✅ **WDTS-corp Azure subscription + resource group**: subscription
+  `WDTS-Brinda` (`85e4ac4b-905f-4ee5-a003-e4887facc0f3`),
+  RG `wdts-ai-program-console-rg`. Operator role: Contributor (which
+  is why the preview uses access-policy mode for Key Vault).
+- ✅ **Region** — `centralindia`.
+- ✅ **Production Microsoft Entra ID app registration** —
+  `wdts-ai-program-console (prod)`, separate from the dev/sandbox.
+  Groups claim configured. `User.Read.All` + `Reports.Read.All`
+  admin-consented. Secrets live in Key Vault (`wdts-ai-cons-kv`).
+- ⏳ **Custom domain** — `*.azurewebsites.net` works for the preview
+  but trips Chrome Safe Browsing on the OAuth path
+  (`/api/auth/signin/microsoft-entra-id`). Custom domain + TLS is the
+  v0.3 fix; until then, the sign-in UX requires a one-time "Hide
+  details → this unsafe site" bypass per browser profile.
 - ⏳ **GitHub `production` environment** with at least one required
   reviewer and `main`-only branch policy. Promotion of
   `docs/deploy/deploy.yml.sample` → `.github/workflows/deploy.yml`
-  is gated on this.
-- ⏳ **Domain** — `*.azurewebsites.net` is enough for the v0.2 dev
-  preview. Custom domain + TLS is a v0.3 follow-up.
+  is still gated on this. Until then, deploys are zip-deploy from
+  the operator's laptop.
+- ⏳ **VNet integration + private endpoint for Postgres** — the LDR
+  0003 target. The preview is closed-over-HTTPS but not
+  network-isolated. Tracked under v0.3 hardening.
+- ⏳ **Key Vault RBAC mode** — needs Owner / User Access Administrator
+  on the vault scope, which the operator does not currently hold.
+  Defer until either the role is granted or the v0.3 prod-target
+  shape is provisioned by an ITAdmin.
 
 ### Credential hygiene
 
