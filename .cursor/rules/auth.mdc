@@ -1,0 +1,63 @@
+---
+description: Auth discipline for the WDTS AI Program Console (v0.2 onwards, after NextAuth + Azure AD landed).
+alwaysApply: true
+---
+
+# Auth discipline
+
+The dashboard uses **NextAuth v5 (Auth.js) with Microsoft Entra ID
+(Azure AD)**. Wiring lives at the project root (`auth.ts`) per Auth.js
+convention; the dashboard-facing helpers live at `lib/auth.ts`.
+
+## Hard rules
+
+- **Every Server Component / Server Action that reads program data MUST
+  call `requireUser()` from `lib/auth.ts`.** The proxy already redirects
+  unauthenticated requests, but Server Functions are NOT in the proxy
+  chain in Next 16 (see `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`),
+  so a refactor that turns a Server Component into a Server Action can
+  silently drop coverage.
+
+- **Privileged actions (writes, exports of sensitive data) MUST go
+  through `requireRole(["ADMIN", "FINOPS", ...])`.** v0.2 has no writes
+  yet; the helper is in place so v0.3 PRs that add them have no excuse.
+
+- **Never read `process.env.AZURE_AD_*` directly from a page or
+  component.** Those values are consumed only by `auth.ts` (NextAuth
+  wiring) and `lib/integrations/azuread/real.ts` (Microsoft Graph
+  client). Anywhere else is a leak vector.
+
+- **Never widen the proxy matcher to allow unauth routes** without
+  explicit sign-off from a maintainer. The current matcher excludes only
+  static assets; auth gating is handled by the `authorized` callback in
+  `auth.ts`, which lets `/api/auth/*` through itself.
+
+- **Do not bypass auth in tests.** If a test needs a session, mock
+  `lib/auth.ts` (`getCurrentUser` / `requireUser`) at the import level.
+  Don't add `SKIP_AUTH=1` style env-var bypasses — strict-mode was a
+  deliberate choice (per scoping §4 integration #1 + AGENTS.md §0).
+
+## Role mapping
+
+`roleFromClaims()` in `lib/auth-roles.ts` is pure and unit-tested. The
+production rule is "AAD `groups` claim wins; email patterns are a
+sandbox bridge until real groups exist". When the tenant has real
+groups:
+
+1. Configure the AAD app reg's "Token configuration" to include
+   `groupMembershipClaims=SecurityGroup`.
+2. Populate `GROUP_ROLE_MAP` in `lib/auth-roles.ts` with the real group
+   object IDs.
+3. Trim `EMAIL_ROLE_RULES` to an empty array (or keep one fallback for
+   break-glass admins).
+4. Update tests in `lib/auth-roles.test.ts`.
+
+## When extending
+
+- Adding a new provider (e.g. SAML for an external partner) → add it to
+  the `providers` array in `auth.ts`, NOT in lib/. Keep all NextAuth
+  config in one file so a security review touches one place.
+- Adding new session fields (e.g. tenantId) → extend the `jwt` and
+  `session` callbacks in `auth.ts`, then update `SessionUser` in
+  `lib/auth.ts`. Roles + email + name are the only fields needed by
+  v0.2 surfaces.
