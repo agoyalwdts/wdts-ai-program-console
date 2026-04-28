@@ -20,7 +20,9 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset --force",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "reconcile:azuread": "tsx prisma/scripts/reconcile-azuread.ts",
+    "reconcile:azuread:dry": "tsx prisma/scripts/reconcile-azuread.ts --dry-run"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
