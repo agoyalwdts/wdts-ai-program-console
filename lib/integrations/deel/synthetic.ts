@@ -5,7 +5,7 @@ function toEmployee(
   u: {
     email: string;
     displayName: string;
-    roleTag: string;
+    roleTag: string | null;
     region: string;
     status: string;
     managerId: string | null;
@@ -17,7 +17,10 @@ function toEmployee(
   return {
     email: u.email,
     displayName: u.displayName,
-    roleTag: u.roleTag,
+    // Synthetic Deel rounds roleTag to "" when nullable to match the
+    // shape real Deel emits for ex-employees (always a string field,
+    // sometimes empty).
+    roleTag: u.roleTag ?? "",
     region: u.region,
     status,
     managerEmail: u.managerId ? managerEmailById.get(u.managerId) ?? null : null,

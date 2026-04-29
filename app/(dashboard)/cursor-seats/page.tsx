@@ -191,7 +191,11 @@ export default async function CursorSeatsPage() {
                     <TD className="font-medium text-slate-900">{w.displayName}</TD>
                     <TD className="text-slate-600">{w.email}</TD>
                     <TD>
-                      <Badge variant="secondary">{w.roleTag}</Badge>
+                      {w.roleTag ? (
+                        <Badge variant="secondary">{w.roleTag}</Badge>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
                     </TD>
                     <TD>
                       <Badge variant={waitlistBadge(w.requestedTier)}>

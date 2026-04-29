@@ -1,11 +1,18 @@
-// Prisma schema for the WDTS AI Program Console — v0.1 prototype
-// See ../README.md and ../Dashboard_Scoping_v1.md §3.1 for context.
-// v0.1 keeps a subset of the canonical schema; v0.2 will add ExceptionRequest,
-// ReclamationEvent, BudgetSnapshot, FrictionBudgetMetric, etc.
+// Prisma schema for the WDTS AI Program Console.
+// See ../README.md and the scoping doc §3.1 for canonical context.
 //
-// WORKAROUND (v0.1): pinned to prisma@^6 in package.json. Prisma 7 deprecated
-// `datasource.url` inside schema.prisma in favour of `prisma.config.ts` with
-// adapters. Revisit when migrating to v0.2 / production.
+// Layout:
+//   - Enums first (alphabetical-ish, grouped by domain).
+//   - Identity / authorization models (User, Role).
+//   - Mirror models (License, UsageRecord) — sourced from upstream systems.
+//   - Authoritative models (Decision, ExceptionRequest, ReclamationEvent) —
+//     dashboard-owned, append-only.
+//   - Snapshot / metric models (BudgetSnapshot, FrictionBudgetMetric) —
+//     materialized aggregates over the mirrors for fast reads.
+//
+// WORKAROUND (v0.1, still in force): pinned to prisma@^6 in package.json.
+// Prisma 7 deprecated `datasource.url` inside schema.prisma in favour of
+// `prisma.config.ts` with adapters. Lift the pin in the v0.4 hardening pass.
 
 generator client {
   provider      = "prisma-client-js"
@@ -17,114 +24,453 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ---------------------------------------------------------------------------
+// Enums — lifted from string columns in v0.3 per LDR 0001.
+// ---------------------------------------------------------------------------
+
+/// HRIS-style employment status. Sources: CSV import (ACTIVE / LEFT /
+/// ON_LEAVE), Deel mapping (ACTIVE / SUSPENDED / TERMINATED), AzureAD
+/// reconciler (SUSPENDED). The dashboard does not collapse these — each
+/// upstream is honest about what it observed.
+enum UserStatus {
+  ACTIVE
+  ON_LEAVE
+  LEFT
+  SUSPENDED
+  TERMINATED
+}
+
+/// Vendor product. Mirrors the five tracks the program covers.
+enum Product {
+  CHATGPT
+  CODEX
+  CURSOR
+  CLAUDE_AI
+  M365_COPILOT
+}
+
+/// Provenance for a License row. Used by F2 / F4 to indicate why a user
+/// has the seat they do. AUTO_PROVISIONED is the seed default; MANUAL
+/// covers operator-set rows; DEEL / RECONCILE / CSV_IMPORT cover the
+/// reconciler / importer paths.
+enum LicenseSource {
+  AUTO_PROVISIONED
+  MANUAL
+  DEEL
+  RECONCILE
+  CSV_IMPORT
+}
+
+/// Outcome the gateway recorded for a single request. PROMPTED = user
+/// saw a friction screen and chose to proceed; DOWNGRADED = the request
+/// was served by a smaller model than asked.
+enum UsageDecision {
+  ALLOWED
+  PROMPTED
+  BLOCKED
+  DOWNGRADED
+}
+
+/// Type of program decision. Append-only — adding a new value is fine,
+/// removing one is not (the audit log forever references the old value).
+/// Two clusters today: program/policy events (TIER_*, RECLAMATION,
+/// EXCEPTION_*, etc.) and dashboard-RBAC events (ROLE_*, USER_*).
+enum DecisionType {
+  TIER_PROMOTION
+  TIER_DEMOTION
+  RECLAMATION
+  EXCEPTION_GRANT
+  METHODOLOGY_CHANGE
+  CAP_ADJUSTMENT
+  CURSOR_SEAT_GRANT
+  CURSOR_SEAT_RECLAIM
+  // RBAC admin actions — see LDR 0005.
+  USER_INVITED
+  USER_DISABLED
+  USER_ENABLED
+  ROLE_CHANGE
+  ROLE_CREATED
+  ROLE_EDITED
+  ROLE_DELETED
+  // Operator data-import actions.
+  EMPLOYEE_IMPORT
+}
+
+// ---------------------------------------------------------------------------
+// Enums — new in v0.3 per LDR 0001 for the four new models.
+// ---------------------------------------------------------------------------
+
+/// What kind of policy override an ExceptionRequest is asking for.
+enum ExceptionType {
+  /// Raise the user's per-product monthly USD cap (typical use case).
+  BUDGET_ELEVATION
+  /// Pin the user to a different sub-tier than policy would auto-assign.
+  TIER_OVERRIDE
+  /// §3.3 jurisdictional carve-out (e.g. apac-mo cross-region routing).
+  JURISDICTIONAL
+  /// Grant access to a product the policy default denies for this user.
+  PRODUCT_ACCESS
+  OTHER
+}
+
+/// ExceptionRequest lifecycle. Linear: SUBMITTED → ATTESTED →
+/// UNDER_REVIEW → APPROVED|DENIED. EXPIRED is the terminal state for
+/// an APPROVED request whose TTL ran out. WITHDRAWN can be set at any
+/// pre-terminal stage by the requester.
+enum ExceptionStatus {
+  SUBMITTED
+  ATTESTED
+  UNDER_REVIEW
+  APPROVED
+  DENIED
+  EXPIRED
+  WITHDRAWN
+}
+
+/// What caused a ReclamationEvent to fire.
+enum ReclamationTrigger {
+  /// Idle ≥ N days (per-product N — see lib/program.ts).
+  IDLE
+  /// Sustained over-cap warranting a tier review.
+  CAP_BREACH
+  /// Tier was demoted; the previously-granted seat / cap is no longer warranted.
+  TIER_DEMOTION
+  /// HRIS upstream reported the user is LEFT / TERMINATED.
+  HRIS_LEAVE
+  /// Operator-initiated.
+  MANUAL
+}
+
+/// What a reclamation will do once finalized.
+enum ReclamationAction {
+  /// Open the dispute window; no actual change yet.
+  NOTIFY
+  /// Pull the seat / cap immediately (used for HRIS_LEAVE).
+  RECLAIM
+  /// Defer for another N days.
+  DEFER
+  /// Cancel the reclamation; the seat stays.
+  RELEASE
+}
+
+/// ReclamationEvent state machine.
+enum ReclamationState {
+  /// Notified; dispute window is active.
+  NOTIFIED
+  /// User has disputed; awaiting reviewer.
+  IN_DISPUTE
+  /// Resolved — seat / cap was pulled.
+  RESOLVED_RECLAIMED
+  /// Resolved — seat / cap was kept.
+  RESOLVED_RETAINED
+  /// Dispute window passed without action; treated as confirmed RECLAIM.
+  EXPIRED
+}
+
+// ---------------------------------------------------------------------------
+// Identity + authorization
+// ---------------------------------------------------------------------------
+
 model User {
-  id          String   @id @default(uuid())
-  email       String   @unique
+  id          String     @id @default(uuid())
+  email       String     @unique
   displayName String
   managerId   String?
-  manager     User?    @relation("UserManager", fields: [managerId], references: [id])
-  reports     User[]   @relation("UserManager")
-  roleTag     String
+  manager     User?      @relation("UserManager", fields: [managerId], references: [id])
+  reports     User[]     @relation("UserManager")
+  /// HRIS role classifier (e.g. "ENG", "FINANCE"). Nullable because Deel
+  /// can emit empty for ex-employees / not-yet-assigned hires.
+  roleTag     String?
   region      String
-  status      String   @default("ACTIVE") // HRIS-style: ACTIVE | LEFT | ON_LEAVE
-  createdAt   DateTime @default(now())
+  status      UserStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now())
+  /// Set on every write. Lets reconcilers detect "row hasn't been touched
+  /// since X" without joining to an event log.
+  updatedAt   DateTime   @updatedAt
 
-  // Dashboard RBAC (LDR 0005) — distinct from `roleTag` (HRIS role like "ENG").
+  // Dashboard RBAC (LDR 0005) — distinct from `roleTag` (HRIS role).
   // `dashboardRoleId` is the FK to Role; nullable so JIT-provisioning can
-  // upsert without resolving the role first. The auth layer treats null as
-  // "look up the USER built-in".
+  // upsert without resolving the role first. The auth layer treats null
+  // as "look up the USER built-in".
   dashboardRoleId String?
   dashboardRole   Role?   @relation(fields: [dashboardRoleId], references: [id])
-  // `disabled` blocks sign-in. Distinct from HRIS `status=LEFT` (which is a
-  // statement about the org), this is "you used to have access; you don't
-  // any more". Owner cannot be disabled.
+  // `disabled` blocks sign-in. Distinct from HRIS `status=LEFT`.
   disabled        Boolean @default(false)
-  // Exactly one User row should have `isOwner=true` (enforced at the
-  // application level — partial unique indexes need a manual migration on
-  // PG and aren't worth the complexity for v0.3). Owner is always implicitly
-  // ADMIN, can't be demoted by anyone, can't be disabled by anyone.
+  // Exactly one User row should have isOwner=true (enforced at the
+  // application level — partial unique index deferred per LDR 0005
+  // "Open follow-ups").
   isOwner         Boolean @default(false)
-  // Optional org title for display ("Chief Technology Officer · Head of AI
-  // Task Force"). Free-text, distinct from `roleTag`.
+  /// Optional org title for display ("Chief Technology Officer · Head of
+  /// AI Task Force").
   title           String?
 
-  licenses     License[]
-  usageRecords UsageRecord[]
-  decisions    Decision[]    @relation("DecisionSubject")
+  licenses          License[]
+  usageRecords      UsageRecord[]
+  decisions         Decision[]         @relation("DecisionSubject")
+  exceptionRequests ExceptionRequest[] @relation("ExceptionSubject")
+  reclamationEvents ReclamationEvent[] @relation("ReclamationSubject")
 }
 
 /// Dashboard authorization role. Built-in roles (USER / MANAGER / FINOPS /
 /// ADMIN) are upserted from code on every seed run; custom roles are
 /// admin-created. The `permissions` array is the only source of truth for
-/// what a role grants — built-in role permission sets are re-synced from
-/// `lib/rbac/built-in-roles.ts` on seed, custom roles are user-edited via
-/// /settings/roles. See LDR 0005.
+/// what a role grants. See LDR 0005.
 model Role {
-  id           String   @id @default(uuid())
+  id          String   @id @default(uuid())
   /// Stable identifier. Built-ins use uppercase enum-style keys ("ADMIN",
   /// "FINOPS"); custom roles use admin-chosen kebab-case slugs ("auditor").
-  key          String   @unique
-  displayName  String
-  description  String?
-  /// Built-in roles are protected from delete and from key/permission edits.
-  /// `displayName` and `description` are still editable for built-ins —
-  /// e.g. "ADMIN" can be renamed to "Program Owner" without affecting the
-  /// `key` that code references.
-  isBuiltIn    Boolean  @default(false)
-  /// Code-defined permission keys this role grants. Ordering not significant.
-  /// See `lib/rbac/permissions.ts` for the full catalog.
-  permissions  String[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  key         String   @unique
+  displayName String
+  description String?
+  /// Built-in roles are protected from delete and from key/permission
+  /// edits. `displayName` and `description` are still editable.
+  isBuiltIn   Boolean  @default(false)
+  /// Code-defined permission keys this role grants. Ordering not
+  /// significant. See lib/rbac/permissions.ts for the catalog.
+  permissions String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  users        User[]
+  users User[]
 }
 
+// ---------------------------------------------------------------------------
+// Mirrors (sourced from upstream)
+// ---------------------------------------------------------------------------
+
 model License {
-  id          String    @id @default(uuid())
+  id          String        @id @default(uuid())
   userId      String
-  user        User      @relation(fields: [userId], references: [id])
-  product     String // CHATGPT | CODEX | CURSOR | CLAUDE_AI | M365_COPILOT
+  user        User          @relation(fields: [userId], references: [id])
+  product     Product
   subTier     String
   capUsdMonth Float?
-  grantedAt   DateTime  @default(now())
+  grantedAt   DateTime      @default(now())
   expiresAt   DateTime?
-  source      String    @default("AUTO_PROVISIONED")
-  flag        String? // optional marker e.g. "likely-reclaim"
+  source      LicenseSource @default(AUTO_PROVISIONED)
+  /// Optional marker e.g. "likely-reclaim".
+  flag        String?
+
+  reclamationEvents ReclamationEvent[]
 
   @@unique([userId, product])
   @@index([product, subTier])
 }
 
 model UsageRecord {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  product   String
-  model     String
-  tokensIn  Int?
-  tokensOut Int?
-  costUsd   Float?
-  decision  String   @default("ALLOWED")
-  region    String
-  ts        DateTime
+  id           String        @id @default(uuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+  product      Product
+  model        String
+  tokensIn     Int?
+  tokensOut    Int?
+  costUsd      Float?
+  decision     UsageDecision @default(ALLOWED)
+  region       String
+  ts           DateTime
+  /// DLP layer names that fired on this request (gateway emits an array;
+  /// v0.1 dropped it). Used by the manager queue and the §17.5
+  /// friction-budget metric. Empty array if no layer fired.
+  dlpLayersHit String[]      @default([])
 
   @@index([userId, ts])
   @@index([product, ts])
 }
 
+// ---------------------------------------------------------------------------
+// Authoritative (dashboard-owned, append-only)
+// ---------------------------------------------------------------------------
+
 model Decision {
-  id            String   @id @default(uuid())
-  type          String // TIER_PROMOTION | TIER_DEMOTION | RECLAMATION | EXCEPTION_GRANT | METHODOLOGY_CHANGE | CAP_ADJUSTMENT | CURSOR_SEAT_GRANT | CURSOR_SEAT_RECLAIM
+  id            String       @id @default(uuid())
+  type          DecisionType
   subjectUserId String?
-  subject       User?    @relation("DecisionSubject", fields: [subjectUserId], references: [id])
-  beforeState   String // JSON-as-string for v0.1 simplicity
+  subject       User?        @relation("DecisionSubject", fields: [subjectUserId], references: [id])
+  /// JSON-as-string for v0.3 simplicity (see ADR 0001 open follow-up:
+  /// lift to Json).
+  beforeState   String
   afterState    String
   actorEmail    String
   justification String
   evidenceLink  String?
-  ts            DateTime @default(now())
+  ts            DateTime     @default(now())
+
+  exceptionRequests ExceptionRequest[] @relation("ExceptionDecision")
+  reclamationEvents ReclamationEvent[] @relation("ReclamationDecision")
 
   @@index([type, ts])
   @@index([ts])
+}
+
+/// §16.3 exception flow. Authoritative — append-only writes. The state
+/// machine moves through ExceptionStatus; each transition writes a
+/// Decision row and links it via decisionId.
+model ExceptionRequest {
+  id            String          @id @default(uuid())
+  /// User the exception applies to.
+  subjectUserId String
+  subject       User            @relation("ExceptionSubject", fields: [subjectUserId], references: [id])
+  type          ExceptionType
+  status        ExceptionStatus @default(SUBMITTED)
+
+  /// JSON snapshot of what the exception changes — e.g.
+  /// `{"capUsdMonth":200}` or `{"jurisdiction":"PAIR_ROUTED"}`.
+  effectChange  String
+  justification String
+  evidenceLink  String?
+
+  /// Submission.
+  requestedByEmail String
+  requestedAt      DateTime @default(now())
+
+  /// Manager attestation — required to leave SUBMITTED → ATTESTED.
+  attestedByEmail String?
+  attestedAt      DateTime?
+
+  /// FinOps review — required to leave ATTESTED → UNDER_REVIEW.
+  reviewedByEmail String?
+  reviewedAt      DateTime?
+
+  /// Terminal-state timestamps (mutually exclusive). Approve/deny/withdraw.
+  approvedAt  DateTime?
+  deniedAt    DateTime?
+  withdrawnAt DateTime?
+
+  /// TTL on approved exceptions. Max 30 days per scoping §16.3.
+  /// expiresAt = approvedAt + ttlDays. A scheduled job moves
+  /// APPROVED → EXPIRED when expiresAt < now().
+  ttlDays   Int?
+  expiresAt DateTime?
+
+  /// Linked Decision row written when the request was approved / denied.
+  decisionId String?
+  decision   Decision? @relation("ExceptionDecision", fields: [decisionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subjectUserId, status])
+  @@index([status, expiresAt])
+}
+
+/// §4.6.4 idle-credit / unused-seat reclamation. Authoritative —
+/// append-only. The 5-business-day dispute window is enforced by the
+/// scheduled job that flips NOTIFIED → RESOLVED_* / EXPIRED.
+model ReclamationEvent {
+  id            String             @id @default(uuid())
+  subjectUserId String
+  subject       User               @relation("ReclamationSubject", fields: [subjectUserId], references: [id])
+  /// License being reclaimed. Nullable if the License has already been
+  /// deleted upstream (rare; preserves history when the License row
+  /// disappeared after the event).
+  licenseId     String?
+  license       License?           @relation(fields: [licenseId], references: [id])
+  trigger       ReclamationTrigger
+  action        ReclamationAction
+  state         ReclamationState   @default(NOTIFIED)
+
+  triggeredAt         DateTime  @default(now())
+  /// When the user / manager was notified. NOTIFY action sets this on
+  /// creation; RECLAIM action (e.g. HRIS_LEAVE) skips notification.
+  notifiedAt          DateTime?
+  /// 5-business-day dispute window end. Computed and stored at create
+  /// time so a clock skew doesn't shift the deadline retroactively.
+  disputeWindowEndsAt DateTime?
+
+  /// Optional dispute response.
+  disputedAt      DateTime?
+  disputedByEmail String?
+  disputeReason   String?
+
+  /// Resolution.
+  resolvedAt      DateTime?
+  resolvedByEmail String?
+
+  /// Why the trigger fired (e.g. "45 days no activity", "demoted from
+  /// POWER → STANDARD on 2026-04-15"). Free-form, kept short.
+  justification String
+
+  /// Linked Decision row written when the event reached a terminal state.
+  decisionId String?
+  decision   Decision? @relation("ReclamationDecision", fields: [decisionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subjectUserId, state])
+  @@index([state, disputeWindowEndsAt])
+}
+
+// ---------------------------------------------------------------------------
+// Snapshots / metrics (materialized aggregates)
+// ---------------------------------------------------------------------------
+
+/// Monthly per-product, per-sub-tier spend snapshot. F1's trend cards and
+/// F10's chargeback view read from this so they don't re-aggregate every
+/// UsageRecord on every page load. Materialised by a scheduled job —
+/// skeleton lands later (LDR 0001 open follow-up 0004).
+model BudgetSnapshot {
+  id          String   @id @default(uuid())
+  product     Product
+  /// Sub-tier inside the product (e.g. "cursor_power", "codex_standard").
+  /// Free-form to track the same vocabulary the License table uses.
+  subTier     String
+  /// First moment of the period at 00:00 UTC. v0.3 snapshots are monthly;
+  /// the schema doesn't constrain granularity so weekly/daily snapshots
+  /// can ride the same table later.
+  periodStart DateTime
+  periodEnd   DateTime
+
+  totalUsd     Float
+  requestCount Int
+  userCount    Int
+
+  /// Effective cap that applied during this period.
+  capUsdMonth Float?
+  /// Pre-computed totalUsd / capUsdMonth. Stored to avoid div-by-zero
+  /// handling at read time. Null when capUsdMonth is null (seat-priced
+  /// products like M365 Copilot).
+  pctOfCap    Float?
+
+  generatedAt DateTime @default(now())
+
+  @@unique([product, subTier, periodStart])
+  @@index([periodStart])
+}
+
+/// §17.5 weekly friction-budget metric. Tracks how often the gateway
+/// blocks / downgrades / prompts requests as a fraction of total
+/// requests, so the program can stay inside the friction ceiling
+/// negotiated with engineering. Materialised by a scheduled job
+/// (LDR 0001 open follow-up 0004).
+model FrictionBudgetMetric {
+  id          String   @id @default(uuid())
+  /// First moment of the week at 00:00 UTC (Monday).
+  periodStart DateTime
+  periodEnd   DateTime
+  /// Optional product filter. Null = aggregate across all products.
+  product     Product?
+
+  totalRequests Int
+  allowed       Int
+  prompted      Int
+  blocked       Int
+  downgraded    Int
+
+  /// (blocked + downgraded) / totalRequests. Stored to avoid div-by-zero
+  /// at read time.
+  frictionRate Float
+
+  /// Friction-budget threshold in effect for this period. Source: policy
+  /// repo. Null if no budget configured for this product.
+  budgetCeiling Float?
+  /// frictionRate / budgetCeiling. > 1.0 means we're over budget. Null
+  /// if budgetCeiling is null.
+  pctOfBudget   Float?
+
+  generatedAt DateTime @default(now())
+
+  @@unique([product, periodStart])
+  @@index([periodStart])
 }
