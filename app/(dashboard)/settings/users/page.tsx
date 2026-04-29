@@ -59,12 +59,14 @@ export default async function SettingsUsersPage() {
           <CardHeader>
             <CardTitle>Users ({users.length})</CardTitle>
             <CardDescription>
-              Role changes take effect on the user&apos;s <strong>next sign-in</strong>{" "}
-              (JWT is short-lived). Disabling kicks in immediately for any
-              fresh request. The owner row cannot be demoted, disabled, or
-              transferred via this page — that&apos;s a deliberate
-              foot-gun guard. New users appear here automatically the first
-              time they sign in.
+              <strong>Closed by default.</strong> Sign-in is restricted to
+              users on this list — anyone else gets a friendly access-denied
+              page. Use <em>Invite user</em> to add someone; they can sign in
+              the moment the row exists. Role changes take effect on the
+              user&apos;s <strong>next sign-in</strong> (JWT is short-lived).
+              Disabling kicks in immediately on the user&apos;s next request
+              and blocks fresh sign-ins entirely. The owner row cannot be
+              demoted, disabled, or transferred via this page.
             </CardDescription>
           </CardHeader>
           <CardContent>

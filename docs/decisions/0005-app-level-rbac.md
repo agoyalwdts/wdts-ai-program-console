@@ -34,6 +34,15 @@ admin UI.** Microsoft Entra ID provides identity (sign-in, MFA, JML
 events). Authorization is a `User → Role → permissions[]` graph stored
 locally and managed via `/settings/users` and `/settings/roles`.
 
+**Closed by default — explicit invite required.** The dashboard is an
+internal AI-Task-Force tool, not a self-service product. Sign-in
+succeeds against AAD only if the email is already in the dashboard's
+`User` table (i.e. the owner has invited them) OR matches a
+bootstrap-admin rule. Anyone else lands on a friendly `/access-denied`
+page with a "contact the owner" CTA. The owner adds people via
+`/settings/users → Invite user` (email + role); after that, sign-in
+just works.
+
 A small bootstrap email rule remains so a fresh-DB / new-tenant deploy
 can sign in and configure the rest. After first sign-in, all role
 changes go through the admin UI.
@@ -64,6 +73,7 @@ changes go through the admin UI.
 | 2 | **No RBAC; everyone signed in is admin.** | Fine for the current 1-user reality, but a foot-gun the moment a second person logs in. The friction of rebuilding RBAC mid-flight (with live decision-log audit trails) is far higher than building it once now. |
 | 3 | **Hybrid: built-in roles via AAD groups, custom roles via DB.** | Two sources of truth → debugging "why did X get role Y?" needs both AAD and DB inspection. The trace panel becomes a multi-line screen. Reject. |
 | 4 | **External RBAC service (OpenFGA, Cerbos, Permify).** | Useful at fleet scale; massive overkill for a 1-app dashboard. Reconsider only if a second internal app starts sharing the same access model. |
+| 5 | **Open by default — anyone in the WDTS tenant can sign in, default to USER role.** | Unwanted: the tool is a small AI-Task-Force / ExCo surface, not a tenant-wide app. Open-by-default leaks dashboard data to every WDTS employee on first day. The closed-by-default gate is two lines of code more and dramatically tighter. |
 
 ## Consequences
 
@@ -78,13 +88,25 @@ changes go through the admin UI.
   `lib/rbac/built-in-roles.ts`. Custom roles live entirely in the DB.
 
 ### Auth wiring (`auth.ts`)
-- `jwt` callback: on `signIn` trigger, JIT-`upsert` the `User` row.
-  Bootstrap email rule runs only when no `User` exists for that email.
-  Subsequent sign-ins read role + permissions straight from
-  `User.dashboardRole`.
-- `disabled=true` users get an empty permission array, so privileged
-  routes redirect them to `/?error=disabled` instead of bricking the
-  whole sign-in.
+- `signIn` callback (closed-by-default gate): allow sign-in only if a
+  `User` row exists for the email OR the email matches the bootstrap
+  rule. Disabled users are also rejected here. Denial returns a string
+  redirect to `/access-denied?reason=…&email=…`, which Auth.js sends
+  the browser to.
+- `jwt` callback: on `signIn` trigger, look up the `User` row and stamp
+  role + permissions on the JWT. The bootstrap admin's first sign-in is
+  the *only* path that JIT-creates a `User` row; every other invitee
+  has a row pre-created by the inviter.
+- First-sign-in display-name refresh: when an invitee signs in, if their
+  `displayName` still equals their email (i.e. the inviter only knew
+  the email), it's updated once from the IdP profile name. After that
+  the field is owner-controlled.
+
+### `/access-denied` public page
+- Listed in `PUBLIC_PATHS` so the proxy doesn't bounce sign-out'd
+  users back to sign-in. Renders different copy per `reason`
+  (`not-invited` / `disabled` / `no-email` / `error`) and surfaces
+  the offending email + a `mailto:` to the owner.
 
 ### Authorization helpers (`lib/auth.ts`)
 - `requireRole(["ADMIN"])` retained for back-compat.
@@ -92,10 +114,10 @@ changes go through the admin UI.
   routes use this; legacy routes can migrate at leisure.
 
 ### Audit trail
-- Every role change, user enable/disable, custom-role create/edit/delete
-  writes a row to the existing `Decision` table with new types
-  `ROLE_CHANGE`, `USER_DISABLED`, `USER_ENABLED`, `ROLE_CREATED`,
-  `ROLE_EDITED`, `ROLE_DELETED`.
+- Every invite, role change, user enable/disable, custom-role
+  create/edit/delete writes a row to the existing `Decision` table
+  with new types `USER_INVITED`, `ROLE_CHANGE`, `USER_DISABLED`,
+  `USER_ENABLED`, `ROLE_CREATED`, `ROLE_EDITED`, `ROLE_DELETED`.
 
 ### Owner protection
 - `User.isOwner=true` cannot be demoted, disabled, or have its role

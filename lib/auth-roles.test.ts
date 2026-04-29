@@ -1,5 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { bootstrapRoleForNewUser, dbRole } from "./auth-roles";
+import {
+  bootstrapRoleForNewUser,
+  dbRole,
+  isBootstrapAdmin,
+} from "./auth-roles";
+
+describe("isBootstrapAdmin", () => {
+  it("returns true for the owner email", () => {
+    expect(isBootstrapAdmin("agoyal@wdtablesystems.com")).toBe(true);
+  });
+
+  it("matches case-insensitively", () => {
+    expect(isBootstrapAdmin("AGOYAL@WDTABLESYSTEMS.COM")).toBe(true);
+    expect(isBootstrapAdmin("Agoyal@WdtableSystems.com")).toBe(true);
+  });
+
+  it("returns false for any other email", () => {
+    expect(isBootstrapAdmin("anyone@wdtablesystems.com")).toBe(false);
+    expect(isBootstrapAdmin("agoyal@elsewhere.com")).toBe(false);
+    expect(isBootstrapAdmin("")).toBe(false);
+    expect(isBootstrapAdmin("not-an-email")).toBe(false);
+  });
+
+  it("does not partial-match the owner regex", () => {
+    // Defensive: the owner pattern is anchored. A sloppy regex would
+    // promote agoyal@wdtablesystems.com.evil.example.
+    expect(isBootstrapAdmin("agoyal@wdtablesystems.com.evil")).toBe(false);
+    expect(isBootstrapAdmin("xagoyal@wdtablesystems.com")).toBe(false);
+  });
+});
 
 describe("bootstrapRoleForNewUser", () => {
   it("returns ADMIN with email-bootstrap source for the owner email", () => {

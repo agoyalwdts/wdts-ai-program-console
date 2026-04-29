@@ -10,10 +10,14 @@ v0.3 lands:
 - **App-level RBAC** — `Role` table + `User.dashboardRoleId`,
   built-in roles (USER / MANAGER / FINOPS / ADMIN) seeded from code,
   custom roles created via `/settings/roles`. Admin UI at
-  `/settings/users` for role + enable/disable. AAD provides identity
-  only; the dashboard owns its access policy. See LDR 0005.
-- **Auth** — Auth.js v5 with Microsoft Entra ID, JIT user-provisioning
-  on first sign-in, JWT carries role + permissions array.
+  `/settings/users` for invite + role + enable/disable. AAD provides
+  identity only; the dashboard owns its access policy. See LDR 0005.
+- **Closed-by-default sign-in** — only invited emails (in the
+  `User` table) can sign in. Everyone else lands on a friendly
+  `/access-denied` page. The owner invites people from
+  `/settings/users → Invite user`.
+- **Auth** — Auth.js v5 with Microsoft Entra ID, JWT carries role +
+  permissions array.
 - **All vendor integrations** — `cursor` (SCIM 2.0), `openai`, `anthropic`
   (admin APIs), `m365graph` (Copilot reports), `azuread`, `deel`,
   `policyrepo` (write path) all have working `real.ts` implementations

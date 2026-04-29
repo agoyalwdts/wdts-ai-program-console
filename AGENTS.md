@@ -68,11 +68,15 @@ The dashboard owns authoritatively:
 - `Decision`, `ExceptionRequest`, `ReclamationEvent` (append-only operational
   ledger; exported nightly to a WORM Azure Blob in v0.2+).
 - **Dashboard authorization** — `Role`, `User.dashboardRoleId`,
-  `User.disabled`, `User.isOwner`. AAD provides identity; the dashboard owns
-  the role + permission graph (LDR 0005). **AAD security groups are not used
-  for authorization.** Future scope: a v0.4+ optional binding between
-  `Role` rows and AAD group OIDs is sketched in LDR 0005's Open follow-ups —
-  do not start it without an explicit trigger.
+  `User.disabled`, `User.isOwner`, **and the access list itself** (LDR 0005).
+  AAD provides identity; the dashboard decides who's allowed in and what
+  they can do once they're in. Sign-in is **closed by default** — only
+  emails with a `User` row (or matching the bootstrap-owner rule) can
+  sign in; anyone else gets the `/access-denied` page. The owner adds
+  people via `/settings/users → Invite user`. **AAD security groups are
+  not used for authorization.** Future scope: a v0.4+ optional binding
+  between `Role` rows and AAD group OIDs is sketched in LDR 0005's Open
+  follow-ups — do not start it without an explicit trigger.
 
 If the dashboard is wiped, the program continues; the dashboard is rebuilt
 from the policy repo + audit log + a fresh seed.
@@ -424,10 +428,15 @@ canonical list.
   app reg is the recommended way to gate sign-in itself if needed.
 - ✅ **App-level RBAC** (LDR 0005). `Role` table seeded with four
   built-ins; the owner row (`isOwner=true`) is provisioned via
-  `prisma/seed.ts`. JIT-provisioning on first sign-in, role +
-  permissions in the JWT, admin UI at `/settings/users` and
-  `/settings/roles`. The bootstrap email rule in `lib/auth-roles.ts`
-  exists only for fresh-DB / new-tenant recovery.
+  `prisma/seed.ts`. **Closed-by-default sign-in**: a `signIn` callback
+  in `auth.ts` rejects emails that don't have a `User` row (and aren't
+  the bootstrap admin), redirecting them to a public `/access-denied`
+  page. Owner invites people via `/settings/users → Invite user`
+  (`POST /api/admin/users`); the row appears immediately and the
+  invitee can sign in straight away. Role + permissions in the JWT,
+  admin UI at `/settings/users` and `/settings/roles`. The bootstrap
+  email rule in `lib/auth-roles.ts` exists only for fresh-DB /
+  new-tenant recovery.
 - 🗒️ **Future scope**: optional AAD-group → Role binding (LDR 0005
   "Open follow-ups"). Do **not** start without an explicit trigger.
 - ⏳ **AzureAD reconciler schedule.** `npm run reconcile:azuread` is

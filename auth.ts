@@ -22,6 +22,7 @@ import { prisma } from "@/lib/prisma";
 import {
   bootstrapRoleForNewUser,
   dbRole,
+  isBootstrapAdmin,
 } from "@/lib/auth-roles";
 import type { DashboardRole, RoleSource } from "@/lib/auth-roles";
 import { getBuiltInRole } from "@/lib/rbac/built-in-roles";
@@ -40,6 +41,7 @@ if (!tenantId || !clientId || !clientSecret) {
 const PUBLIC_PATHS = [
   "/api/auth", // Auth.js endpoints
   "/api/webhooks", // vendor → dashboard webhooks (HMAC-authed, see route handlers)
+  "/access-denied", // shown to non-invited users after OAuth — must be reachable without a session
   "/_next", // static + image optimisation
   "/favicon.ico",
   "/sitemap.xml",
@@ -49,13 +51,22 @@ const PUBLIC_PATHS = [
 const debug = process.env.AUTH_DEBUG === "true";
 
 /**
- * Look up (or JIT-create) the user's dashboard role + permissions.
- * Called from the JWT callback at sign-in. Returns the role data the
- * JWT needs, or `null` if the user is disabled (caller blocks sign-in).
+ * Look up the user's dashboard role + permissions, or JIT-provision
+ * the bootstrap admin on their first sign-in.
+ *
+ * The `signIn` callback has already enforced the closed-by-default
+ * gate — if we reach this function, exactly one of these is true:
+ *   1. A User row exists for this email.
+ *   2. The email matches a bootstrap-admin rule and no row exists yet.
+ * Anything else has already been redirected to /access-denied.
+ *
+ * Refreshes `displayName` from the IdP profile on first sign-in if
+ * the invite-time placeholder still equals the email (a tiny UX
+ * polish so the topbar shows a real name instead of an email).
  */
 async function resolveRoleForSignIn(
   email: string,
-  displayName: string | null,
+  profileName: string | null,
 ): Promise<{
   role: DashboardRole;
   roleKey: string;
@@ -63,13 +74,15 @@ async function resolveRoleForSignIn(
   source: RoleSource;
   disabled: boolean;
 } | null> {
-  // Fast path: user already exists.
   const existing = await prisma.user.findUnique({
     where: { email },
     include: { dashboardRole: true },
   });
 
   if (existing) {
+    // Defensive double-check — the signIn callback should have caught
+    // this, but if a session somehow resurrects after a disable we
+    // fail closed.
     if (existing.disabled) {
       return {
         role: "USER",
@@ -79,6 +92,23 @@ async function resolveRoleForSignIn(
         disabled: true,
       };
     }
+
+    // First-sign-in displayName refresh: invitee got created with
+    // displayName=email (because the inviter only knew the email);
+    // now that they've actually signed in we have a real name from
+    // the IdP. Update it once and never again — the owner stays in
+    // control of the field via /settings/users.
+    if (
+      profileName &&
+      profileName.trim() &&
+      existing.displayName === email
+    ) {
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { displayName: profileName.trim() },
+      });
+    }
+
     if (existing.dashboardRole) {
       const resolution = dbRole(existing.dashboardRole.key);
       return {
@@ -100,25 +130,27 @@ async function resolveRoleForSignIn(
     };
   }
 
-  // Slow path: JIT-provision. Decide the role first (bootstrap rule
-  // for the owner, USER otherwise), then upsert the User row pointing
-  // at that Role. Wrapped in a transaction so the User and Role link
-  // commit atomically — otherwise a crash mid-create could leave a
-  // user with no role row pointed at.
+  // No row + signIn callback let us through ⇒ this must be the
+  // bootstrap admin's first sign-in. JIT-provision them as ADMIN +
+  // owner.
   const bootstrap = bootstrapRoleForNewUser(email);
-  const targetRoleKey = bootstrap.role;
-  const builtIn = getBuiltInRole(targetRoleKey);
+  if (bootstrap.source.kind !== "email-bootstrap") {
+    // Shouldn't happen — signIn guards this. Fail closed loudly.
+    console.error(
+      `[auth] resolveRoleForSignIn reached for non-bootstrap email "${email}" ` +
+        `with no User row. signIn gate is broken. Refusing.`,
+    );
+    return null;
+  }
+  const builtIn = getBuiltInRole(bootstrap.role);
   if (!builtIn) {
     console.error(
-      `[auth] bootstrap returned non-built-in role ${targetRoleKey} for ${email}; refusing JIT-provision`,
+      `[auth] bootstrap returned non-built-in role ${bootstrap.role} for ${email}`,
     );
     return null;
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    // Make sure the target Role exists. The seed normally creates this,
-    // but a fresh DB on a new tenant might not have run the seed yet —
-    // we don't want sign-in to fail just because the seed wasn't run.
     const role = await tx.role.upsert({
       where: { key: builtIn.key },
       update: {},
@@ -134,17 +166,12 @@ async function resolveRoleForSignIn(
     const user = await tx.user.create({
       data: {
         email,
-        displayName: displayName ?? email,
-        roleTag: "UNKNOWN", // HRIS-style; updated by CSV import or Deel reconciler
+        displayName: profileName?.trim() || email,
+        roleTag: "EXEC",
         region: regionFromEmail(email),
         status: "ACTIVE",
         dashboardRoleId: role.id,
-        // Bootstrap admin gets isOwner=true on first sign-in if no
-        // owner exists yet. Belt-and-braces with the seed, in case the
-        // bootstrap admin signs in before the seed runs.
-        isOwner: bootstrap.source.kind === "email-bootstrap"
-          ? !(await tx.user.count({ where: { isOwner: true } }))
-          : false,
+        isOwner: !(await tx.user.count({ where: { isOwner: true } })),
       },
     });
 
@@ -161,14 +188,34 @@ async function resolveRoleForSignIn(
 }
 
 function regionFromEmail(email: string): string {
-  // Best-effort default region for JIT-provisioned users. The CSV
-  // import / Deel reconciler will overwrite this with the real value
-  // when it runs. UNKNOWN is fine for v0.3 — F8 (chargeback) groups
-  // unknowns into a residual bucket.
   const lc = email.toLowerCase();
   if (lc.endsWith(".au") || lc.includes(".au@")) return "APAC-AU";
   if (lc.endsWith(".in") || lc.includes(".in@")) return "APAC-IN";
   return "UNKNOWN";
+}
+
+/**
+ * Decide whether `email` is allowed to sign in. Closed-by-default
+ * (LDR 0005): an email that has no User row AND doesn't match a
+ * bootstrap-admin rule is rejected at the OAuth callback. Disabled
+ * users are also rejected here.
+ *
+ * Returns either `true` (allow) or a `/access-denied?...` URL
+ * (Auth.js redirects the browser to whatever string we return).
+ */
+async function decideSignInAccess(email: string): Promise<true | string> {
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, disabled: true },
+  });
+  if (existing) {
+    if (existing.disabled) {
+      return `/access-denied?reason=disabled&email=${encodeURIComponent(email)}`;
+    }
+    return true;
+  }
+  if (isBootstrapAdmin(email)) return true;
+  return `/access-denied?reason=not-invited&email=${encodeURIComponent(email)}`;
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -200,12 +247,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/"))) {
         return true;
       }
-      // A `disabled=true` token still has a session — but the JWT was
-      // issued with role=USER + empty permissions, so privileged routes
-      // already return forbidden. Letting the home page render with a
-      // friendly message is better than redirecting to sign-in (which
-      // would loop because sign-in succeeds against the IdP).
       return Boolean(session);
+    },
+    /**
+     * Closed-by-default access gate (LDR 0005). Runs after the IdP
+     * confirms the OAuth identity but before the JWT is issued. Allow
+     * sign-in only if a User row exists (= invited via /settings/users)
+     * OR the email matches a bootstrap-admin rule. Disabled users are
+     * rejected here too. Returning a string redirects the browser there.
+     */
+    async signIn({ profile }) {
+      const email = profile?.email?.toLowerCase().trim();
+      if (!email) {
+        console.warn("[auth][signIn] denied — no email on profile");
+        return "/access-denied?reason=no-email";
+      }
+      try {
+        return await decideSignInAccess(email);
+      } catch (e) {
+        console.error("[auth][signIn] gate threw; failing closed", e);
+        return "/access-denied?reason=error";
+      }
     },
     async jwt({ token, profile, trigger }) {
       // Only re-resolve the role on actual sign-in (`signIn` trigger)

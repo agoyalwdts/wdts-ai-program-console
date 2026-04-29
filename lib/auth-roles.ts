@@ -65,10 +65,25 @@ export type RoleResolution = {
 };
 
 /**
+ * `true` if `email` matches any of {@link BOOTSTRAP_ADMIN_RULES}. Used
+ * by the closed-by-default sign-in gate: an email that has no User row
+ * AND doesn't match a bootstrap rule is rejected at the OAuth callback.
+ */
+export function isBootstrapAdmin(email: string): boolean {
+  return BOOTSTRAP_ADMIN_RULES.some((r) => r.pattern.test(email));
+}
+
+/**
  * Resolve a role for a sign-in *without touching the DB*. Used at
  * JIT-provision time, BEFORE the user's row exists, to decide what
  * default role to seed them with. Only returns ADMIN if the email
  * matches a bootstrap rule; otherwise returns USER.
+ *
+ * Note: in the closed-by-default model (LDR 0005), JIT-provisioning
+ * only fires for the bootstrap admin. Other not-yet-existing users
+ * are rejected at the `signIn` callback, never reach this function.
+ * The USER fallback is kept defensively in case future code paths
+ * ever bypass that gate.
  */
 export function bootstrapRoleForNewUser(email: string): RoleResolution {
   for (const rule of BOOTSTRAP_ADMIN_RULES) {
