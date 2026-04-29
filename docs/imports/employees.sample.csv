@@ -1,0 +1,6 @@
+email,displayName,roleTag,region,managerEmail,status
+priya.sharma@example.com,Priya Sharma,ENG_MGR,APAC,,ACTIVE
+arjun.iyer@example.com,Arjun Iyer,ENG,APAC,priya.sharma@example.com,ACTIVE
+maya.lee@example.com,Maya Lee,DS,APAC,priya.sharma@example.com,ACTIVE
+nikhil.rao@example.com,Nikhil Rao,ENG,APAC,priya.sharma@example.com,ON_LEAVE
+sara.koh@example.com,Sara Koh,PM,APAC,priya.sharma@example.com,ACTIVE

@@ -326,6 +326,7 @@ They map to scoping §2.
 | ~~Integration real clients~~ | **Landed** — every real client except `gateway` (vendor TBD) is wired with mocked-fetch contract tests. See §6.1 + §13 for what's still operationally blocked. | §4 |
 | ~~AzureAD identity reconciler~~ | **Landed** — `npm run reconcile:azuread` mirrors Graph users → Prisma; wraps each pass in a `Decision`. Needs a nightly cron once `INTEGRATION_AZUREAD=real` flips | §4 #2 |
 | ~~Deel webhook receiver~~ | **Landed** — `/api/webhooks/deel` HMAC-verifies + records a `Decision` row; needs `DEEL_WEBHOOK_SECRET` set + Deel-side webhook URL registered to go live | §4 #3 |
+| ~~CSV employee import~~ | **Landed** — `/settings/imports` page + `POST /api/imports/employees`. Removes Deel from the Tier-0 blocker list; runbook in `docs/imports/README.md` | §4 #3 (alt path) |
 | F6 Tier promotion / demotion | Write-path via policy-repo PR (GitHub API), SCIM update flow | §2 v1.1 row 1 |
 | F7 Reclamation + dispute | 5-business-day dispute window, trigger UI, notifications | §2 v1.1 row 2 |
 | F8 Exception flow | §16.3 manager attestation → FinOps → Steering routing, 30-day TTL | §2 v1.1 row 3 |
@@ -351,7 +352,10 @@ Security / the human reviewer:
 - **N3** — GitHub org / repo for the dashboard.
 - **N4** — Named human reviewer (full-stack ~8h/wk + Security ~2h/wk).
 - **N5** — Cursor seat for the build agent (from the §4.6.1 reserve).
-- **N6** — Deel API access + webhook endpoint.
+- ~~**N6** — Deel API access + webhook endpoint.~~ Reframed: no longer a
+  Tier-0 blocker. CSV employee import (`/settings/imports`, see Track 8
+  below) covers the same need without Deel. Deel is now an *optional*
+  reconciler that lands when API access is granted.
 - **N7** — M365 admin scoped service principal for Microsoft Graph (read-only
   for v1: `User.Read.All`, `Reports.Read.All`, `AuditLog.Read.All`).
 
@@ -445,16 +449,21 @@ canonical list.
 - ⏳ Optional **`M365_COPILOT_SKU_IDS`** if WDTS uses non-default
   Copilot SKU variants.
 
-### Deel HRIS (Track 8)
+### Deel HRIS (Track 8) — now optional
 
-- ⏳ **Deel API token**. Set `DEEL_API_TOKEN`.
+- ✅ **CSV employee import** landed (`/settings/imports`,
+  `POST /api/imports/employees`, see `docs/imports/README.md`). Lets an
+  operator upsert the `User` table from a roster export without Deel.
+  This is what removed Deel from the Tier-0 blocker list.
+- ⏳ **Deel API token** (still useful when it lands). Set `DEEL_API_TOKEN`.
 - ⏳ **Webhook receiver**. Generate `DEEL_WEBHOOK_SECRET`, set on both
   the dashboard side and in Deel admin, register
   `https://<dashboard-host>/api/webhooks/deel` as the receiver URL.
 - ⏳ **Deel reconciler** (parallel to the AzureAD one) to apply
   webhook-implied state changes to Prisma. Currently webhooks land a
   `Decision` row but don't mutate `User`/`License` — by design (advisory
-  hints, not authoritative writes).
+  hints, not authoritative writes). When this lands, the CSV path stays
+  as the fallback for tenants without Deel.
 
 ### Policy repo (Track 9)
 
