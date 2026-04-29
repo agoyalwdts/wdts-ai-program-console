@@ -16,26 +16,42 @@
 
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import type { DashboardRole } from "@/lib/auth-roles";
+import type { DashboardRole, RoleSource } from "@/lib/auth-roles";
 
-export type { DashboardRole } from "@/lib/auth-roles";
+export type { DashboardRole, RoleSource } from "@/lib/auth-roles";
 
 export type SessionUser = {
   email: string;
   displayName: string;
   role: DashboardRole;
+  /** How the role was resolved. Surfaced on /settings so an operator can
+   *  tell at a glance whether they're sitting on the v0.2 email fallback
+   *  or on the production group-claim path. */
+  roleSource: RoleSource;
+  /** Raw AAD `groups` claim from the JWT. Empty if the AAD app reg
+   *  isn't emitting groups (which would itself be a bug post-v0.2). */
+  groups: string[];
 };
 
 export async function getCurrentUser(): Promise<SessionUser | null> {
   const session = await auth();
   const u = session?.user;
   if (!u?.email) return null;
+  const role =
+    ((u as { role?: DashboardRole }).role as DashboardRole | undefined) ??
+    "USER";
+  const roleSource =
+    ((u as { roleSource?: RoleSource }).roleSource as
+      | RoleSource
+      | undefined) ?? { kind: "default" };
+  const groups =
+    ((u as { groups?: string[] }).groups as string[] | undefined) ?? [];
   return {
     email: u.email,
     displayName: u.name ?? u.email,
-    role:
-      ((u as { role?: DashboardRole }).role as DashboardRole | undefined) ??
-      "USER",
+    role,
+    roleSource,
+    groups,
   };
 }
 

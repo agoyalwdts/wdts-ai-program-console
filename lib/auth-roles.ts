@@ -94,13 +94,44 @@ export function roleFromClaims(args: {
   /** Optional override — tests pass a fixed map; production reads env. */
   groupRoleMap?: Record<string, DashboardRole>;
 }): DashboardRole {
+  return roleFromClaimsWithTrace(args).role;
+}
+
+/**
+ * Like {@link roleFromClaims} but also returns *why* a role was chosen.
+ * Persisted into the JWT + session so the dashboard can surface it on
+ * /settings; without this we'd have no way to tell "this user is ADMIN
+ * because their AAD group says so" from "this user is ADMIN because
+ * the email-pattern fallback caught them" — and the latter must not
+ * survive into production.
+ */
+export type RoleSource =
+  | { kind: "group"; groupId: string }
+  | { kind: "email"; pattern: string }
+  | { kind: "default" };
+
+export type RoleResolution = {
+  role: DashboardRole;
+  source: RoleSource;
+};
+
+export function roleFromClaimsWithTrace(args: {
+  email: string;
+  groups?: string[];
+  groupRoleMap?: Record<string, DashboardRole>;
+}): RoleResolution {
   const map = args.groupRoleMap ?? loadGroupRoleMap();
   for (const g of args.groups ?? []) {
     const role = map[g];
-    if (role) return role;
+    if (role) return { role, source: { kind: "group", groupId: g } };
   }
   for (const rule of EMAIL_ROLE_RULES) {
-    if (rule.pattern.test(args.email)) return rule.role;
+    if (rule.pattern.test(args.email)) {
+      return {
+        role: rule.role,
+        source: { kind: "email", pattern: rule.pattern.source },
+      };
+    }
   }
-  return "USER";
+  return { role: "USER", source: { kind: "default" } };
 }
