@@ -26,12 +26,58 @@ model User {
   reports     User[]   @relation("UserManager")
   roleTag     String
   region      String
-  status      String   @default("ACTIVE")
+  status      String   @default("ACTIVE") // HRIS-style: ACTIVE | LEFT | ON_LEAVE
   createdAt   DateTime @default(now())
+
+  // Dashboard RBAC (LDR 0005) — distinct from `roleTag` (HRIS role like "ENG").
+  // `dashboardRoleId` is the FK to Role; nullable so JIT-provisioning can
+  // upsert without resolving the role first. The auth layer treats null as
+  // "look up the USER built-in".
+  dashboardRoleId String?
+  dashboardRole   Role?   @relation(fields: [dashboardRoleId], references: [id])
+  // `disabled` blocks sign-in. Distinct from HRIS `status=LEFT` (which is a
+  // statement about the org), this is "you used to have access; you don't
+  // any more". Owner cannot be disabled.
+  disabled        Boolean @default(false)
+  // Exactly one User row should have `isOwner=true` (enforced at the
+  // application level — partial unique indexes need a manual migration on
+  // PG and aren't worth the complexity for v0.3). Owner is always implicitly
+  // ADMIN, can't be demoted by anyone, can't be disabled by anyone.
+  isOwner         Boolean @default(false)
+  // Optional org title for display ("Chief Technology Officer · Head of AI
+  // Task Force"). Free-text, distinct from `roleTag`.
+  title           String?
 
   licenses     License[]
   usageRecords UsageRecord[]
   decisions    Decision[]    @relation("DecisionSubject")
+}
+
+/// Dashboard authorization role. Built-in roles (USER / MANAGER / FINOPS /
+/// ADMIN) are upserted from code on every seed run; custom roles are
+/// admin-created. The `permissions` array is the only source of truth for
+/// what a role grants — built-in role permission sets are re-synced from
+/// `lib/rbac/built-in-roles.ts` on seed, custom roles are user-edited via
+/// /settings/roles. See LDR 0005.
+model Role {
+  id           String   @id @default(uuid())
+  /// Stable identifier. Built-ins use uppercase enum-style keys ("ADMIN",
+  /// "FINOPS"); custom roles use admin-chosen kebab-case slugs ("auditor").
+  key          String   @unique
+  displayName  String
+  description  String?
+  /// Built-in roles are protected from delete and from key/permission edits.
+  /// `displayName` and `description` are still editable for built-ins —
+  /// e.g. "ADMIN" can be renamed to "Program Owner" without affecting the
+  /// `key` that code references.
+  isBuiltIn    Boolean  @default(false)
+  /// Code-defined permission keys this role grants. Ordering not significant.
+  /// See `lib/rbac/permissions.ts` for the full catalog.
+  permissions  String[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users        User[]
 }
 
 model License {

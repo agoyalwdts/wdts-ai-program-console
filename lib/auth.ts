@@ -8,60 +8,62 @@
  *   - Use requireUser() in every Server Component / Server Action that
  *     reads program data. Don't rely on proxy.ts alone — Server
  *     Functions are NOT in the proxy chain in Next 16.
- *   - Use getCurrentUser() ONLY when the page is genuinely public-aware
- *     (e.g. an error / sign-in landing). v0.2 has none.
- *   - DashboardRole is sourced from Auth.js's `session.user.role` which
- *     is populated by the JWT callback in auth.ts via roleFromClaims().
+ *   - Use requirePermission(KEY) for fine-grained gating. Falls back
+ *     to requireRole(...) for coarse, role-based gates that pre-date
+ *     the permission catalogue.
+ *   - SessionUser exposes role + permissions + roleSource. The trace
+ *     panel on /settings reads `roleSource` to surface "via DB" vs
+ *     "via email bootstrap" vs "default".
  */
 
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import type { DashboardRole, RoleSource } from "@/lib/auth-roles";
+import type { PermissionKey } from "@/lib/rbac/permissions";
 
 export type { DashboardRole, RoleSource } from "@/lib/auth-roles";
 
 export type SessionUser = {
   email: string;
   displayName: string;
+  /** Built-in role mirror — for back-compat with `requireRole(...)`.
+   *  A custom role still surfaces here as USER; the `permissions` array
+   *  is the real source of truth. */
   role: DashboardRole;
-  /** How the role was resolved. Surfaced on /settings so an operator can
-   *  tell at a glance whether they're sitting on the v0.2 email fallback
-   *  or on the production group-claim path. */
+  /** The actual role key (built-in like "ADMIN", or a custom slug like
+   *  "auditor"). This is what the /settings/users dropdown reads. */
+  roleKey: string;
+  /** Permission keys granted by the role. Used by `requirePermission`. */
+  permissions: ReadonlyArray<string>;
+  /** How the role was resolved. Surfaced on /settings. */
   roleSource: RoleSource;
-  /** Raw AAD `groups` claim from the JWT. Empty if the AAD app reg
-   *  isn't emitting groups (which would itself be a bug post-v0.2). */
-  groups: string[];
+  /** True if the user has been disabled by an admin. The proxy still
+   *  lets the JWT through; privileged routes block on permissions. */
+  disabled: boolean;
 };
 
 export async function getCurrentUser(): Promise<SessionUser | null> {
   const session = await auth();
   const u = session?.user;
   if (!u?.email) return null;
-  const role =
-    ((u as { role?: DashboardRole }).role as DashboardRole | undefined) ??
-    "USER";
-  const roleSource =
-    ((u as { roleSource?: RoleSource }).roleSource as
-      | RoleSource
-      | undefined) ?? { kind: "default" };
-  const groups =
-    ((u as { groups?: string[] }).groups as string[] | undefined) ?? [];
+  const v = u as {
+    role?: DashboardRole;
+    roleKey?: string;
+    permissions?: ReadonlyArray<string>;
+    roleSource?: RoleSource;
+    disabled?: boolean;
+  };
   return {
     email: u.email,
     displayName: u.name ?? u.email,
-    role,
-    roleSource,
-    groups,
+    role: v.role ?? "USER",
+    roleKey: v.roleKey ?? "USER",
+    permissions: v.permissions ?? [],
+    roleSource: v.roleSource ?? { kind: "default" },
+    disabled: Boolean(v.disabled),
   };
 }
 
-/**
- * Throws → redirects to sign-in if no session. Use this in every Server
- * Component that renders program data. The proxy already redirects
- * unauthenticated requests, so under normal flow this only fires if the
- * proxy was bypassed (Server Function path) or the session expired
- * mid-render.
- */
 export async function requireUser(): Promise<SessionUser> {
   const u = await getCurrentUser();
   if (!u) redirect("/api/auth/signin");
@@ -69,8 +71,8 @@ export async function requireUser(): Promise<SessionUser> {
 }
 
 /**
- * Role-gating helper. Throws (via redirect) if the user lacks any of the
- * allowed roles. Wire into Server Actions + privileged routes.
+ * Coarse, role-based gate. Kept for back-compat with v0.2 callsites.
+ * For new code, prefer {@link requirePermission}.
  *
  *   const user = await requireRole(["ADMIN", "FINOPS"]);
  */
@@ -78,6 +80,42 @@ export async function requireRole(
   allowed: ReadonlyArray<DashboardRole>,
 ): Promise<SessionUser> {
   const u = await requireUser();
+  if (u.disabled) redirect("/?error=disabled");
   if (!allowed.includes(u.role)) redirect("/?error=forbidden");
   return u;
+}
+
+/**
+ * Permission-based gate. The session's `permissions` array drives this
+ * — for the four built-ins, those permissions are seeded from
+ * `lib/rbac/built-in-roles.ts`; for custom roles they're whatever the
+ * admin picked in /settings/roles.
+ *
+ *   const user = await requirePermission("users.manage");
+ *
+ * Pass a single permission or an array (any-of) for "or" semantics.
+ */
+export async function requirePermission(
+  required: PermissionKey | ReadonlyArray<PermissionKey>,
+): Promise<SessionUser> {
+  const u = await requireUser();
+  if (u.disabled) redirect("/?error=disabled");
+  const wanted = Array.isArray(required) ? required : [required];
+  if (!wanted.some((p) => u.permissions.includes(p))) {
+    redirect("/?error=forbidden");
+  }
+  return u;
+}
+
+/**
+ * Boolean variant of {@link requirePermission} for places where you
+ * want to *render conditionally* rather than redirect. e.g. show a
+ * "Manage users" tile only when the user can act on it.
+ */
+export function userHasPermission(
+  user: Pick<SessionUser, "permissions">,
+  required: PermissionKey | ReadonlyArray<PermissionKey>,
+): boolean {
+  const wanted = Array.isArray(required) ? required : [required];
+  return wanted.some((p) => user.permissions.includes(p));
 }

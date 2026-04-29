@@ -12,15 +12,51 @@ import {
   CODEX_TIERS,
   CURSOR_TIERS,
 } from "../lib/program";
+import { BUILT_IN_ROLES } from "../lib/rbac/built-in-roles";
 
 const prisma = new PrismaClient();
+
+const OWNER_EMAIL = "agoyal@wdtablesystems.com";
+const OWNER_DISPLAY_NAME = "Anuj Goyal";
+const OWNER_TITLE = "Chief Technology Officer · Head of AI Task Force";
 
 async function main() {
   console.log("[seed] purging existing rows…");
   await prisma.usageRecord.deleteMany();
   await prisma.decision.deleteMany();
   await prisma.license.deleteMany();
+  // Detach users from their role FK before deleting roles, otherwise the
+  // role delete would cascade-fail. We'll recreate users below with the
+  // fresh role IDs.
   await prisma.user.deleteMany();
+  await prisma.role.deleteMany();
+
+  // 1) Seed built-in roles. Idempotent — re-running the seed re-syncs
+  //    permissions if a deploy changed the catalogue.
+  console.log(`[seed] seeding ${BUILT_IN_ROLES.length} built-in roles…`);
+  const roleIdByKey = new Map<string, string>();
+  for (const def of BUILT_IN_ROLES) {
+    const r = await prisma.role.upsert({
+      where: { key: def.key },
+      update: {
+        displayName: def.displayName,
+        description: def.description,
+        permissions: [...def.permissions],
+        isBuiltIn: true,
+      },
+      create: {
+        key: def.key,
+        displayName: def.displayName,
+        description: def.description,
+        permissions: [...def.permissions],
+        isBuiltIn: true,
+      },
+    });
+    roleIdByKey.set(def.key, r.id);
+  }
+
+  const adminRoleId = roleIdByKey.get("ADMIN")!;
+  const userRoleId = roleIdByKey.get("USER")!;
 
   const rng = makeRng(20260428);
   const users = buildUsers();
@@ -37,10 +73,41 @@ async function main() {
         roleTag: u.roleTag,
         region: u.region,
         status: "ACTIVE",
+        // Synthetic users default to USER role. The owner row below
+        // overrides for the real account.
+        dashboardRoleId: userRoleId,
       },
     });
     emailToId.set(u.email, created.id);
   }
+
+  // 2) Owner row — make sure agoyal@wdtablesystems.com exists with
+  //    isOwner=true, ADMIN role, and the title stamped on. Upsert so a
+  //    re-seed doesn't blow away role/title changes the live user made
+  //    via /settings (though the seed wipes data anyway in dev).
+  console.log(`[seed] ensuring owner row for ${OWNER_EMAIL}…`);
+  const owner = await prisma.user.upsert({
+    where: { email: OWNER_EMAIL },
+    update: {
+      displayName: OWNER_DISPLAY_NAME,
+      title: OWNER_TITLE,
+      isOwner: true,
+      disabled: false,
+      dashboardRoleId: adminRoleId,
+    },
+    create: {
+      email: OWNER_EMAIL,
+      displayName: OWNER_DISPLAY_NAME,
+      title: OWNER_TITLE,
+      isOwner: true,
+      disabled: false,
+      roleTag: "EXEC",
+      region: "APAC-AU",
+      status: "ACTIVE",
+      dashboardRoleId: adminRoleId,
+    },
+  });
+  emailToId.set(OWNER_EMAIL, owner.id);
 
   // Wire up manager relationships now that all users exist.
   for (const u of users) {
