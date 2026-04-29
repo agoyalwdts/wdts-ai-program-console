@@ -51,6 +51,25 @@ const PUBLIC_PATHS = [
 const debug = process.env.AUTH_DEBUG === "true";
 
 /**
+ * Bump this whenever the shape of the JWT we issue changes — i.e.
+ * whenever {@link resolveRoleForSignIn} starts writing a new field
+ * onto the token, or stops writing one. The JWT callback re-resolves
+ * the token from the database whenever the cookie's stamped version
+ * doesn't match this constant, which auto-heals every existing
+ * session on its next request after a deploy.
+ *
+ * Without this, an old cookie minted by a previous build keeps
+ * round-tripping through the callback unchanged (because Auth.js
+ * preserves whatever fields it already has), and downstream code
+ * sees a half-populated session.
+ *
+ * Version history:
+ *   1 — v0.2 shape: { role }.
+ *   2 — v0.3 shape: { role, roleKey, permissions, roleSource, disabled }.
+ */
+const TOKEN_SCHEMA_VERSION = 2;
+
+/**
  * Look up the user's dashboard role + permissions, or JIT-provision
  * the bootstrap admin on their first sign-in.
  *
@@ -270,10 +289,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
     },
     async jwt({ token, profile, trigger }) {
-      // Only re-resolve the role on actual sign-in (`signIn` trigger)
-      // or first issue. On every page-render the JWT callback fires,
-      // and we don't want to hit the DB every time.
-      if (trigger === "signIn" || !token.role) {
+      // Re-resolve from DB on:
+      //   - actual sign-in (`signIn` trigger), or
+      //   - first issue (no role on token), or
+      //   - stamped schema version doesn't match the current code
+      //     (i.e. the cookie predates a JWT shape change). This is the
+      //     auto-heal path — without it, a v0.2 cookie that has
+      //     `token.role="ADMIN"` but no `permissions[]` keeps slipping
+      //     through every request unchanged and downstream
+      //     `requirePermission` gates fail closed.
+      // Otherwise the JWT callback is a hot path on every page render,
+      // so we skip the DB read.
+      const needsResolve =
+        trigger === "signIn" ||
+        !token.role ||
+        token.tokenSchemaVersion !== TOKEN_SCHEMA_VERSION;
+
+      if (needsResolve) {
         if (profile?.email) token.email = profile.email;
         if (profile?.name) token.name = profile.name;
         try {
@@ -305,6 +337,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.roleSource = { kind: "default" };
           token.disabled = false;
         }
+        // Stamp the version *after* the resolve completes (or fails
+        // closed). Even on the failure path we record that we attempted
+        // a resolve at this schema version so the next request doesn't
+        // burn another DB query.
+        token.tokenSchemaVersion = TOKEN_SCHEMA_VERSION;
       }
       return token;
     },
