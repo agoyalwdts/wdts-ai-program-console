@@ -369,6 +369,63 @@ v0.3 custom-domain item; the workaround is "Hide details → this unsafe
 site" per browser profile, or submit a reclassification request at
 <https://safebrowsing.google.com/safebrowsing/report_error/>.
 
+### Schema migrations that add seed data (RBAC, etc.)
+
+`prisma db seed` is **destructive** by design — it `deleteMany`s users,
+licenses, usage records and decisions to regenerate a deterministic
+synthetic dataset. That's fine in local dev and CI. It is **not** OK to
+run against a live preview / production database.
+
+When a migration adds new tables or rows that need to exist for the app
+to boot (e.g. the v0.3 RBAC migration: a `Role` table whose contents
+the auth callback reads on every sign-in), the deploy sequence is:
+
+```bash
+# 1) Apply the migration (additive DDL only — no data writes).
+DATABASE_URL="$(az keyvault secret show --vault-name wdts-ai-cons-kv \
+  --name DATABASE-URL --query value -o tsv)" \
+  npx prisma migrate deploy
+
+# 2) Run the matching non-destructive deploy script.
+DATABASE_URL="$(az keyvault secret show --vault-name wdts-ai-cons-kv \
+  --name DATABASE-URL --query value -o tsv)" \
+  npx tsx scripts/rbac-deploy.ts
+```
+
+The convention: every schema change that introduces seed-shaped data
+ships with a `scripts/<feature>-deploy.ts` companion that is
+idempotent, never deletes, and only touches the tables that feature
+owns. Today there's one — `scripts/rbac-deploy.ts`, which:
+
+- Upserts the four built-in `Role` rows (USER / MANAGER / FINOPS / ADMIN)
+  from `lib/rbac/built-in-roles.ts`. Re-syncs `permissions[]` if a
+  newer build changed the catalogue.
+- Ensures the dashboard owner row exists with `isOwner=true`,
+  `title="Chief Technology Officer · Head of AI Task Force"`, and
+  `dashboardRoleId → ADMIN`.
+- Backfills `User.dashboardRoleId = USER` for any pre-existing rows
+  the migration left as `NULL` (so existing seed users continue to
+  authorise).
+
+It is safe to re-run on every deploy. It does **not** require a temp
+firewall rule beyond the laptop IP needed for `migrate deploy` itself,
+because it speaks the same Postgres connection string.
+
+The local laptop firewall rule the operator added in step 1 should be
+removed after step 2:
+
+```bash
+az postgres flexible-server firewall-rule delete \
+  --resource-group wdts-ai-program-console-rg \
+  --name wdts-ai-program-console-db \
+  --rule-name "deploy-laptop-$(date +%Y%m%d)" --yes
+```
+
+When the GitHub Actions OIDC pipeline is wired (§4), both `migrate
+deploy` and `scripts/<feature>-deploy.ts` move into the workflow and
+run from a private agent that's already inside the VNet. Until then,
+this is a manual step the operator runs from a workstation.
+
 ### Build conventions the deploy assumes
 
 Both checked into the repo, both required for a working App Service
