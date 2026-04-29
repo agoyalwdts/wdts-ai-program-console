@@ -439,6 +439,10 @@ canonical list.
   new-tenant recovery.
 - 🗒️ **Future scope**: optional AAD-group → Role binding (LDR 0005
   "Open follow-ups"). Do **not** start without an explicit trigger.
+- ✅ **AzureAD client in prod** (`INTEGRATION_AZUREAD=real`, flipped
+  2026-04-29). Reuses the same prod app reg + admin-consented
+  `User.Read.All` scope as M365 Graph. Reads only — the reconciler
+  remains invoke-by-hand.
 - ⏳ **AzureAD reconciler schedule.** `npm run reconcile:azuread` is
   invoke-by-hand today. Add a nightly cron (cloud schedule, GitHub
   Actions schedule, or external runner — choose at deploy time).
@@ -464,8 +468,12 @@ canonical list.
 
 - ✅ **Admin consent granted** on the production AAD app for
   `User.Read.All` and `Reports.Read.All` (verified in the Entra portal
-  on 2026-04-28). `INTEGRATION_M365GRAPH=real` will flip cleanly once
-  the dashboard's prod App Service has the secrets it needs.
+  on 2026-04-28).
+- ✅ **`INTEGRATION_M365GRAPH=real` flipped in prod** on 2026-04-29.
+  F1's Copilot adoption + activity tiles now read live data from
+  `/v1.0/users` (license filter on the Copilot SKU) and
+  `/reports/getMicrosoft365CopilotUsageUserDetail` instead of the
+  synthetic generator.
 - ⏳ Optional **`M365_COPILOT_SKU_IDS`** if WDTS uses non-default
   Copilot SKU variants.
 
