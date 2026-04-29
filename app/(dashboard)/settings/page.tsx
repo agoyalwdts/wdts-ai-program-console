@@ -18,11 +18,14 @@ import {
 } from "@/lib/integrations";
 import {
   AlertCircle,
+  ArrowRight,
   CheckCircle2,
   CircleDashed,
   Database,
   KeyRound,
+  Upload,
 } from "lucide-react";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -130,6 +133,29 @@ export default async function SettingsPage() {
         subtitle="Connectivity + configuration. ADMIN/FINOPS only."
       />
       <div className="p-6 space-y-6 max-w-4xl">
+        <Card className="border-sky-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Upload className="h-4 w-4 text-sky-600" />
+              Data imports
+            </CardTitle>
+            <CardDescription>
+              Bulk-load employee data from a CSV. Use this when the Deel
+              integration isn&apos;t live yet, or to seed a tenant from an
+              HRIS export.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/settings/imports"
+              className="inline-flex items-center gap-1 text-sm text-sky-700 hover:text-sky-900 underline-offset-4 hover:underline"
+            >
+              Open import console
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Live integration probes</CardTitle>
