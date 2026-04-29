@@ -18,8 +18,8 @@
 
 import NextAuth from "next-auth";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
-import { roleFromClaims } from "@/lib/auth-roles";
-import type { DashboardRole } from "@/lib/auth-roles";
+import { roleFromClaimsWithTrace } from "@/lib/auth-roles";
+import type { DashboardRole, RoleSource } from "@/lib/auth-roles";
 
 const tenantId = process.env.AZURE_AD_TENANT_ID;
 const clientId = process.env.AZURE_AD_CLIENT_ID;
@@ -103,19 +103,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // (Token configuration → groupMembershipClaims=SecurityGroup) AND
       // the env vars to be set. When neither is true, step 2 takes over.
       const groupsClaim = (profile as { groups?: string[] } | undefined)?.groups;
-      const role: DashboardRole = roleFromClaims({
+      const trace = roleFromClaimsWithTrace({
         email: token.email ?? "",
         groups: groupsClaim,
       });
-      token.role = role;
+      token.role = trace.role;
+      token.roleSource = trace.source;
+      // Persist groups (count + the OIDs themselves) so the /settings
+      // panel can show "you're in 14 AAD groups; here are the OIDs"
+      // without re-issuing the token. OIDs are non-secret (they leak
+      // group structure but not membership content).
+      if (groupsClaim) token.groups = groupsClaim;
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.email = token.email ?? session.user.email;
         session.user.name = token.name ?? session.user.name;
-        (session.user as { role?: DashboardRole }).role =
-          (token.role as DashboardRole) ?? "USER";
+        const u = session.user as {
+          role?: DashboardRole;
+          roleSource?: RoleSource;
+          groups?: string[];
+        };
+        u.role = (token.role as DashboardRole) ?? "USER";
+        u.roleSource = (token.roleSource as RoleSource | undefined) ?? {
+          kind: "default",
+        };
+        u.groups = (token.groups as string[] | undefined) ?? [];
       }
       return session;
     },

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { loadGroupRoleMap, roleFromClaims } from "./auth-roles";
+import {
+  loadGroupRoleMap,
+  roleFromClaims,
+  roleFromClaimsWithTrace,
+} from "./auth-roles";
 
 describe("roleFromClaims", () => {
   describe("email fallback (no group map)", () => {
@@ -127,5 +131,71 @@ describe("loadGroupRoleMap", () => {
       if (before === undefined) delete process.env.AZURE_AD_GROUP_ADMIN_IDS;
       else process.env.AZURE_AD_GROUP_ADMIN_IDS = before;
     }
+  });
+});
+
+describe("roleFromClaimsWithTrace", () => {
+  const map = {
+    "00000000-0000-0000-0000-aaaaaaaaaaaa": "ADMIN" as const,
+    "00000000-0000-0000-0000-bbbbbbbbbbbb": "FINOPS" as const,
+  };
+
+  it("group hit reports the matching group OID", () => {
+    const trace = roleFromClaimsWithTrace({
+      email: "alice@wdts.com",
+      groups: [
+        "no-match",
+        "00000000-0000-0000-0000-aaaaaaaaaaaa",
+        "00000000-0000-0000-0000-bbbbbbbbbbbb",
+      ],
+      groupRoleMap: map,
+    });
+    expect(trace).toEqual({
+      role: "ADMIN",
+      source: {
+        kind: "group",
+        groupId: "00000000-0000-0000-0000-aaaaaaaaaaaa",
+      },
+    });
+  });
+
+  it("email-rule hit reports the pattern that matched", () => {
+    const trace = roleFromClaimsWithTrace({
+      email: "anuj.goyal@example.com",
+      groupRoleMap: {},
+    });
+    expect(trace.role).toBe("ADMIN");
+    expect(trace.source).toMatchObject({ kind: "email" });
+    if (trace.source.kind === "email") {
+      // The pattern matches the rule actually defined in EMAIL_ROLE_RULES.
+      expect(trace.source.pattern).toMatch(/anuj/i);
+    }
+  });
+
+  it("group hit beats email rule even when both would match", () => {
+    const trace = roleFromClaimsWithTrace({
+      email: "anuj.goyal@example.com",
+      groups: ["00000000-0000-0000-0000-bbbbbbbbbbbb"],
+      groupRoleMap: map,
+    });
+    expect(trace.role).toBe("FINOPS");
+    expect(trace.source.kind).toBe("group");
+  });
+
+  it("falls through to default with kind='default'", () => {
+    const trace = roleFromClaimsWithTrace({
+      email: "stranger@nowhere.test",
+      groupRoleMap: {},
+    });
+    expect(trace).toEqual({ role: "USER", source: { kind: "default" } });
+  });
+
+  it("roleFromClaims returns the same role as the trace function", () => {
+    const args = {
+      email: "anuj.goyal@example.com",
+      groups: ["00000000-0000-0000-0000-bbbbbbbbbbbb"],
+      groupRoleMap: map,
+    };
+    expect(roleFromClaims(args)).toBe(roleFromClaimsWithTrace(args).role);
   });
 });

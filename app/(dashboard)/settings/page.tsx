@@ -8,7 +8,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { requireRole } from "@/lib/auth";
+import { requireRole, getCurrentUser } from "@/lib/auth";
+import { ENV_GROUP_VARS } from "@/lib/auth-roles";
 import { formatUsd } from "@/lib/utils";
 import {
   getAllIntegrationModes,
@@ -124,7 +125,20 @@ export default async function SettingsPage() {
   await requireRole(["ADMIN", "FINOPS"]);
 
   const modes = getAllIntegrationModes();
-  const [aadProbe, aoiProbe] = await Promise.all([probeAzureAD(), probeAzureOpenAI()]);
+  const [aadProbe, aoiProbe, currentUser] = await Promise.all([
+    probeAzureAD(),
+    probeAzureOpenAI(),
+    getCurrentUser(),
+  ]);
+
+  // Tell the operator which env vars are *actually* mapped right now,
+  // so they can spot "I set them but the App Service hasn't restarted
+  // yet" without reading code.
+  const envGroupSnapshot = ENV_GROUP_VARS.map(({ role, env }) => {
+    const raw = process.env[env];
+    const ids = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    return { role, env, count: ids.length };
+  });
 
   return (
     <>
@@ -133,6 +147,55 @@ export default async function SettingsPage() {
         subtitle="Connectivity + configuration. ADMIN/FINOPS only."
       />
       <div className="p-6 space-y-6 max-w-4xl">
+        <Card>
+          <CardHeader>
+            <CardTitle>Your session</CardTitle>
+            <CardDescription>
+              How auth resolved your role for this session. Useful when
+              wiring AAD security groups: if <code className="font-mono">source</code>{" "}
+              still says <code className="font-mono">email</code> after you set
+              the env vars, the App Service hasn&apos;t restarted yet (or the
+              OID isn&apos;t one of yours).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <SessionSummary user={currentUser} />
+            <div>
+              <div className="text-sm font-medium text-slate-900 mb-1">
+                Active group → role mapping (env)
+              </div>
+              <Table>
+                <THead>
+                  <TR>
+                    <TH className="pl-3">Role</TH>
+                    <TH>Env var</TH>
+                    <TH className="pr-3">Group OIDs configured</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {envGroupSnapshot.map((r) => (
+                    <TR key={r.role}>
+                      <TD className="pl-3">
+                        <Badge variant="secondary">{r.role}</Badge>
+                      </TD>
+                      <TD className="font-mono text-xs">{r.env}</TD>
+                      <TD className="pr-3 text-xs">
+                        {r.count === 0 ? (
+                          <span className="text-slate-400">— none —</span>
+                        ) : (
+                          <span className="text-slate-700">
+                            {r.count} OID{r.count === 1 ? "" : "s"}
+                          </span>
+                        )}
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="border-sky-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -293,6 +356,92 @@ function ProbeRow({
             {result.error}
           </pre>
         )}
+      </div>
+    </div>
+  );
+}
+
+function SessionSummary({
+  user,
+}: {
+  user: Awaited<ReturnType<typeof getCurrentUser>>;
+}) {
+  if (!user) {
+    return (
+      <div className="text-sm text-slate-500">No session — anonymous request.</div>
+    );
+  }
+  const src = user.roleSource;
+  const sourceBadge =
+    src.kind === "group" ? (
+      <Badge variant="success">via AAD group</Badge>
+    ) : src.kind === "email" ? (
+      <Badge variant="warning">via email rule (sandbox bridge)</Badge>
+    ) : (
+      <Badge variant="secondary">default (USER)</Badge>
+    );
+
+  return (
+    <div className="rounded-md border border-slate-200 p-4 space-y-3">
+      <div className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
+        <div className="text-slate-500">Email</div>
+        <div className="text-slate-900 font-mono text-xs">{user.email}</div>
+
+        <div className="text-slate-500">Role</div>
+        <div>
+          <Badge
+            variant={
+              user.role === "ADMIN"
+                ? "success"
+                : user.role === "FINOPS"
+                  ? "warning"
+                  : user.role === "MANAGER"
+                    ? "secondary"
+                    : "secondary"
+            }
+          >
+            {user.role}
+          </Badge>
+        </div>
+
+        <div className="text-slate-500">Source</div>
+        <div className="space-y-1">
+          {sourceBadge}
+          {src.kind === "group" ? (
+            <div className="text-xs font-mono text-slate-600 break-all">
+              matched {src.groupId}
+            </div>
+          ) : src.kind === "email" ? (
+            <div className="text-xs font-mono text-slate-600 break-all">
+              pattern <code>/{src.pattern}/</code>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="text-slate-500">AAD groups</div>
+        <div className="text-sm">
+          {user.groups.length === 0 ? (
+            <span className="text-slate-500">
+              none in JWT — check <code className="font-mono">groupMembershipClaims</code>{" "}
+              on the prod app registration
+            </span>
+          ) : (
+            <details className="text-sm">
+              <summary className="cursor-pointer text-sky-700 hover:text-sky-900">
+                {user.groups.length} group OID
+                {user.groups.length === 1 ? "" : "s"} in token (click to
+                show)
+              </summary>
+              <ul className="mt-2 space-y-1 font-mono text-xs text-slate-700">
+                {user.groups.map((g) => (
+                  <li key={g} className="break-all">
+                    {g}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
       </div>
     </div>
   );
