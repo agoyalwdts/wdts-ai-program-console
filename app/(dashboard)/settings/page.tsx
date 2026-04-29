@@ -8,8 +8,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { requireRole, getCurrentUser } from "@/lib/auth";
-import { ENV_GROUP_VARS } from "@/lib/auth-roles";
+import { requirePermission, getCurrentUser } from "@/lib/auth";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { formatUsd } from "@/lib/utils";
 import {
   getAllIntegrationModes,
@@ -22,9 +22,12 @@ import {
   ArrowRight,
   CheckCircle2,
   CircleDashed,
+  Crown,
   Database,
   KeyRound,
+  ShieldCheck,
   Upload,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -35,9 +38,6 @@ type ProbeResult =
   | { ok: false; error: string };
 
 async function probeAzureAD(): Promise<ProbeResult> {
-  // Calls the real client directly so the probe always exercises Graph,
-  // regardless of INTEGRATION_AZUREAD. The dashboard page joins remain
-  // synthetic until the v0.3 reconciler lands.
   if (!process.env.AZURE_AD_TENANT_ID) {
     return { ok: false, error: "AZURE_AD_TENANT_ID not set in .env.local" };
   }
@@ -114,15 +114,17 @@ const INTEGRATION_NOTES: Record<IntegrationName, string> = {
   m365graph: "Same app reg or a separate SP with Reports.Read.All + AuditLog.Read.All.",
   azuread:
     "Real client wired (PR #9). Default still synthetic until the v0.3 reconciler mirrors Graph users into the local User table.",
-  deel: "Deel API token + webhook receiver URL.",
+  deel: "Deel API token + webhook receiver URL. Now optional — CSV import covers the same need.",
   policyrepo: "GitHub PAT or App credentials; targets agoyalwdts/wdts-ai-policy.",
   azureopenai:
     "Resource API key from Azure Portal → Keys and Endpoint. Data plane only.",
 };
 
 export default async function SettingsPage() {
-  // /settings is privileged — exposes integration credentials health.
-  await requireRole(["ADMIN", "FINOPS"]);
+  // /settings exposes integration credentials health + admin tiles. The
+  // permission-key gate is what enforces FINOPS/ADMIN; USER + MANAGER
+  // are correctly redirected to / by `requirePermission`.
+  await requirePermission(PERMISSIONS.DASHBOARD_VIEW_SETTINGS);
 
   const modes = getAllIntegrationModes();
   const [aadProbe, aoiProbe, currentUser] = await Promise.all([
@@ -131,14 +133,10 @@ export default async function SettingsPage() {
     getCurrentUser(),
   ]);
 
-  // Tell the operator which env vars are *actually* mapped right now,
-  // so they can spot "I set them but the App Service hasn't restarted
-  // yet" without reading code.
-  const envGroupSnapshot = ENV_GROUP_VARS.map(({ role, env }) => {
-    const raw = process.env[env];
-    const ids = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [];
-    return { role, env, count: ids.length };
-  });
+  const canManageUsers =
+    currentUser?.permissions.includes(PERMISSIONS.USERS_MANAGE) ?? false;
+  const canManageRoles =
+    currentUser?.permissions.includes(PERMISSIONS.ROLES_MANAGE) ?? false;
 
   return (
     <>
@@ -151,50 +149,64 @@ export default async function SettingsPage() {
           <CardHeader>
             <CardTitle>Your session</CardTitle>
             <CardDescription>
-              How auth resolved your role for this session. Useful when
-              wiring AAD security groups: if <code className="font-mono">source</code>{" "}
-              still says <code className="font-mono">email</code> after you set
-              the env vars, the App Service hasn&apos;t restarted yet (or the
-              OID isn&apos;t one of yours).
+              How auth resolved your role for this session. The dashboard
+              owns its own access control (LDR 0005); AAD provides identity
+              only.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent>
             <SessionSummary user={currentUser} />
-            <div>
-              <div className="text-sm font-medium text-slate-900 mb-1">
-                Active group → role mapping (env)
-              </div>
-              <Table>
-                <THead>
-                  <TR>
-                    <TH className="pl-3">Role</TH>
-                    <TH>Env var</TH>
-                    <TH className="pr-3">Group OIDs configured</TH>
-                  </TR>
-                </THead>
-                <TBody>
-                  {envGroupSnapshot.map((r) => (
-                    <TR key={r.role}>
-                      <TD className="pl-3">
-                        <Badge variant="secondary">{r.role}</Badge>
-                      </TD>
-                      <TD className="font-mono text-xs">{r.env}</TD>
-                      <TD className="pr-3 text-xs">
-                        {r.count === 0 ? (
-                          <span className="text-slate-400">— none —</span>
-                        ) : (
-                          <span className="text-slate-700">
-                            {r.count} OID{r.count === 1 ? "" : "s"}
-                          </span>
-                        )}
-                      </TD>
-                    </TR>
-                  ))}
-                </TBody>
-              </Table>
-            </div>
           </CardContent>
         </Card>
+
+        {canManageUsers || canManageRoles ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {canManageUsers ? (
+              <Card className="border-sky-200">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="h-4 w-4 text-sky-600" />
+                    User management
+                  </CardTitle>
+                  <CardDescription>
+                    Assign dashboard roles, enable/disable users.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Link
+                    href="/settings/users"
+                    className="inline-flex items-center gap-1 text-sm text-sky-700 hover:text-sky-900 underline-offset-4 hover:underline"
+                  >
+                    Open users console
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </CardContent>
+              </Card>
+            ) : null}
+            {canManageRoles ? (
+              <Card className="border-sky-200">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-sky-600" />
+                    Roles & permissions
+                  </CardTitle>
+                  <CardDescription>
+                    Built-ins + create custom roles.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Link
+                    href="/settings/roles"
+                    className="inline-flex items-center gap-1 text-sm text-sky-700 hover:text-sky-900 underline-offset-4 hover:underline"
+                  >
+                    Open roles console
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
+        ) : null}
 
         <Card className="border-sky-200">
           <CardHeader>
@@ -288,7 +300,7 @@ export default async function SettingsPage() {
             <CardTitle>Program constants</CardTitle>
             <CardDescription>
               Hard-coded in <code className="font-mono">lib/program.ts</code>{" "}
-              for v0.2; v0.3 moves the editable subset (alert thresholds,
+              for v0.3; v0.4 moves the editable subset (alert thresholds,
               budgets) into the policy repo and wires a read-only display
               here.
             </CardDescription>
@@ -304,7 +316,11 @@ export default async function SettingsPage() {
               v={`${formatUsd(500_000)}/year`}
               note="$500K credit envelope · 120-seat plan, four sub-tiers; §4.6.1"
             />
-            <Row k="Build" v="v0.2 (post-auth)" note="See git log for the full PR chain." />
+            <Row
+              k="Build"
+              v="v0.3 (app-level RBAC)"
+              note="See git log for the full PR chain."
+            />
           </CardContent>
         </Card>
       </div>
@@ -373,10 +389,13 @@ function SessionSummary({
   }
   const src = user.roleSource;
   const sourceBadge =
-    src.kind === "group" ? (
-      <Badge variant="success">via AAD group</Badge>
-    ) : src.kind === "email" ? (
-      <Badge variant="warning">via email rule (sandbox bridge)</Badge>
+    src.kind === "db" ? (
+      <Badge variant="success" className="flex items-center gap-1">
+        <CheckCircle2 className="h-3 w-3" />
+        via DB role
+      </Badge>
+    ) : src.kind === "email-bootstrap" ? (
+      <Badge variant="warning">via bootstrap email rule</Badge>
     ) : (
       <Badge variant="secondary">default (USER)</Badge>
     );
@@ -388,60 +407,66 @@ function SessionSummary({
         <div className="text-slate-900 font-mono text-xs">{user.email}</div>
 
         <div className="text-slate-500">Role</div>
-        <div>
+        <div className="space-y-0.5">
           <Badge
             variant={
               user.role === "ADMIN"
                 ? "success"
                 : user.role === "FINOPS"
                   ? "warning"
-                  : user.role === "MANAGER"
-                    ? "secondary"
-                    : "secondary"
+                  : "secondary"
             }
           >
-            {user.role}
+            {user.roleKey}
           </Badge>
+          {user.roleKey !== user.role ? (
+            <div className="text-xs text-slate-500">
+              custom role; built-in equivalent for back-compat gates: {user.role}
+            </div>
+          ) : null}
         </div>
 
         <div className="text-slate-500">Source</div>
         <div className="space-y-1">
           {sourceBadge}
-          {src.kind === "group" ? (
+          {src.kind === "db" ? (
             <div className="text-xs font-mono text-slate-600 break-all">
-              matched {src.groupId}
+              role row: {src.roleKey}
             </div>
-          ) : src.kind === "email" ? (
+          ) : src.kind === "email-bootstrap" ? (
             <div className="text-xs font-mono text-slate-600 break-all">
               pattern <code>/{src.pattern}/</code>
             </div>
           ) : null}
         </div>
 
-        <div className="text-slate-500">AAD groups</div>
+        <div className="text-slate-500">Permissions</div>
         <div className="text-sm">
-          {user.groups.length === 0 ? (
-            <span className="text-slate-500">
-              none in JWT — check <code className="font-mono">groupMembershipClaims</code>{" "}
-              on the prod app registration
-            </span>
-          ) : (
-            <details className="text-sm">
-              <summary className="cursor-pointer text-sky-700 hover:text-sky-900">
-                {user.groups.length} group OID
-                {user.groups.length === 1 ? "" : "s"} in token (click to
-                show)
-              </summary>
-              <ul className="mt-2 space-y-1 font-mono text-xs text-slate-700">
-                {user.groups.map((g) => (
-                  <li key={g} className="break-all">
-                    {g}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
+          <details>
+            <summary className="cursor-pointer text-sky-700 hover:text-sky-900">
+              {user.permissions.length} permission
+              {user.permissions.length === 1 ? "" : "s"} granted (click to
+              show)
+            </summary>
+            <ul className="mt-2 space-y-0.5 font-mono text-xs text-slate-700">
+              {user.permissions.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </details>
         </div>
+
+        {user.disabled ? (
+          <>
+            <div className="text-slate-500">Status</div>
+            <div>
+              <Badge variant="danger" className="flex items-center gap-1">
+                <Crown className="h-3 w-3" />
+                Disabled
+              </Badge>
+            </div>
+          </>
+        ) : null}
       </div>
     </div>
   );

@@ -60,13 +60,26 @@ The dashboard is a **thin workflow layer**, not the source of truth — see §3.
 Authoritative state lives in:
 
 - The policy repo at https://github.com/agoyalwdts/wdts-ai-policy (separate repo; the dashboard reads/writes via PRs against it, never directly).
-- The IdP — Azure AD / Entra ID.
+- The IdP — Microsoft Entra ID — for **identity** (sign-in, MFA, JML).
 - The gateway audit log (vendor TBD per scoping §8 N-series).
 
-The dashboard owns authoritatively only `Decision`, `ExceptionRequest`, and
-`ReclamationEvent` rows, and those are append-only and exported nightly to a
-WORM Azure Blob (v0.2+). If the dashboard is wiped, the program continues; the
-dashboard is rebuilt from the policy repo + audit log.
+The dashboard owns authoritatively:
+
+- `Decision`, `ExceptionRequest`, `ReclamationEvent` (append-only operational
+  ledger; exported nightly to a WORM Azure Blob in v0.2+).
+- **Dashboard authorization** — `Role`, `User.dashboardRoleId`,
+  `User.disabled`, `User.isOwner`, **and the access list itself** (LDR 0005).
+  AAD provides identity; the dashboard decides who's allowed in and what
+  they can do once they're in. Sign-in is **closed by default** — only
+  emails with a `User` row (or matching the bootstrap-owner rule) can
+  sign in; anyone else gets the `/access-denied` page. The owner adds
+  people via `/settings/users → Invite user`. **AAD security groups are
+  not used for authorization.** Future scope: a v0.4+ optional binding
+  between `Role` rows and AAD group OIDs is sketched in LDR 0005's Open
+  follow-ups — do not start it without an explicit trigger.
+
+If the dashboard is wiped, the program continues; the dashboard is rebuilt
+from the policy repo + audit log + a fresh seed.
 
 ### Forbidden moves
 
@@ -171,8 +184,11 @@ wdts-ai-program-console/
 │  └─ dashboard/  # Sidebar, Topbar
 ├─ lib/
 │  ├─ prisma.ts             # singleton client
-│  ├─ auth.ts               # dashboard-facing auth helpers (requireUser/requireRole)
-│  ├─ auth-roles.ts         # pure role-mapping (testable; AAD groups + email rules)
+│  ├─ auth.ts               # dashboard-facing auth helpers (requireUser/requireRole/requirePermission)
+│  ├─ auth-roles.ts         # pure role-mapping (testable; DB-first + bootstrap email rule)
+│  ├─ rbac/
+│  │  ├─ permissions.ts     # code-defined permission catalogue
+│  │  └─ built-in-roles.ts  # USER / MANAGER / FINOPS / ADMIN definitions, seeded into DB
 │  ├─ program.ts            # program constants
 │  ├─ synthetic-data.ts     # STUB — synthetic generator used by `prisma/seed.ts`
 │  ├─ integrations/         # vendor abstractions (scoping §4); see §6.1 below
@@ -317,7 +333,7 @@ They map to scoping §2.
 
 | Area | What's deferred | Scoping ref |
 |---|---|---|
-| ~~Auth~~ | **Landed** — Auth.js v5 (`auth.ts` at root) + Microsoft Entra ID provider, JWT sessions, strict gating via `proxy.ts` (Next 16 rename of middleware), `requireUser()` / `requireRole()` helpers in `lib/auth.ts`, role mapping in `lib/auth-roles.ts` (testable). See `.cursor/rules/auth.mdc`. v0.3 wires real AAD group claims | §4 #1, §6 Q2, §8 N2 |
+| ~~Auth~~ | **Landed** — Auth.js v5 (`auth.ts` at root) + Microsoft Entra ID provider (identity only), JWT sessions, strict gating via `proxy.ts` (Next 16 rename of middleware), `requireUser()` / `requireRole()` / `requirePermission()` helpers in `lib/auth.ts`. **App-level RBAC** (LDR 0005) — `Role` table + `User.dashboardRoleId`, JIT-provisioning on first sign-in, `/settings/users` and `/settings/roles` admin UI. AAD groups are intentionally NOT used. | §4 #1, §6 Q2, §8 N2, LDR 0005 |
 | ~~F3 Manager queue~~ | **Landed** — `/managers` route reads through `getGatewayClient().managerQueue()` (synthetic). v0.2 evolves the "pending recommendations" surface from `Decision` rows to dedicated `ReclamationEvent` / `ExceptionRequest` models | §2 v1 row 3 |
 | ~~F1/F2/F4 → integration clients~~ | **Landed** — `health`, `users`, `cursor-seats` all consume `getGatewayClient()` / `getCursorClient()` / `getAzureADClient()` / `getDeelClient()`. F5 intentionally stays on Prisma | §4 |
 | ~~Test DB infra~~ | **Landed** — Vitest globalSetup provisions `<db>_test` and runs migrations + seed; `**/*.db.test.ts` files connect to it. First DB-integration test exercises `syntheticGatewayClient` | §9.2 |
@@ -388,6 +404,7 @@ Current index:
 | 0002 | Canonical cost-centre key on User | proposed |
 | 0003 | Production deploy target: Azure App Service + Postgres FS + Key Vault + GHA OIDC | accepted |
 | 0004 | Cursor is credit-bound, not seat-bound: 4 sub-tiers, 120-seat plan inside a $500K/yr envelope | accepted |
+| 0005 | App-level RBAC: dashboard owns its own access control (AAD = identity only) | accepted |
 
 The README in that folder explains the format and the proposed→accepted
 sign-off rule.
@@ -406,19 +423,22 @@ canonical list.
 - ✅ **Production AAD app registration** live in the WDTS Entra tenant
   (`wdts-ai-program-console (prod)`, separate from the dev/sandbox app).
   Admin consent granted for `User.Read.All` and `Reports.Read.All`.
-  The `groups` claim is configured (`groupMembershipClaims=SecurityGroup`)
-  and verified end-to-end in production: the live JWT includes a
-  14-element `groups` array.
-- ⏳ **AAD security groups** for ADMIN / FINOPS / MANAGER. The 14 group
-  OIDs the production user is a member of are captured (see
-  `docs/decisions/0003-deploy-target.md` follow-ups; the OIDs themselves
-  are non-secret but live in Key Vault for boot-time reads). Map them to
-  names in the Entra portal and set
-  `AZURE_AD_GROUP_{ADMIN,FINOPS,MANAGER}_IDS` (comma-separated) in Key
-  Vault. Until then, role assignment falls back to the email-pattern
-  rules in `lib/auth-roles.ts`.
-- ⏳ **`EMAIL_ROLE_RULES` cleanup.** Once the group OIDs above are wired
-  and verified, trim the sandbox bridge in `lib/auth-roles.ts`.
+  Identity-only — the `groups` claim is no longer read by the
+  dashboard for authorization (LDR 0005). Conditional Access on this
+  app reg is the recommended way to gate sign-in itself if needed.
+- ✅ **App-level RBAC** (LDR 0005). `Role` table seeded with four
+  built-ins; the owner row (`isOwner=true`) is provisioned via
+  `prisma/seed.ts`. **Closed-by-default sign-in**: a `signIn` callback
+  in `auth.ts` rejects emails that don't have a `User` row (and aren't
+  the bootstrap admin), redirecting them to a public `/access-denied`
+  page. Owner invites people via `/settings/users → Invite user`
+  (`POST /api/admin/users`); the row appears immediately and the
+  invitee can sign in straight away. Role + permissions in the JWT,
+  admin UI at `/settings/users` and `/settings/roles`. The bootstrap
+  email rule in `lib/auth-roles.ts` exists only for fresh-DB /
+  new-tenant recovery.
+- 🗒️ **Future scope**: optional AAD-group → Role binding (LDR 0005
+  "Open follow-ups"). Do **not** start without an explicit trigger.
 - ⏳ **AzureAD reconciler schedule.** `npm run reconcile:azuread` is
   invoke-by-hand today. Add a nightly cron (cloud schedule, GitHub
   Actions schedule, or external runner — choose at deploy time).
@@ -535,3 +555,18 @@ Tier-0 unblocks status:
   agent-transcript JSONL on disk. Rotation deferred by user decision;
   triggers for forced rotation are documented in the banner at the top
   of `.env.local`.
+
+---
+
+## 14. Future scope (parked, do NOT start without trigger)
+
+Things explicitly considered and intentionally deferred. Each entry has a
+**trigger** that must fire before the agent picks the work up. Listed here
+so they're not forgotten in chat backscroll.
+
+| Topic | Trigger | Pointer |
+|---|---|---|
+| **AAD security-group → Role binding** | Org grows past the AI Task Force scope and dashboard access becomes IT-owned with separate audit posture. | LDR 0005 §"Open follow-ups". The plan: optional `Role.aadGroupId` column + JWT-callback group walk. Unstarted. |
+| **Ownership transfer flow** | A second owner is needed (e.g. CTO transition). | LDR 0005 §"Open follow-ups". v0.4 admin action; current row → new row, atomic. |
+| **Service accounts / API tokens** | First M2M consumer of dashboard data (e.g. external dashboard, scheduled report runner). | LDR 0005 §"Open follow-ups". Out of scope for v0.4; v0.5 design with HMAC-signed tokens. |
+| **Partial unique index on `User.isOwner`** | We see the second-owner foot-gun in practice. | LDR 0005 §"Open follow-ups". Manual SQL migration. |

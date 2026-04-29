@@ -2,23 +2,32 @@
  * Pure role-mapping logic, separated from Auth.js wiring so Vitest can
  * unit-test it without spinning up next-auth.
  *
- * Decision order on every sign-in:
+ * v0.3 model (LDR 0005 — app-level RBAC):
  *
- *   1. AAD groups claim is consulted first. The group → role mapping is
- *      env-driven (see ENV_GROUP_VARS below) so a future agent can wire
- *      real AAD security groups without editing code. An empty mapping
- *      falls through to step 2.
- *   2. Email-pattern rules (sandbox bridge). Useful while the production
- *      AAD groups haven't been created yet. Hard-coded in code because
- *      an env-driven regex list is a foot-gun.
- *   3. Default: USER.
+ *   1. Postgres `User.dashboardRole` is the source of truth. Identity
+ *      comes from the IdP (Microsoft Entra); authorization is owned
+ *      by the dashboard.
+ *   2. Bootstrap email rule — exactly one rule, granting ADMIN to the
+ *      dashboard owner, exists so a fresh-DB / new-tenant deploy can
+ *      sign in and configure other users without a chicken-and-egg.
+ *      Once an ADMIN exists in the DB and is the signed-in user, this
+ *      rule never fires. Drop after first sign-in if you want.
+ *   3. Default — every other signed-in user gets the USER built-in.
  *
- * Production posture: every role except USER should come from a group
- * claim. The email rules are deliberately scoped to the sandbox tenant
- * and should be tightened (or deleted) once real groups exist.
+ * We deliberately do NOT resolve from the IdP's groups claim. AAD-group
+ * RBAC was considered and rejected as inappropriate friction for an
+ * internal taskforce tool (LDR 0005 §"Alternatives considered").
  */
 
-export type DashboardRole = "ADMIN" | "FINOPS" | "MANAGER" | "USER";
+import type { BuiltInRoleKey } from "./rbac/built-in-roles";
+
+/**
+ * Back-compat string union for the four built-in role keys, used by
+ * `requireRole(["ADMIN", "FINOPS"])` and similar gates that pre-date
+ * the permission catalogue. Custom roles do not appear here — they
+ * grant access via permissions only.
+ */
+export type DashboardRole = BuiltInRoleKey;
 
 export const DASHBOARD_ROLES: ReadonlyArray<DashboardRole> = [
   "ADMIN",
@@ -28,86 +37,26 @@ export const DASHBOARD_ROLES: ReadonlyArray<DashboardRole> = [
 ];
 
 /**
- * Env vars that, if set, populate {@link GROUP_ROLE_MAP}. Comma-separated
- * lists of AAD group object IDs (UUIDs) — one var per role.
+ * Bootstrap rule. The owner's email pattern grants ADMIN at first
+ * sign-in *only when the DB has no User row yet for that email* — the
+ * JIT provisioner uses this to assign the right role on the very first
+ * upsert. After that, every subsequent sign-in goes through the DB
+ * path and this list is effectively dead code (it stays here because
+ * losing it would brick a fresh-DB recovery).
  *
- * Set in `.env.local` (gitignored). For production these would live in
- * the prod secret store. Never commit real group IDs to `.env` — they
- * aren't secret per se, but they leak the org structure of the tenant.
- *
- * Precedence inside the env map: the FIRST role whose env var contains
- * a matching group ID wins. With the order below, that's ADMIN > FINOPS
- * > MANAGER, which matches the role hierarchy.
+ * Add no other emails here. Other admins are promoted via /settings/users
+ * once the owner has signed in.
  */
-export const ENV_GROUP_VARS = [
-  { role: "ADMIN" as const, env: "AZURE_AD_GROUP_ADMIN_IDS" },
-  { role: "FINOPS" as const, env: "AZURE_AD_GROUP_FINOPS_IDS" },
-  { role: "MANAGER" as const, env: "AZURE_AD_GROUP_MANAGER_IDS" },
+export const BOOTSTRAP_ADMIN_RULES: ReadonlyArray<{
+  pattern: RegExp;
+}> = [
+  // Anuj — dashboard owner / CTO / head of AI Task Force.
+  { pattern: /^agoyal@wdtablesystems\.com$/i },
 ];
 
-/**
- * Build the group → role lookup table from env. Exported so tests can
- * exercise it; auth.ts and the dashboard call {@link roleFromClaims}
- * which calls this lazily on every claim resolution. Lazy is correct
- * here because Auth.js may load this module before `.env.local` is
- * fully merged into `process.env` in some Node versions.
- */
-export function loadGroupRoleMap(
-  env: Record<string, string | undefined> = process.env,
-): Record<string, DashboardRole> {
-  const out: Record<string, DashboardRole> = {};
-  for (const { role, env: key } of ENV_GROUP_VARS) {
-    const raw = env[key];
-    if (!raw) continue;
-    for (const id of raw.split(",")) {
-      const trimmed = id.trim();
-      if (!trimmed) continue;
-      // First-write-wins so ADMIN > FINOPS > MANAGER if a group was
-      // listed in two env vars by mistake. Caller's intent is preserved.
-      if (!(trimmed in out)) out[trimmed] = role;
-    }
-  }
-  return out;
-}
-
-/**
- * Hard-coded baseline for tests + a safety net if env loading fails.
- * Real group IDs land via env (see {@link ENV_GROUP_VARS}); this stays
- * empty so accidentally rebuilding without env vars doesn't grant
- * anyone a privileged role.
- */
-export const GROUP_ROLE_MAP: Record<string, DashboardRole> = {};
-
-/** Email-rule fallback for the sandbox tenant. Match in order; first hit wins.
- *  Empty rules array means everyone signed in gets USER. */
-export const EMAIL_ROLE_RULES: Array<{ pattern: RegExp; role: DashboardRole }> = [
-  // Anuj is the sandbox-tenant owner; treat any matching email as ADMIN
-  // until real AAD groups exist. Tightened in v0.3.
-  { pattern: /^anuj(\.|@)/i, role: "ADMIN" },
-  { pattern: /finops@/i, role: "FINOPS" },
-  { pattern: /^manager(s)?@/i, role: "MANAGER" },
-];
-
-export function roleFromClaims(args: {
-  email: string;
-  groups?: string[];
-  /** Optional override — tests pass a fixed map; production reads env. */
-  groupRoleMap?: Record<string, DashboardRole>;
-}): DashboardRole {
-  return roleFromClaimsWithTrace(args).role;
-}
-
-/**
- * Like {@link roleFromClaims} but also returns *why* a role was chosen.
- * Persisted into the JWT + session so the dashboard can surface it on
- * /settings; without this we'd have no way to tell "this user is ADMIN
- * because their AAD group says so" from "this user is ADMIN because
- * the email-pattern fallback caught them" — and the latter must not
- * survive into production.
- */
 export type RoleSource =
-  | { kind: "group"; groupId: string }
-  | { kind: "email"; pattern: string }
+  | { kind: "db"; roleKey: string }
+  | { kind: "email-bootstrap"; pattern: string }
   | { kind: "default" };
 
 export type RoleResolution = {
@@ -115,23 +64,54 @@ export type RoleResolution = {
   source: RoleSource;
 };
 
-export function roleFromClaimsWithTrace(args: {
-  email: string;
-  groups?: string[];
-  groupRoleMap?: Record<string, DashboardRole>;
-}): RoleResolution {
-  const map = args.groupRoleMap ?? loadGroupRoleMap();
-  for (const g of args.groups ?? []) {
-    const role = map[g];
-    if (role) return { role, source: { kind: "group", groupId: g } };
-  }
-  for (const rule of EMAIL_ROLE_RULES) {
-    if (rule.pattern.test(args.email)) {
+/**
+ * `true` if `email` matches any of {@link BOOTSTRAP_ADMIN_RULES}. Used
+ * by the closed-by-default sign-in gate: an email that has no User row
+ * AND doesn't match a bootstrap rule is rejected at the OAuth callback.
+ */
+export function isBootstrapAdmin(email: string): boolean {
+  return BOOTSTRAP_ADMIN_RULES.some((r) => r.pattern.test(email));
+}
+
+/**
+ * Resolve a role for a sign-in *without touching the DB*. Used at
+ * JIT-provision time, BEFORE the user's row exists, to decide what
+ * default role to seed them with. Only returns ADMIN if the email
+ * matches a bootstrap rule; otherwise returns USER.
+ *
+ * Note: in the closed-by-default model (LDR 0005), JIT-provisioning
+ * only fires for the bootstrap admin. Other not-yet-existing users
+ * are rejected at the `signIn` callback, never reach this function.
+ * The USER fallback is kept defensively in case future code paths
+ * ever bypass that gate.
+ */
+export function bootstrapRoleForNewUser(email: string): RoleResolution {
+  for (const rule of BOOTSTRAP_ADMIN_RULES) {
+    if (rule.pattern.test(email)) {
       return {
-        role: rule.role,
-        source: { kind: "email", pattern: rule.pattern.source },
+        role: "ADMIN",
+        source: { kind: "email-bootstrap", pattern: rule.pattern.source },
       };
     }
   }
   return { role: "USER", source: { kind: "default" } };
+}
+
+/**
+ * Wrap a DB-resolved role into a {@link RoleResolution}. Centralised
+ * here so the trace shape stays consistent across every call site.
+ */
+export function dbRole(roleKey: string): RoleResolution {
+  // The four built-ins are still the only values exposed to the
+  // back-compat `DashboardRole` union; custom roles fall back to USER
+  // for `requireRole(...)` checks but keep their permissions on the
+  // session.
+  const role: DashboardRole = isBuiltInRoleKey(roleKey)
+    ? (roleKey as DashboardRole)
+    : "USER";
+  return { role, source: { kind: "db", roleKey } };
+}
+
+function isBuiltInRoleKey(k: string): k is BuiltInRoleKey {
+  return k === "ADMIN" || k === "FINOPS" || k === "MANAGER" || k === "USER";
 }

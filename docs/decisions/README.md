@@ -50,3 +50,4 @@ re-asks.
 | 0002 | Canonical cost-centre key on User | proposed |
 | 0003 | Production deploy target: Azure App Service + Postgres FS + Key Vault + GHA OIDC | accepted |
 | 0004 | Cursor is credit-bound, not seat-bound: 4 sub-tiers, 120-seat plan inside a $500K/yr envelope | accepted |
+| 0005 | App-level RBAC: dashboard owns its own access control (AAD = identity only) | accepted |

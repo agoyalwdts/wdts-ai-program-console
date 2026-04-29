@@ -1,14 +1,23 @@
-# WDTS AI Program Console — v0.2
+# WDTS AI Program Console — v0.3
 
 A Next.js operator dashboard for WDTS's AI Guardrails program, surfacing
 program-level state across the five approved AI products — **Cursor /
 ChatGPT / Codex / Claude.ai / M365 Copilot** — to FinOps, Engineering Mgmt,
 Security, and Steering.
 
-v0.2 lands:
+v0.3 lands:
 
-- **Auth** — Auth.js v5 with Microsoft Entra ID (sandbox tenant working;
-  AAD groups → roles is env-driven, no code change required for prod).
+- **App-level RBAC** — `Role` table + `User.dashboardRoleId`,
+  built-in roles (USER / MANAGER / FINOPS / ADMIN) seeded from code,
+  custom roles created via `/settings/roles`. Admin UI at
+  `/settings/users` for invite + role + enable/disable. AAD provides
+  identity only; the dashboard owns its access policy. See LDR 0005.
+- **Closed-by-default sign-in** — only invited emails (in the
+  `User` table) can sign in. Everyone else lands on a friendly
+  `/access-denied` page. The owner invites people from
+  `/settings/users → Invite user`.
+- **Auth** — Auth.js v5 with Microsoft Entra ID, JWT carries role +
+  permissions array.
 - **All vendor integrations** — `cursor` (SCIM 2.0), `openai`, `anthropic`
   (admin APIs), `m365graph` (Copilot reports), `azuread`, `deel`,
   `policyrepo` (write path) all have working `real.ts` implementations
@@ -195,16 +204,12 @@ wdts-ai-program-console/
 
 ---
 
-## v0.2 known limitations
+## v0.3 known limitations
 
 The dashboard runs end-to-end against synthetic data with zero vendor
 credentials. The following are **operationally blocked** (need an external
 action to flip on, not a code change):
 
-- **AAD security groups → role mapping**. Env vars
-  `AZURE_AD_GROUP_{ADMIN,FINOPS,MANAGER}_IDS` ready; needs the actual
-  group object IDs from WDTS + the AAD app-reg `groupMembershipClaims`
-  setting.
 - **Vendor real-mode flips**. Each `INTEGRATION_*=real` requires its
   vendor credentials (`OPENAI_ADMIN_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`,
   `CURSOR_SCIM_BASE_URL` + `CURSOR_ADMIN_TOKEN`, `DEEL_API_TOKEN`,
@@ -249,7 +254,7 @@ action to flip on, not a code change):
 
 ---
 
-## v0.3 follow-ups
+## v0.4 follow-ups
 
 In rough priority order:
 
@@ -258,9 +263,8 @@ In rough priority order:
      BudgetSnapshot, FrictionBudgetMetric).
    - 0002 — canonical `User.costCentre` key.
    These unblock the v1.1 write-path UI and the FinOps showback view.
-2. **Operational unblocks** in `AGENTS.md` §13: AAD group object IDs,
-   vendor admin tokens, branch protection + PAT on the
-   `agoyalwdts/wdts-ai-policy` repo.
+2. **Operational unblocks** in `AGENTS.md` §13: vendor admin tokens,
+   branch protection + PAT on the `agoyalwdts/wdts-ai-policy` repo.
 3. **Write path (F6–F8)**: tier promotion / demotion via policy-repo PR
    (the client is wired); reclamation flow with 5-business-day dispute
    window; exception flow (§16.3) with manager attestation → FinOps →
