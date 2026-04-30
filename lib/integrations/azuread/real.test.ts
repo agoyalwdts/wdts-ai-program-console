@@ -25,20 +25,24 @@ afterEach(() => {
 });
 
 function mockSequence(responses: Array<{ ok?: boolean; status?: number; json?: unknown; text?: string }>) {
+  const calls: string[] = [];
   let i = 0;
-  vi.spyOn(global, "fetch").mockImplementation(async () => {
+  vi.spyOn(global, "fetch").mockImplementation(async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    calls.push(url);
     const r = responses[i++];
-    if (!r) throw new Error("Unexpected extra fetch call");
+    if (!r) throw new Error("Unexpected extra fetch call to " + url);
     return new Response(r.text ?? JSON.stringify(r.json ?? {}), {
       status: r.status ?? 200,
       headers: r.text != null ? {} : { "content-type": "application/json" },
     });
   });
+  return calls;
 }
 
 describe("realAzureADClient", () => {
   it("listUsers paginates and maps Graph users to IdentityUser", async () => {
-    mockSequence([
+    const calls = mockSequence([
       // token
       { json: { access_token: "tok", expires_in: 3600 } },
       // first page with nextLink
@@ -51,6 +55,7 @@ describe("realAzureADClient", () => {
               mail: "anuj@wdts.com",
               userPrincipalName: "anuj@wdts.com",
               accountEnabled: true,
+              manager: null,
             },
           ],
           "@odata.nextLink": "https://graph.microsoft.com/v1.0/users?$skiptoken=abc",
@@ -66,6 +71,7 @@ describe("realAzureADClient", () => {
               mail: null,
               userPrincipalName: "suspended@wdts.com",
               accountEnabled: false,
+              manager: null,
             },
           ],
         },
@@ -89,6 +95,62 @@ describe("realAzureADClient", () => {
         status: "SUSPENDED",
       },
     ]);
+
+    // The /users URL uses $expand=manager to avoid an N+1 walk per user.
+    // The token call (calls[0]) doesn't, but the directory call (calls[1])
+    // must.
+    expect(calls[1]).toContain("$expand=manager");
+    expect(calls[1]).toContain("$select=id,displayName,mail,userPrincipalName,accountEnabled");
+  });
+
+  it("listUsers populates managerEmail from the embedded manager object", async () => {
+    mockSequence([
+      { json: { access_token: "tok", expires_in: 3600 } },
+      {
+        json: {
+          value: [
+            {
+              id: "id-rep",
+              displayName: "Direct Report",
+              mail: "rep@wdts.com",
+              userPrincipalName: "rep@wdts.com",
+              accountEnabled: true,
+              manager: {
+                id: "id-boss",
+                mail: "boss@wdts.com",
+                userPrincipalName: "boss@wdts.com",
+              },
+            },
+            {
+              id: "id-top",
+              displayName: "Top Of Org",
+              mail: "top@wdts.com",
+              userPrincipalName: "top@wdts.com",
+              accountEnabled: true,
+              // No manager — Graph omits the field at the top of the org.
+            },
+            {
+              id: "id-mailless",
+              displayName: "Mailless Manager Source",
+              mail: "mailless@wdts.com",
+              userPrincipalName: "mailless@wdts.com",
+              accountEnabled: true,
+              manager: {
+                id: "id-mgr-noemail",
+                mail: null,
+                userPrincipalName: "mgr.upn@wdts.com",
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const users = await realAzureADClient.listUsers();
+    expect(users[0]?.managerEmail).toBe("boss@wdts.com");
+    expect(users[1]?.managerEmail).toBeNull();
+    // Fallback: when manager.mail is null, use userPrincipalName.
+    expect(users[2]?.managerEmail).toBe("mgr.upn@wdts.com");
   });
 
   it("getUserByEmail returns null on 404", async () => {

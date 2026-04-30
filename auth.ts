@@ -41,6 +41,7 @@ if (!tenantId || !clientId || !clientSecret) {
 const PUBLIC_PATHS = [
   "/api/auth", // Auth.js endpoints
   "/api/webhooks", // vendor → dashboard webhooks (HMAC-authed, see route handlers)
+  "/api/cron", // external cron triggers (HMAC-authed via lib/cron/auth.ts)
   "/access-denied", // shown to non-invited users after OAuth — must be reachable without a session
   "/_next", // static + image optimisation
   "/favicon.ico",

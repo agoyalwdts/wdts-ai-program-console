@@ -51,6 +51,20 @@ type ReconcilerSummary = {
   prismaUpdated: number;
   prismaSuspended: number;
   prismaSkippedClean: number;
+  /** New manager edges established (or pointed at a different User row). */
+  managerEdgesLinked: number;
+  /**
+   * Manager edges cleared because Graph reports no manager but the
+   * Prisma row still has one — handles the "promoted to top of org"
+   * and "manager left the company" cases.
+   */
+  managerEdgesCleared: number;
+  /**
+   * Manager edges where Graph names a manager email we can't find in
+   * the Prisma User table (because that manager hasn't been reconciled
+   * yet, or never will be). Logged but never fails the run.
+   */
+  managerEdgesUnresolved: number;
 };
 
 export async function reconcileAzureAD(
@@ -63,6 +77,9 @@ export async function reconcileAzureAD(
     prismaUpdated: 0,
     prismaSuspended: 0,
     prismaSkippedClean: 0,
+    managerEdgesLinked: 0,
+    managerEdgesCleared: 0,
+    managerEdgesUnresolved: 0,
   };
 
   const graphUsers = await realAzureADClient.listUsers();
@@ -80,11 +97,23 @@ export async function reconcileAzureAD(
   // Snapshot of every existing Prisma user so we can compute the
   // suspend set in O(1).
   const prismaUsers = await prisma.user.findMany({
-    select: { id: true, email: true, displayName: true, status: true },
+    select: {
+      id: true,
+      email: true,
+      displayName: true,
+      status: true,
+      managerId: true,
+    },
   });
   const prismaByEmail = new Map(prismaUsers.map((u) => [u.email.toLowerCase(), u]));
 
-  const ops: Array<{ op: "create" | "update" | "suspend"; email: string; detail: string }> = [];
+  type Op =
+    | { op: "create"; email: string; detail: string }
+    | { op: "update"; email: string; detail: string }
+    | { op: "suspend"; email: string; detail: string }
+    | { op: "manager-link"; email: string; managerEmail: string; detail: string }
+    | { op: "manager-clear"; email: string; detail: string };
+  const ops: Op[] = [];
 
   // (a) creates + updates from the Graph side.
   for (const [email, gu] of byEmail) {
@@ -117,12 +146,77 @@ export async function reconcileAzureAD(
     ops.push({ op: "suspend", email, detail: `status: ${u.status} -> SUSPENDED` });
   }
 
+  // (c) Manager-edge reconciliation. Done as a second pass so we have
+  // a complete email→userId map (including freshly-created rows that
+  // exist in Graph but not yet in Prisma — those will land managerless
+  // on this pass and get linked next run).
+  //
+  // Three transitions matter:
+  //   - Graph names a manager whose email IS in Prisma → link (or
+  //     re-link if Prisma was pointing at a different row).
+  //   - Graph names a manager whose email ISN'T in Prisma → unresolved;
+  //     count it but don't write. The next reconciler pass will resolve
+  //     it once that user is created.
+  //   - Graph reports null manager but Prisma has one → clear it
+  //     (handles "promoted to top of org" + "manager left").
+  //
+  // We use a dedicated email→id map built from `prismaByEmail` so we
+  // don't have to refetch.
+  const idByEmail = new Map<string, string>();
+  for (const [email, u] of prismaByEmail) idByEmail.set(email, u.id);
+
+  for (const [email, gu] of byEmail) {
+    const existing = prismaByEmail.get(email);
+    if (!existing) continue; // freshly-created rows pick up edges next run
+    const wantManagerEmail = gu.managerEmail
+      ? gu.managerEmail.toLowerCase()
+      : null;
+    const wantManagerId = wantManagerEmail
+      ? idByEmail.get(wantManagerEmail) ?? null
+      : null;
+
+    // Manager-edge unresolved counter: Graph names a manager but we
+    // can't find them in Prisma yet. Don't enqueue a write.
+    if (wantManagerEmail && !wantManagerId) {
+      summary.managerEdgesUnresolved++;
+      continue;
+    }
+
+    // `existing.managerId` is `string | null` in Prisma's type, but
+    // defensively coerce undefined → null for hand-built test fixtures
+    // and for Prisma drivers that omit unset fields rather than emit null.
+    const haveManagerId = existing.managerId ?? null;
+    if (wantManagerId === haveManagerId) continue; // no change
+
+    if (wantManagerId === null) {
+      ops.push({
+        op: "manager-clear",
+        email,
+        detail: `managerId: ${haveManagerId} -> null`,
+      });
+    } else {
+      ops.push({
+        op: "manager-link",
+        email,
+        managerEmail: wantManagerEmail!,
+        detail: `managerId: ${haveManagerId ?? "null"} -> ${wantManagerId}`,
+      });
+    }
+  }
+
   if (args.dryRun) {
     console.log(`[reconciler] DRY RUN — would apply ${ops.length} ops:`);
-    for (const o of ops) console.log(`  ${o.op.padEnd(8)} ${o.email} | ${o.detail}`);
+    for (const o of ops)
+      console.log(`  ${o.op.padEnd(14)} ${o.email} | ${o.detail}`);
     summary.prismaCreated = ops.filter((o) => o.op === "create").length;
     summary.prismaUpdated = ops.filter((o) => o.op === "update").length;
     summary.prismaSuspended = ops.filter((o) => o.op === "suspend").length;
+    summary.managerEdgesLinked = ops.filter(
+      (o) => o.op === "manager-link",
+    ).length;
+    summary.managerEdgesCleared = ops.filter(
+      (o) => o.op === "manager-clear",
+    ).length;
     return summary;
   }
 
@@ -153,12 +247,24 @@ export async function reconcileAzureAD(
           },
         });
         summary.prismaUpdated++;
-      } else {
+      } else if (o.op === "suspend") {
         await tx.user.update({
           where: { email: o.email },
           data: { status: "SUSPENDED" },
         });
         summary.prismaSuspended++;
+      } else if (o.op === "manager-link") {
+        await tx.user.update({
+          where: { email: o.email },
+          data: { managerId: idByEmail.get(o.managerEmail)! },
+        });
+        summary.managerEdgesLinked++;
+      } else if (o.op === "manager-clear") {
+        await tx.user.update({
+          where: { email: o.email },
+          data: { managerId: null },
+        });
+        summary.managerEdgesCleared++;
       }
     }
     await tx.decision.create({
@@ -167,11 +273,15 @@ export async function reconcileAzureAD(
         beforeState: JSON.stringify({}),
         afterState: JSON.stringify(summary),
         actorEmail: "azuread-reconciler@dashboard",
-        justification: `AzureAD reconciliation: ` +
+        justification:
+          `AzureAD reconciliation: ` +
           `${summary.prismaCreated} created, ` +
           `${summary.prismaUpdated} updated, ` +
           `${summary.prismaSuspended} suspended, ` +
-          `${summary.prismaSkippedClean} clean.`,
+          `${summary.prismaSkippedClean} clean, ` +
+          `${summary.managerEdgesLinked} mgr-linked, ` +
+          `${summary.managerEdgesCleared} mgr-cleared, ` +
+          `${summary.managerEdgesUnresolved} mgr-unresolved.`,
       },
     });
   });

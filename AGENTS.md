@@ -175,6 +175,7 @@ wdts-ai-program-console/
 │  │  ├─ chargeback/page.tsx     # F10 — per-team monthly bill
 │  │  └─ settings/page.tsx       # stub
 │  ├─ api/auth/[...nextauth]/route.ts   # NextAuth handlers (signin, callback, signout, etc.)
+│  ├─ api/cron/reconcile-azuread/route.ts # HMAC-protected cron trigger (no session)
 │  ├─ api/decisions/export/route.ts     # CSV export for F5 (auth-gated by proxy)
 │  ├─ layout.tsx                 # html shell
 │  └─ page.tsx                   # redirects → /health
@@ -186,6 +187,8 @@ wdts-ai-program-console/
 │  ├─ prisma.ts             # singleton client
 │  ├─ auth.ts               # dashboard-facing auth helpers (requireUser/requireRole/requirePermission)
 │  ├─ auth-roles.ts         # pure role-mapping (testable; DB-first + bootstrap email rule)
+│  ├─ cron/
+│  │  └─ auth.ts            # HMAC verify/sign helpers used by /api/cron/* (pure, testable)
 │  ├─ rbac/
 │  │  ├─ permissions.ts     # code-defined permission catalogue
 │  │  └─ built-in-roles.ts  # USER / MANAGER / FINOPS / ADMIN definitions, seeded into DB
@@ -343,7 +346,9 @@ They map to scoping §2.
 | ~~F9 Codex ladder~~ | **Landed** — `/codex-ladder` shows tier distribution + promotion / demotion / dormancy queues using `getOpenAIClient().listCodexSeats()` | §2 v1.1 row 4 |
 | ~~F10 Overage / chargeback~~ | **Landed** — `/chargeback` groups spend by manager line (v0.2 stand-in for cost centre); ADR 0002 (`docs/decisions/0002-cost-centre-key.md`) proposes the real `User.costCentre` field — needs sign-off | §2 v1.1 row 5 |
 | ~~Integration real clients~~ | **Landed** — every real client except `gateway` (vendor TBD) is wired with mocked-fetch contract tests. See §6.1 + §13 for what's still operationally blocked. | §4 |
-| ~~AzureAD identity reconciler~~ | **Landed** — `npm run reconcile:azuread` mirrors Graph users → Prisma; wraps each pass in a `Decision`. Needs a nightly cron once `INTEGRATION_AZUREAD=real` flips | §4 #2 |
+| ~~AzureAD identity reconciler~~ | **Landed** — `npm run reconcile:azuread` mirrors Graph users → Prisma; wraps each pass in a `Decision` | §4 #2 |
+| ~~AzureAD reconciler — manager hierarchy~~ | **Landed** — `realAzureADClient.listUsers()` uses `$expand=manager` so the reconciler resolves `User.managerId` in a second pass; counters: `managerEdgesLinked` / `managerEdgesCleared` / `managerEdgesUnresolved` | §4 #2 |
+| ~~AzureAD reconciler — cron endpoint~~ | **Landed** — `POST /api/cron/reconcile-azuread`, HMAC-protected via `CRON_SHARED_SECRET`. Pluggable trigger (GitHub Actions schedule / Logic Apps / external uptime) — see runbook §"Cron triggers" | §4 #2 |
 | ~~Deel webhook receiver~~ | **Landed** — `/api/webhooks/deel` HMAC-verifies + records a `Decision` row; needs `DEEL_WEBHOOK_SECRET` set + Deel-side webhook URL registered to go live | §4 #3 |
 | ~~CSV employee import~~ | **Landed** — `/settings/imports` page + `POST /api/imports/employees`. Removes Deel from the Tier-0 blocker list; runbook in `docs/imports/README.md` | §4 #3 (alt path) |
 | F6 Tier promotion / demotion | Write-path via policy-repo PR (GitHub API), SCIM update flow | §2 v1.1 row 1 |
@@ -444,11 +449,26 @@ canonical list.
   "Open follow-ups"). Do **not** start without an explicit trigger.
 - ✅ **AzureAD client in prod** (`INTEGRATION_AZUREAD=real`, flipped
   2026-04-29). Reuses the same prod app reg + admin-consented
-  `User.Read.All` scope as M365 Graph. Reads only — the reconciler
-  remains invoke-by-hand.
-- ⏳ **AzureAD reconciler schedule.** `npm run reconcile:azuread` is
-  invoke-by-hand today. Add a nightly cron (cloud schedule, GitHub
-  Actions schedule, or external runner — choose at deploy time).
+  `User.Read.All` scope as M365 Graph.
+- ✅ **AzureAD reconciler — manager hierarchy.** `listUsers()` now
+  uses `$expand=manager($select=id,mail,userPrincipalName)` to return
+  manager edges in one call, and the reconciler resolves them into
+  `User.managerId` in a second pass. Counters: `managerEdgesLinked` /
+  `managerEdgesCleared` / `managerEdgesUnresolved` (latter is when
+  Graph names a manager who isn't in Prisma yet — picked up next run).
+- ✅ **AzureAD reconciler — HMAC-protected cron endpoint.**
+  `POST /api/cron/reconcile-azuread` runs the reconciler when called
+  with a valid `x-cron-signature` (HMAC-SHA256 of the raw body using
+  `CRON_SHARED_SECRET`). 503 if the secret is unset (fail-closed),
+  401 on signature mismatch, 200 with a `ReconcilerSummary` on
+  success. See `docs/deploy/azure.md §"Cron triggers"` for the
+  GitHub-Actions-schedule wiring + `openssl rand -hex 32` setup.
+- ⏳ **AzureAD reconciler — schedule.** Endpoint exists; nobody is
+  hitting it on a clock yet. The recommended trigger for v0.3 is a
+  GitHub Actions `schedule:` workflow that holds a copy of the
+  shared secret as a repo secret and POSTs nightly. Until that wires
+  up, prod still drifts; an operator should manually `curl` the
+  cron endpoint at least weekly with `{"dryRun":true}` to detect drift.
 
 ### Cursor (Track 4)
 

@@ -31,10 +31,17 @@ v0.3 lands:
   with mocked-fetch contract tests. `gateway` stays synthetic (vendor
   TBD per Phase 0).
 - **Identity reconciler** — `npm run reconcile:azuread` mirrors Graph
-  users into Prisma, wraps each pass in a `Decision` row.
+  users into Prisma, wraps each pass in a `Decision` row. Now also
+  resolves manager edges via Graph's `$expand=manager`, so
+  `User.managerId` populates without an N+1 walk.
+- **Cron triggers** — `POST /api/cron/reconcile-azuread`
+  (HMAC-protected via `CRON_SHARED_SECRET`) lets any external
+  scheduler drive the reconciler — GitHub Actions schedule, Azure
+  Logic Apps, an external uptime checker — without anyone holding a
+  DB credential. See `docs/deploy/azure.md §"Cron triggers"`.
 - **Webhooks** — `/api/webhooks/deel` HMAC-verifies + records advisory
   Decisions.
-- **CI** — GitHub Actions runs `typecheck + lint + 152 tests` on every
+- **CI** — GitHub Actions runs `typecheck + lint + 178 tests` on every
   PR + push to `main`.
 - **F3 / F9 / F10** — manager queue, Codex ladder, per-team chargeback
   views landed.

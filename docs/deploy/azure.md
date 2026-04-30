@@ -426,6 +426,105 @@ deploy` and `scripts/<feature>-deploy.ts` move into the workflow and
 run from a private agent that's already inside the VNet. Until then,
 this is a manual step the operator runs from a workstation.
 
+### Cron triggers (`/api/cron/*`)
+
+`INTEGRATION_AZUREAD=real` is on in prod. The local `User` mirror drifts
+from Entra every minute nobody runs the reconciler. v0.3 ships an
+HMAC-protected cron endpoint so an external scheduler can drive it
+without anyone holding a DB credential.
+
+**Setup (once):**
+
+1. Generate a shared secret on your laptop:
+
+   ```bash
+   openssl rand -hex 32
+   ```
+
+2. Store it in Key Vault and wire it into App Service as a Key Vault
+   reference, same shape as the other secrets:
+
+   ```bash
+   az keyvault secret set \
+     --vault-name wdts-ai-cons-kv \
+     --name CRON-SHARED-SECRET \
+     --value '<the-hex-string>'
+
+   az webapp config appsettings set \
+     --resource-group wdts-ai-program-console-rg \
+     --name wdts-ai-program-console \
+     --settings 'CRON_SHARED_SECRET=@Microsoft.KeyVault(SecretUri=https://wdts-ai-cons-kv.vault.azure.net/secrets/CRON-SHARED-SECRET/)'
+   ```
+
+3. Restart the App Service so the new env var lands.
+
+When `CRON_SHARED_SECRET` is unset the route fails closed with `503` —
+matches the Deel webhook pattern.
+
+**Triggering a run (any of these works):**
+
+- **GitHub Actions schedule** (recommended for v0.3 — no new
+  infrastructure):
+
+  ```yaml
+  # .github/workflows/cron-reconcile-azuread.yml
+  on:
+    schedule:
+      - cron: '17 14 * * *'  # 14:17 UTC daily — picked off-the-hour
+                              # to avoid the 0-minute thundering herd
+                              # on Microsoft Graph
+    workflow_dispatch:        # let operators trigger ad-hoc
+
+  jobs:
+    poke:
+      runs-on: ubuntu-latest
+      steps:
+        - name: POST cron trigger
+          env:
+            CRON_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+          run: |
+            BODY='{}'
+            SIG=$(printf '%s' "$BODY" \
+              | openssl dgst -sha256 -hmac "$CRON_SECRET" \
+              | awk '{print $2}')
+            curl -fsS -X POST \
+              -H "x-cron-signature: sha256=${SIG}" \
+              -H "content-type: application/json" \
+              --data "$BODY" \
+              https://wdts-ai-program-console.azurewebsites.net/api/cron/reconcile-azuread
+  ```
+
+  The repo secret `CRON_SHARED_SECRET` must match the App Service
+  setting. No DB credential leaves Azure.
+
+- **Azure Logic Apps / Azure Functions Timer.** Both fine; gives
+  in-VNet execution if you go that route later.
+
+- **External uptime checker (Pingdom, UptimeRobot, healthchecks.io).**
+  Not recommended for production since most don't sign request bodies,
+  but they work for ad-hoc / staging environments — call the URL
+  unsigned and accept the `401`.
+
+**Manual run (from operator laptop):**
+
+```bash
+SECRET="$(az keyvault secret show --vault-name wdts-ai-cons-kv \
+  --name CRON-SHARED-SECRET --query value -o tsv)"
+BODY='{"dryRun":true}'   # or '{}' for apply mode
+SIG=$(printf '%s' "$BODY" \
+  | openssl dgst -sha256 -hmac "$SECRET" \
+  | awk '{print $2}')
+curl -fsS -X POST \
+  -H "x-cron-signature: sha256=${SIG}" \
+  -H "content-type: application/json" \
+  --data "$BODY" \
+  https://wdts-ai-program-console.azurewebsites.net/api/cron/reconcile-azuread \
+  | jq .
+```
+
+The response includes the `ReconcilerSummary` (created / updated /
+suspended / mgr-linked / mgr-cleared / mgr-unresolved counts).
+
 ### Build conventions the deploy assumes
 
 Both checked into the repo, both required for a working App Service
