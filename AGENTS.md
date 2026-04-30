@@ -194,8 +194,11 @@ wdts-ai-program-console/
 │  ├─ integrations/         # vendor abstractions (scoping §4); see §6.1 below
 │  └─ utils.ts              # cn(), formatUsd(), initials()
 ├─ prisma/
-│  ├─ schema.prisma         # User / License / UsageRecord / Decision (v0.1 subset)
-│  └─ seed.ts               # deterministic 30-user seed
+│  ├─ schema.prisma         # canonical models — see §3 of LDR 0001 for the v0.3 shape
+│  ├─ seed.ts               # deterministic 30-user seed (also seeds the v0.3 tables)
+│  ├─ scripts/              # invoke-by-hand reconcilers (e.g. reconcile-azuread.ts)
+│  ├─ migrations/           # SQL artefacts; the latest is 20260429_v0_3_schema (LDR 0001)
+│  └─ v0_3-models.db.test.ts  # DB-integration tests for the four v0.3 models
 ├─ docker-compose.yml
 ├─ .env                     # DATABASE_URL — local dev only
 ├─ .cursor/rules/*.mdc      # binding rules for future agent sessions
@@ -507,8 +510,26 @@ canonical list.
 
 ### Schema + cost-centre (Tracks 10, 11)
 
-- ⏳ **Sign off** on ADR 0001 (v0.3 schema additions) and ADR 0002
-  (cost-centre key). Both in `docs/decisions/`.
+- ✅ **ADR 0001** (v0.3 schema additions) accepted + landed on
+  2026-04-29. The migration `20260429_v0_3_schema` adds the four new
+  models (`ExceptionRequest`, `ReclamationEvent`, `BudgetSnapshot`,
+  `FrictionBudgetMetric`), lifts five string columns to Postgres enums
+  (`UserStatus`, `Product`, `LicenseSource`, `UsageDecision`,
+  `DecisionType`), adds `EMPLOYEE_IMPORT` to `DecisionType`, and applies
+  three field fixes (`User.roleTag` nullable, `User.updatedAt`
+  `@updatedAt`, `UsageRecord.dlpLayersHit` `String[]`). The seed exercises
+  every new table; 12 new DB-integration tests in
+  `prisma/v0_3-models.db.test.ts` lock the seed shape in.
+- ⏳ **F6–F8 write paths.** Schema unblocks them; implementation pending.
+  Tier promotion / demotion via policy-repo PR (F6/F7), reclamation
+  state-machine driver (F4 dispute-window job), exception flow UI (F8).
+- ⏳ **`BudgetSnapshot` materialisation job.** Skeleton — read-side
+  consumers can already use the seeded rows. Tracked under
+  `docs/decisions/0001-v0.3-schema.md` open follow-ups.
+- ⏳ **`ReclamationEvent` dispute-window timer.** Same — seed has rows
+  in both lifecycle states; the cron handler that flips them lands later.
+- ⏳ **Sign off** on ADR 0002 (cost-centre key). Parked pending FinOps
+  conversation on the allowlist.
 - ⏳ **Cost-centre allowlist** (FinOps-owned). The blocking external
   decision for ADR 0002 — `docs/decisions/0002-cost-centre-key.md`
   open follow-ups.

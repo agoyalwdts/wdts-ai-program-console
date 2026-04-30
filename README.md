@@ -18,8 +18,15 @@ v0.3 lands:
   `/settings/users → Invite user`.
 - **Auth** — Auth.js v5 with Microsoft Entra ID, JWT carries role +
   permissions array.
+- **v0.3 schema** — four new authoritative / snapshot models
+  (`ExceptionRequest`, `ReclamationEvent`, `BudgetSnapshot`,
+  `FrictionBudgetMetric`) and ten Postgres enums lifted from previously
+  string-typed columns (`UserStatus`, `Product`, `LicenseSource`,
+  `UsageDecision`, `DecisionType`, plus the five new ones). Migration
+  preserves data through in-place enum casts. See LDR 0001.
 - **All vendor integrations** — `cursor` (SCIM 2.0), `openai`, `anthropic`
-  (admin APIs), `m365graph` (Copilot reports), `azuread`, `deel`,
+  (admin APIs), `m365graph` (Copilot reports — flipped to `real` in
+  prod 2026-04-29), `azuread` (also `real` in prod), `deel`,
   `policyrepo` (write path) all have working `real.ts` implementations
   with mocked-fetch contract tests. `gateway` stays synthetic (vendor
   TBD per Phase 0).
@@ -27,7 +34,7 @@ v0.3 lands:
   users into Prisma, wraps each pass in a `Decision` row.
 - **Webhooks** — `/api/webhooks/deel` HMAC-verifies + records advisory
   Decisions.
-- **CI** — GitHub Actions runs `typecheck + lint + 115 tests` on every
+- **CI** — GitHub Actions runs `typecheck + lint + 152 tests` on every
   PR + push to `main`.
 - **F3 / F9 / F10** — manager queue, Codex ladder, per-team chargeback
   views landed.
@@ -227,9 +234,6 @@ action to flip on, not a code change):
   row immutability + WORM export deferred per scoping §3.3.
 - **Anomaly detection / Friction Budget KPIs / Copilot rationalisation**
   (F11–F15): out of scope for v0.2.
-- **Schema additions**: `ExceptionRequest`, `ReclamationEvent`,
-  `BudgetSnapshot`, `FrictionBudgetMetric` proposed in ADR 0001 — needs
-  sign-off before the migration lands.
 - **Cost-centre key**: proposed in ADR 0002 — needs FinOps sign-off on
   the canonical key shape + the allowlist.
 - **Playwright e2e**: scoping §9.2 lists Playwright as part of the test
@@ -258,11 +262,10 @@ action to flip on, not a code change):
 
 In rough priority order:
 
-1. **Sign off the two ADRs** in `docs/decisions/`:
-   - 0001 — v0.3 schema additions (ExceptionRequest, ReclamationEvent,
-     BudgetSnapshot, FrictionBudgetMetric).
-   - 0002 — canonical `User.costCentre` key.
-   These unblock the v1.1 write-path UI and the FinOps showback view.
+1. **ADR 0002** — canonical `User.costCentre` key. Needs FinOps sign-off
+   on the allowlist + clarification on Deel's storage of cost centres.
+   ADR 0001 (v0.3 schema additions) accepted + landed on 2026-04-29 in
+   migration `20260429_v0_3_schema`.
 2. **Operational unblocks** in `AGENTS.md` §13: vendor admin tokens,
    branch protection + PAT on the `agoyalwdts/wdts-ai-policy` repo.
 3. **Write path (F6–F8)**: tier promotion / demotion via policy-repo PR
@@ -292,9 +295,11 @@ In rough priority order:
 
 ## Notes for future agents
 
-- The schema lives in `prisma/schema.prisma`. v0.1 keeps a deliberately small
-  subset (User / License / UsageRecord / Decision). The full schema in scoping
-  §3.1 has six more models.
+- The schema lives in `prisma/schema.prisma`. v0.3 carries
+  `User / Role / License / UsageRecord / Decision / ExceptionRequest /
+  ReclamationEvent / BudgetSnapshot / FrictionBudgetMetric` plus ten
+  Postgres enums. The migration that lands the four v0.3 models also
+  lifts the previously-string columns to enums in-place. See LDR 0001.
 - All four pages fetch directly from Prisma in Server Components. There are no
   API routes for v0.1 except the CSV export.
 - `lib/synthetic-data.ts` uses a deterministic mulberry32 PRNG so re-running

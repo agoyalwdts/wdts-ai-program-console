@@ -1,4 +1,14 @@
-import { PrismaClient } from "@prisma/client";
+import {
+  PrismaClient,
+  Product,
+  UsageDecision,
+  DecisionType,
+  ExceptionType,
+  ExceptionStatus,
+  ReclamationTrigger,
+  ReclamationAction,
+  ReclamationState,
+} from "@prisma/client";
 import {
   buildUsers,
   makeRng,
@@ -22,6 +32,14 @@ const OWNER_TITLE = "Chief Technology Officer · Head of AI Task Force";
 
 async function main() {
   console.log("[seed] purging existing rows…");
+  // Wipe order matters — child tables first so FK constraints don't trip.
+  // ExceptionRequest + ReclamationEvent reference Decision and User; both
+  // have to clear before Decision and User. BudgetSnapshot and
+  // FrictionBudgetMetric have no FKs and are safe to clear anywhere.
+  await prisma.exceptionRequest.deleteMany();
+  await prisma.reclamationEvent.deleteMany();
+  await prisma.budgetSnapshot.deleteMany();
+  await prisma.frictionBudgetMetric.deleteMany();
   await prisma.usageRecord.deleteMany();
   await prisma.decision.deleteMany();
   await prisma.license.deleteMany();
@@ -282,12 +300,12 @@ async function main() {
 
   type UsageInput = {
     userId: string;
-    product: string;
+    product: Product;
     model: string;
     tokensIn: number;
     tokensOut: number;
     costUsd: number;
-    decision: string;
+    decision: UsageDecision;
     region: string;
     ts: Date;
   };
@@ -317,18 +335,18 @@ async function main() {
       const ts = new Date(startMs + Math.floor(rng() * (now.getTime() - startMs)));
 
       // Distribute usage across products this user has licenses for.
-      const products = ["CHATGPT", "CODEX"];
+      const products: Product[] = [Product.CHATGPT, Product.CODEX];
       if (
         cursorPower.includes(u) ||
         cursorStandard.includes(u) ||
         cursorLight.includes(u)
       ) {
-        products.push("CURSOR", "CURSOR"); // weight Cursor higher for seat holders
+        products.push(Product.CURSOR, Product.CURSOR); // weight Cursor higher for seat holders
       } else if (cursorDiscovery.includes(u)) {
-        products.push("CURSOR"); // single weight — Discovery is low-but-real usage
+        products.push(Product.CURSOR); // single weight — Discovery is low-but-real usage
       }
-      if (claudeUsers.includes(u)) products.push("CLAUDE_AI");
-      if (copilotUsers.includes(u)) products.push("M365_COPILOT");
+      if (claudeUsers.includes(u)) products.push(Product.CLAUDE_AI);
+      if (copilotUsers.includes(u)) products.push(Product.M365_COPILOT);
 
       const product = pick(rng, products);
 
@@ -336,8 +354,14 @@ async function main() {
 
       const baseCost = costForProduct(rng, product, intensity);
       // Macau users blocked on OpenAI products (§3.3 jurisdictional case).
-      const blocked = region === "apac-mo" && (product === "CHATGPT" || product === "CODEX");
-      const decision = blocked ? "BLOCKED" : rng() < 0.02 ? "PROMPTED" : "ALLOWED";
+      const blocked =
+        region === "apac-mo" &&
+        (product === Product.CHATGPT || product === Product.CODEX);
+      const decision: UsageDecision = blocked
+        ? UsageDecision.BLOCKED
+        : rng() < 0.02
+          ? UsageDecision.PROMPTED
+          : UsageDecision.ALLOWED;
 
       allUsage.push({
         userId,
@@ -363,70 +387,76 @@ async function main() {
   // Decisions — a curated, realistic-looking set.
   console.log("[seed] inserting program decisions…");
 
-  const justifications: { type: string; subject?: string; j: string; before: object; after: object }[] = [
+  const justifications: {
+    type: DecisionType;
+    subject?: string;
+    j: string;
+    before: object;
+    after: object;
+  }[] = [
     {
-      type: "TIER_PROMOTION",
+      type: DecisionType.TIER_PROMOTION,
       subject: seniors[0]?.email,
       j: "Auto-promotion: 2 consecutive months >50% Codex Standard cap utilisation; manager attestation on file.",
       before: { codex_tier: "STANDARD", cap_usd_month: 1400 },
       after: { codex_tier: "POWER", cap_usd_month: 2500 },
     },
     {
-      type: "TIER_DEMOTION",
+      type: DecisionType.TIER_DEMOTION,
       subject: mids[10]?.email,
       j: "Auto-demotion: <10% of Codex Light cap consumed for 3 consecutive months.",
       before: { codex_tier: "LIGHT", cap_usd_month: 1000 },
       after: { codex_tier: "DISCOVERY", cap_usd_month: 75 },
     },
     {
-      type: "RECLAMATION",
+      type: DecisionType.RECLAMATION,
       subject: "hugo.liu@wdts.com",
       j: "Cursor seat reclaimed at 45 days of zero activity per §4.6.4. Seat returned to waitlist.",
       before: { cursor_seat: "STANDARD" },
       after: { cursor_seat: null },
     },
     {
-      type: "EXCEPTION_GRANT",
+      type: DecisionType.EXCEPTION_GRANT,
       subject: claudeUsers[1]?.email,
       j: "30-day budget elevation to $200/mo Claude.ai cap to support Q3 regulatory submission. Auto-revoke on day 30.",
       before: { claude_cap_usd_month: 100 },
       after: { claude_cap_usd_month: 200, ttl_days: 30 },
     },
     {
-      type: "METHODOLOGY_CHANGE",
+      type: DecisionType.METHODOLOGY_CHANGE,
       j: "Cursor selection methodology Appendix G v1.2 ratified by Steering: increase weighting on agent-mode adoption from 25% to 40%.",
       before: { agent_mode_weight: 0.25 },
       after: { agent_mode_weight: 0.4 },
     },
     {
-      type: "CAP_ADJUSTMENT",
+      type: DecisionType.CAP_ADJUSTMENT,
       j: "Codex Discovery per-user cap held at $75/mo for FY26 H1 (no increase) per Steering review.",
       before: { discovery_cap: 75 },
       after: { discovery_cap: 75, decision_window: "FY26-H1" },
     },
     {
-      type: "CURSOR_SEAT_GRANT",
+      type: DecisionType.CURSOR_SEAT_GRANT,
       subject: mids[3]?.email,
       j: "Cursor Standard seat granted from waitlist position #1 following hugo.liu reclamation.",
       before: { cursor_seat: null },
       after: { cursor_seat: "STANDARD" },
     },
     {
-      type: "EXCEPTION_GRANT",
+      type: DecisionType.EXCEPTION_GRANT,
       subject: users.find((u) => u.region === "apac-mo")?.email,
       j: "Jurisdictional exception (§3.3): user temporarily pair-routed via us-east colleague for ChatGPT access pending vendor coverage update.",
       before: { jurisdictional_status: "BLOCKED" },
       after: { jurisdictional_status: "PAIR_ROUTED", ttl_days: 14 },
     },
     {
-      type: "RECLAMATION",
+      type: DecisionType.RECLAMATION,
       subject: "xenia.holland@wdts.com",
       j: "Cursor seat 30-day notice issued; re-activation window ends in 5 business days.",
       before: { cursor_seat: "LIGHT", state: "ACTIVE" },
       after: { cursor_seat: "LIGHT", state: "NOTIFIED" },
     },
     {
-      type: "CAP_ADJUSTMENT",
+      type: DecisionType.CAP_ADJUSTMENT,
       j: "Program-level circuit breaker fired at 92% of $150K combined ChatGPT+Codex monthly cap; FinOps dashboard banner enabled.",
       before: { circuit_breaker: "GREEN" },
       after: { circuit_breaker: "AMBER", threshold_pct: 0.92 },
@@ -455,6 +485,193 @@ async function main() {
   }
 
   console.log(`[seed] decisions: ${justifications.length}`);
+
+  // ExceptionRequest — three rows covering distinct lifecycle states so
+  // F8 / DB-integration tests can exercise the state machine.
+  // We pick subjects from the deterministic mids/seniors arrays so the
+  // seed doesn't break when buildUsers() shuffles names.
+  console.log("[seed] inserting exception requests…");
+  const idleMid = mids[10] ?? mids[0];
+  const recentMid = mids[11] ?? mids[1];
+  const claudeUser = claudeUsers[0]?.email
+    ? emailToId.get(claudeUsers[0].email)
+    : undefined;
+  const macauUser = users.find((u) => u.region === "apac-mo")?.email
+    ? emailToId.get(users.find((u) => u.region === "apac-mo")!.email)
+    : undefined;
+  const idleMidId = idleMid ? emailToId.get(idleMid.email) : undefined;
+  const recentMidId = recentMid ? emailToId.get(recentMid.email) : undefined;
+
+  if (claudeUser) {
+    await prisma.exceptionRequest.create({
+      data: {
+        subjectUserId: claudeUser,
+        type: ExceptionType.BUDGET_ELEVATION,
+        status: ExceptionStatus.APPROVED,
+        effectChange: JSON.stringify({ capUsdMonth: 200 }),
+        justification:
+          "30-day budget elevation to $200/mo Claude.ai cap to support Q3 regulatory submission.",
+        requestedByEmail: "head-of-compliance@wdts.com",
+        requestedAt: new Date(now.getTime() - 20 * 24 * 60 * 60 * 1000),
+        attestedByEmail: "head-of-engineering@wdts.com",
+        attestedAt: new Date(now.getTime() - 19 * 24 * 60 * 60 * 1000),
+        reviewedByEmail: "finops@wdts.com",
+        reviewedAt: new Date(now.getTime() - 18 * 24 * 60 * 60 * 1000),
+        approvedAt: new Date(now.getTime() - 18 * 24 * 60 * 60 * 1000),
+        ttlDays: 30,
+        expiresAt: new Date(now.getTime() + 12 * 24 * 60 * 60 * 1000),
+      },
+    });
+  }
+  if (macauUser) {
+    await prisma.exceptionRequest.create({
+      data: {
+        subjectUserId: macauUser,
+        type: ExceptionType.JURISDICTIONAL,
+        status: ExceptionStatus.UNDER_REVIEW,
+        effectChange: JSON.stringify({ jurisdiction: "PAIR_ROUTED" }),
+        justification:
+          "Macau jurisdictional carve-out: temporarily pair-route via us-east colleague for ChatGPT access pending vendor coverage update.",
+        requestedByEmail: "macau-region-lead@wdts.com",
+        requestedAt: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000),
+        attestedByEmail: "head-of-engineering@wdts.com",
+        attestedAt: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000),
+        ttlDays: 14,
+      },
+    });
+  }
+  if (recentMidId) {
+    await prisma.exceptionRequest.create({
+      data: {
+        subjectUserId: recentMidId,
+        type: ExceptionType.TIER_OVERRIDE,
+        status: ExceptionStatus.SUBMITTED,
+        effectChange: JSON.stringify({ cursorTier: "STANDARD" }),
+        justification:
+          "Pinning to Standard during onboarding ramp; auto-tier rules would put this user on Discovery.",
+        requestedByEmail: "manager@wdts.com",
+        requestedAt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
+      },
+    });
+  }
+
+  // ReclamationEvent — two rows: one in active dispute window, one
+  // resolved-reclaimed (so F4 dispute UI has both shapes to render).
+  console.log("[seed] inserting reclamation events…");
+  if (idleMidId) {
+    await prisma.reclamationEvent.create({
+      data: {
+        subjectUserId: idleMidId,
+        trigger: ReclamationTrigger.IDLE,
+        action: ReclamationAction.RECLAIM,
+        state: ReclamationState.RESOLVED_RECLAIMED,
+        triggeredAt: new Date(now.getTime() - 50 * 24 * 60 * 60 * 1000),
+        notifiedAt: new Date(now.getTime() - 50 * 24 * 60 * 60 * 1000),
+        disputeWindowEndsAt: new Date(now.getTime() - 43 * 24 * 60 * 60 * 1000),
+        resolvedAt: new Date(now.getTime() - 43 * 24 * 60 * 60 * 1000),
+        resolvedByEmail: "finops@wdts.com",
+        justification: "45 days of zero Cursor activity per §4.6.4.",
+      },
+    });
+  }
+  if (recentMidId) {
+    const fiveBizDays = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+    await prisma.reclamationEvent.create({
+      data: {
+        subjectUserId: recentMidId,
+        trigger: ReclamationTrigger.IDLE,
+        action: ReclamationAction.NOTIFY,
+        state: ReclamationState.NOTIFIED,
+        triggeredAt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
+        notifiedAt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
+        disputeWindowEndsAt: fiveBizDays,
+        justification: "30 days of zero activity; 5-business-day dispute window opened.",
+      },
+    });
+  }
+
+  // BudgetSnapshot — one row per (product, sub-tier) for the current and
+  // previous calendar months. F1 trend cards read from this once the
+  // materialisation job lands; for v0.3 we just seed deterministic shapes.
+  console.log("[seed] inserting budget snapshots…");
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthEnd = new Date(monthStart.getTime() - 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+  type SnapshotInput = {
+    product: Product;
+    subTier: string;
+    totalUsd: number;
+    requestCount: number;
+    userCount: number;
+    capUsdMonth: number | null;
+  };
+  const snaps: SnapshotInput[] = [
+    { product: Product.CURSOR, subTier: "cursor_power", totalUsd: 4_120, requestCount: 2_400, userCount: 3, capUsdMonth: 1_500 },
+    { product: Product.CURSOR, subTier: "cursor_standard", totalUsd: 2_840, requestCount: 1_800, userCount: 6, capUsdMonth: 800 },
+    { product: Product.CURSOR, subTier: "cursor_light", totalUsd: 920, requestCount: 580, userCount: 4, capUsdMonth: 300 },
+    { product: Product.CURSOR, subTier: "cursor_discovery", totalUsd: 84, requestCount: 120, userCount: 4, capUsdMonth: 50 },
+    { product: Product.CODEX, subTier: "codex_power", totalUsd: 4_700, requestCount: 3_100, userCount: 2, capUsdMonth: 2_500 },
+    { product: Product.CODEX, subTier: "codex_standard", totalUsd: 6_320, requestCount: 4_800, userCount: 6, capUsdMonth: 1_400 },
+    { product: Product.CHATGPT, subTier: "chatgpt_default", totalUsd: 412, requestCount: 12_400, userCount: 28, capUsdMonth: 50 },
+    { product: Product.CLAUDE_AI, subTier: "claude_documentation", totalUsd: 245, requestCount: 320, userCount: 5, capUsdMonth: 100 },
+    { product: Product.M365_COPILOT, subTier: "m365_copilot_default", totalUsd: 0, requestCount: 11_800, userCount: 25, capUsdMonth: null },
+  ];
+  for (const s of snaps) {
+    for (const period of [{ start: prevMonthStart, end: prevMonthEnd, scale: 0.92 }, { start: monthStart, end: monthEnd, scale: 1.0 }]) {
+      const total = Math.round(s.totalUsd * period.scale * 100) / 100;
+      await prisma.budgetSnapshot.create({
+        data: {
+          product: s.product,
+          subTier: s.subTier,
+          periodStart: period.start,
+          periodEnd: period.end,
+          totalUsd: total,
+          requestCount: Math.round(s.requestCount * period.scale),
+          userCount: s.userCount,
+          capUsdMonth: s.capUsdMonth,
+          pctOfCap: s.capUsdMonth ? total / (s.capUsdMonth * s.userCount) : null,
+        },
+      });
+    }
+  }
+
+  // FrictionBudgetMetric — one weekly row per product + one cross-product
+  // aggregate for the last 4 weeks. Lets F11 render a plausible trend
+  // without the materialisation job in place yet.
+  console.log("[seed] inserting friction-budget metrics…");
+  const productsForMetrics: (Product | null)[] = [null, ...Object.values(Product)];
+  for (let w = 4; w >= 1; w--) {
+    const weekStart = new Date(now.getTime() - w * 7 * 24 * 60 * 60 * 1000);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
+    for (const p of productsForMetrics) {
+      const totalRequests = rngInt(rng, 800, 4_000);
+      const blocked = Math.round(totalRequests * rngBetween(rng, 0.005, 0.04));
+      const downgraded = Math.round(totalRequests * rngBetween(rng, 0.0, 0.02));
+      const prompted = Math.round(totalRequests * rngBetween(rng, 0.005, 0.03));
+      const allowed = totalRequests - blocked - downgraded - prompted;
+      const frictionRate = (blocked + downgraded) / totalRequests;
+      const budgetCeiling = 0.05;
+      await prisma.frictionBudgetMetric.create({
+        data: {
+          periodStart: weekStart,
+          periodEnd: weekEnd,
+          product: p ?? null,
+          totalRequests,
+          allowed,
+          prompted,
+          blocked,
+          downgraded,
+          frictionRate,
+          budgetCeiling,
+          pctOfBudget: frictionRate / budgetCeiling,
+        },
+      });
+    }
+  }
+
   console.log("[seed] done.");
 }
 

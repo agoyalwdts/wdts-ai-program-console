@@ -21,7 +21,7 @@ export type UserRow = {
   email: string;
   displayName: string;
   title: string | null;
-  roleTag: string;
+  roleTag: string | null;
   region: string;
   status: string;
   disabled: boolean;

@@ -43,7 +43,7 @@ type Member = {
   email: string;
   displayName: string;
   region: string;
-  roleTag: string;
+  roleTag: string | null;
   spendByProduct: Record<ProductKey, number>;
   totalSpend: number;
   budgetByProduct: Record<ProductKey, number>;
@@ -381,7 +381,11 @@ function TeamCard({ team }: { team: Team }) {
                         <div className="text-xs text-slate-500">{m.email}</div>
                       </TD>
                       <TD>
-                        <Badge variant="secondary">{m.roleTag}</Badge>
+                        {m.roleTag ? (
+                          <Badge variant="secondary">{m.roleTag}</Badge>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
                       </TD>
                       <TD>
                         <Badge variant={m.region === "apac-mo" ? "warning" : "outline"}>

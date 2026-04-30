@@ -33,8 +33,9 @@ export type CursorWaitlistReason =
 export type CursorWaitlistEntry = {
   email: string;
   displayName: string;
-  /** Free-form role tag from Deel (used in F4 row display). */
-  roleTag: string;
+  /** Free-form role tag from Deel (used in F4 row display). Nullable —
+   *  Deel emits null for ex-employees / pre-onboarding hires. */
+  roleTag: string | null;
   reason: CursorWaitlistReason;
   /** Tier the user is waitlisted for. */
   requestedTier: CursorSubTier;
