@@ -463,12 +463,11 @@ canonical list.
   401 on signature mismatch, 200 with a `ReconcilerSummary` on
   success. See `docs/deploy/azure.md §"Cron triggers"` for the
   GitHub-Actions-schedule wiring + `openssl rand -hex 32` setup.
-- ⏳ **AzureAD reconciler — schedule.** Endpoint exists; nobody is
-  hitting it on a clock yet. The recommended trigger for v0.3 is a
-  GitHub Actions `schedule:` workflow that holds a copy of the
-  shared secret as a repo secret and POSTs nightly. Until that wires
-  up, prod still drifts; an operator should manually `curl` the
-  cron endpoint at least weekly with `{"dryRun":true}` to detect drift.
+- ✅ **AzureAD reconciler — schedule.** `.github/workflows/cron-reconcile-azuread.yml`
+  runs nightly (03:37 UTC) + `workflow_dispatch`, POSTing the HMAC-signed
+  cron endpoint. Repository secret `CRON_SHARED_SECRET` must match the
+  Key Vault value (`CRON-SHARED-SECRET`) backing the App Service
+  `CRON_SHARED_SECRET` ref — see `docs/deploy/azure.md §"Cron triggers"`.
 
 ### Cursor (Track 4)
 
