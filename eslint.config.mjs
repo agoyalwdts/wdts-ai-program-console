@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     // Deploy artefacts — staged standalone bundle for the Azure zip-deploy
     // flow documented in docs/deploy/azure.md. Generated, never authored.
     ".deploy/**",
+    "deploy-pkg/**",
+    "deploy.zip",
   ]),
 ]);
 

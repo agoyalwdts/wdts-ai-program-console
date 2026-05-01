@@ -81,6 +81,7 @@ describe("reconcileAzureAD", () => {
         roleTag: "imported",
         region: "unknown",
         status: "ACTIVE",
+        disabled: true,
       },
     });
   });

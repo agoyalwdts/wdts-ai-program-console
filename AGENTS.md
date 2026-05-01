@@ -468,6 +468,12 @@ canonical list.
   cron endpoint. Repository secret `CRON_SHARED_SECRET` must match the
   Key Vault value (`CRON-SHARED-SECRET`) backing the App Service
   `CRON_SHARED_SECRET` ref — see `docs/deploy/azure.md §"Cron triggers"`.
+- ✅ **AzureAD reconciler — invite-only sign-in for new creates.** Rows
+  the reconciler **creates** for Entra users not already in Prisma are
+  written with `disabled=true` and no `dashboardRoleId` (mirror-only).
+  `POST /api/admin/users` (Invite user) upgrades that shadow row to
+  `disabled=false` + role when the email matches; cron can no longer
+  widen the closed-by-default sign-in surface.
 
 ### Cursor (Track 4)
 
