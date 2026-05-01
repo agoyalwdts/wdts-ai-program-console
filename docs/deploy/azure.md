@@ -433,6 +433,14 @@ from Entra every minute nobody runs the reconciler. v0.3 ships an
 HMAC-protected cron endpoint so an external scheduler can drive it
 without anyone holding a DB credential.
 
+**Closed-by-default:** new rows the reconciler **creates** for Entra
+users who were not already in Prisma are written with
+`disabled=true` and no `dashboardRoleId` — they are **identity mirror
+only** until an ADMIN uses **Invite user** (same email), which upgrades
+the row to `disabled=false` + role. Cron can therefore never widen the
+sign-in surface the way an apply-mode run against a full tenant would
+if creates defaulted to enabled.
+
 **Setup (once):**
 
 1. Generate a shared secret on your laptop:

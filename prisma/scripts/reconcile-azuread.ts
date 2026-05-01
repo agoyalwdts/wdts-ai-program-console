@@ -8,11 +8,14 @@
  *   1. Pull every Graph user via realAzureADClient.listUsers().
  *   2. For each Graph user with a non-empty email, upsert into
  *      prisma.user matching on email.
- *      - On create: roleTag, managerId initialised from a sensible
- *        default (managerId resolved in a second pass; roleTag
- *        defaults to 'imported' until Deel reconciliation runs).
+ *      - On create: `disabled=true` (closed-by-default, LDR 0005). The
+ *        row exists for manager-edge resolution / HR mirror only; sign-in
+ *        stays blocked until an ADMIN invites via POST /api/admin/users
+ *        (which upgrades shadow rows) or toggles enable on /settings/users.
+ *        roleTag defaults to 'imported'; managerId is resolved in pass (c).
  *      - On update: only touch fields the reconciler owns
- *        (displayName, status). Don't clobber locally-edited fields.
+ *        (displayName, status). Never touches `disabled` or
+ *        `dashboardRoleId` — those are admin-owned.
  *   3. Soft-delete (status -> SUSPENDED) any Prisma user whose email
  *      no longer appears in Graph. Doesn't hard-delete because the
  *      Decision / UsageRecord history is FK'd to User and we want
@@ -234,6 +237,8 @@ export async function reconcileAzureAD(
             roleTag: "imported",
             region: "unknown",
             status: gu.status === "SUSPENDED" ? "SUSPENDED" : "ACTIVE",
+            // Mirror-only until an admin explicitly invites (or enables).
+            disabled: true,
           },
         });
         summary.prismaCreated++;

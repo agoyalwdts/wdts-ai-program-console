@@ -12,8 +12,12 @@
  * the email placeholder.
  *
  * Closed-by-default model (LDR 0005): without a User row, sign-in is
- * rejected at the OAuth callback. So this is the *only* way a new
- * person gets dashboard access (other than the bootstrap-owner rule).
+ * rejected at the OAuth callback. The AzureAD reconciler may create a
+ * **shadow** row (`disabled=true`, no `dashboardRoleId`) for anyone in
+ * Entra — that row alone does **not** grant access. This endpoint is
+ * how an admin grants access: either a fresh `User` row, or upgrading
+ * a shadow row to `disabled=false` + role (other than the
+ * bootstrap-owner rule).
  *
  * Writes a `Decision` row of type=USER_INVITED.
  */
@@ -91,8 +95,31 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const dupe = await prisma.user.findUnique({ where: { email } });
-  if (dupe) {
+  const dupe = await prisma.user.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      email: true,
+      disabled: true,
+      dashboardRoleId: true,
+      isOwner: true,
+    },
+  });
+
+  const displayName =
+    (typeof body.displayName === "string" && body.displayName.trim()) ||
+    email;
+  const title =
+    (typeof body.title === "string" && body.title.trim()) || null;
+
+  /** Reconciler-created mirror row: blocked until an admin assigns a role. */
+  const shadowUpgrade =
+    dupe != null &&
+    !dupe.isOwner &&
+    dupe.disabled &&
+    dupe.dashboardRoleId === null;
+
+  if (dupe != null && !shadowUpgrade) {
     return NextResponse.json(
       {
         ok: false,
@@ -102,18 +129,52 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const created = await prisma.$transaction(async (tx) => {
+  const shadowUserId = shadowUpgrade && dupe ? dupe.id : null;
+
+  const result = await prisma.$transaction(async (tx) => {
+    if (shadowUserId) {
+      const u = await tx.user.update({
+        where: { id: shadowUserId },
+        data: {
+          displayName,
+          title,
+          roleTag: "UNKNOWN",
+          region: "UNKNOWN",
+          status: "ACTIVE",
+          disabled: false,
+          dashboardRoleId: role.id,
+        },
+        include: { dashboardRole: { select: { key: true } } },
+      });
+      await tx.decision.create({
+        data: {
+          type: "USER_INVITED",
+          subjectUserId: u.id,
+          beforeState: JSON.stringify({
+            email: u.email,
+            disabled: true,
+            dashboardRoleId: null,
+          }),
+          afterState: JSON.stringify({
+            email: u.email,
+            roleKey: role.key,
+            disabled: false,
+          }),
+          actorEmail: actor.email,
+          justification: `Invited ${u.email} as ${role.key} (upgraded from AzureAD shadow row)`,
+        },
+      });
+      return { kind: "upgraded" as const, u };
+    }
+
     const u = await tx.user.create({
       data: {
         email,
         // Until the user actually signs in we only have the email.
         // The auth.ts JIT logic refreshes this from the IdP profile
         // on first sign-in (one-shot, only if it still equals email).
-        displayName:
-          (typeof body.displayName === "string" && body.displayName.trim()) ||
-          email,
-        title:
-          (typeof body.title === "string" && body.title.trim()) || null,
+        displayName,
+        title,
         roleTag: "UNKNOWN",
         region: "UNKNOWN",
         status: "ACTIVE",
@@ -136,19 +197,21 @@ export async function POST(req: NextRequest) {
         justification: `Invited ${u.email} as ${role.key}`,
       },
     });
-    return u;
+    return { kind: "created" as const, u };
   });
 
+  const u = result.u;
   return NextResponse.json(
     {
       ok: true,
+      upgraded: result.kind === "upgraded",
       user: {
-        id: created.id,
-        email: created.email,
-        displayName: created.displayName,
-        roleKey: created.dashboardRole?.key ?? role.key,
+        id: u.id,
+        email: u.email,
+        displayName: u.displayName,
+        roleKey: u.dashboardRole?.key ?? role.key,
       },
     },
-    { status: 201 },
+    { status: result.kind === "upgraded" ? 200 : 201 },
   );
 }

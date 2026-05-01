@@ -323,6 +323,7 @@ function InvitePanel({
       });
       const json = (await res.json()) as {
         ok?: boolean;
+        upgraded?: boolean;
         error?: string;
         user?: {
           id: string;
@@ -336,7 +337,9 @@ function InvitePanel({
         return;
       }
       setOkMsg(
-        `Invited ${json.user.email}. They&apos;ll appear here as Active once they sign in.`,
+        json.upgraded
+          ? `Granted access to ${json.user.email} (identity mirror row from Azure AD was upgraded to an invited user).`
+          : `Invited ${json.user.email}. They&apos;ll appear here as Active once they sign in.`,
       );
       onInvited({
         id: json.user.id,
