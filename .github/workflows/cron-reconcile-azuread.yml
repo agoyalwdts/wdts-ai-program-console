@@ -1,0 +1,63 @@
+# Nightly AzureAD identity reconciler — hits the App Service cron route
+# with an HMAC-signed POST. No DATABASE_URL on GitHub runners; the
+# reconciler runs inside the live Next.js process which already has
+# Key Vault–resolved env vars.
+#
+# Prerequisites (operator one-time):
+#   1. `CRON_SHARED_SECRET` stored in Azure Key Vault as CRON-SHARED-SECRET
+#      and wired to App Service as CRON_SHARED_SECRET (Key Vault ref).
+#   2. Same raw secret value set here as a repository secret named
+#      `CRON_SHARED_SECRET` so this workflow can sign the request body.
+#
+# See docs/deploy/azure.md § "Cron triggers".
+
+name: Cron — reconcile Azure AD
+
+on:
+  schedule:
+    # 03:37 UTC daily — off the hour to avoid Graph / GH thundering herds.
+    - cron: "37 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cron-reconcile-azuread
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    name: POST /api/cron/reconcile-azuread
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      CRON_URL: https://wdts-ai-program-console.azurewebsites.net/api/cron/reconcile-azuread
+
+    steps:
+      - name: Verify secret is configured
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          if [ -z "$CRON_SHARED_SECRET" ]; then
+            echo "::error::Repository secret CRON_SHARED_SECRET is not set. See docs/deploy/azure.md § Cron triggers."
+            exit 1
+          fi
+
+      - name: Run reconciler (apply)
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          BODY='{}'
+          SIG=$(printf '%s' "$BODY" \
+            | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" \
+            | awk '{print $2}')
+          echo "## AzureAD reconcile response" >> "$GITHUB_STEP_SUMMARY"
+          curl -fsS -X POST \
+            -H "x-cron-signature: sha256=${SIG}" \
+            -H "content-type: application/json" \
+            --data "$BODY" \
+            "$CRON_URL" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "OK — reconciler returned HTTP 200." >> "$GITHUB_STEP_SUMMARY"
