@@ -22,7 +22,8 @@
     "db:reset": "prisma migrate reset --force",
     "db:push": "prisma db push",
     "reconcile:azuread": "tsx prisma/scripts/reconcile-azuread.ts",
-    "reconcile:azuread:dry": "tsx prisma/scripts/reconcile-azuread.ts --dry-run"
+    "reconcile:azuread:dry": "tsx prisma/scripts/reconcile-azuread.ts --dry-run",
+    "db:disable-non-allowlist": "tsx scripts/disable-users-not-on-allowlist.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

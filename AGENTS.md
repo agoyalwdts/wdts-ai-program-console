@@ -474,6 +474,11 @@ canonical list.
   `POST /api/admin/users` (Invite user) upgrades that shadow row to
   `disabled=false` + role when the email matches; cron can no longer
   widen the closed-by-default sign-in surface.
+- **Post-incident cleanup (operator, one-off):** if prod already has
+  enabled `User` rows for people who should not sign in, run
+  `scripts/disable-users-not-on-allowlist.ts` (dry-run by default;
+  `ALLOWLIST_EMAILS` + `--apply` to write). Never touches `isOwner`.
+  Wrapper: `npm run db:disable-non-allowlist -- --apply`.
 
 ### Cursor (Track 4)
 
