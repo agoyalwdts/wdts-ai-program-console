@@ -23,7 +23,7 @@
  *
  * **Example (prod — pull DATABASE_URL from Key Vault first)**
  *
- *   ALLOWLIST_EMAILS="agoyal@wdtablesystems.com,colleague@wdtablesystems.com" \
+ *   ALLOWLIST_EMAILS="agoyal@wdtablesystems.com,mdubbeld@wdtablesystems.com,gkeys@wdtablesystems.com,cmoore@wdtablesystems.com" \
  *   DATABASE_URL="$(az keyvault secret show --vault-name wdts-ai-cons-kv \
  *     --name DATABASE-URL --query value -o tsv)" \
  *   npx tsx scripts/disable-users-not-on-allowlist.ts

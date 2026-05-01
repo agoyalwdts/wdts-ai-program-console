@@ -479,6 +479,9 @@ canonical list.
   `scripts/disable-users-not-on-allowlist.ts` (dry-run by default;
   `ALLOWLIST_EMAILS` + `--apply` to write). Never touches `isOwner`.
   Wrapper: `npm run db:disable-non-allowlist -- --apply`.
+  **Canonical prod allowlist (include CTO explicitly for operator copy-paste;
+  `isOwner` is still never disabled even if omitted):**
+  `agoyal@wdtablesystems.com,mdubbeld@wdtablesystems.com,gkeys@wdtablesystems.com,cmoore@wdtablesystems.com`.
 
 ### Cursor (Track 4)
 
