@@ -99,30 +99,41 @@ async function main() {
   }
 
   const emails = toDisable.map((u) => u.email);
-  await prisma.$transaction(async (tx) => {
-    for (const u of toDisable) {
-      await tx.user.update({
-        where: { id: u.id },
-        data: { disabled: true },
-      });
-    }
-    await tx.decision.create({
-      data: {
-        type: "METHODOLOGY_CHANGE",
-        beforeState: JSON.stringify({ action: "disable-users-not-on-allowlist", count: 0 }),
-        afterState: JSON.stringify({
-          disabledCount: toDisable.length,
-          emails: emails.slice(0, 500),
-        }),
-        actorEmail: "script:disable-users-not-on-allowlist@dashboard",
-        justification:
-          `Bulk-disabled ${toDisable.length} user(s) not on ALLOWLIST_EMAILS ` +
-          `(closed-by-default cleanup after reconciler widen).`,
-      },
+  const ids = toDisable.map((u) => u.id);
+  // One interactive transaction with hundreds of round-trips hits Azure
+  // Postgres / Prisma interactive transaction timeouts (P2028). Chunked
+  // `updateMany` keeps each statement short; then a single Decision row.
+  const batchSize = 250;
+  let updated = 0;
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const chunk = ids.slice(i, i + batchSize);
+    const r = await prisma.user.updateMany({
+      where: { id: { in: chunk } },
+      data: { disabled: true },
     });
+    updated += r.count;
+    console.log(
+      `[disable-users] batch ${Math.floor(i / batchSize) + 1}: updateMany count=${r.count}`,
+    );
+  }
+
+  await prisma.decision.create({
+    data: {
+      type: "METHODOLOGY_CHANGE",
+      beforeState: JSON.stringify({ action: "disable-users-not-on-allowlist", count: 0 }),
+      afterState: JSON.stringify({
+        disabledCount: toDisable.length,
+        updateManyTotal: updated,
+        emails: emails.slice(0, 500),
+      }),
+      actorEmail: "script:disable-users-not-on-allowlist@dashboard",
+      justification:
+        `Bulk-disabled ${toDisable.length} user(s) not on ALLOWLIST_EMAILS ` +
+        `(closed-by-default cleanup after reconciler widen).`,
+    },
   });
 
-  console.log(`\n[disable-users] Applied: disabled ${toDisable.length} user(s).`);
+  console.log(`\n[disable-users] Applied: updateMany total=${updated}, decision logged.`);
 }
 
 main()
