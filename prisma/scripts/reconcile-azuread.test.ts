@@ -181,3 +181,179 @@ describe("reconcileAzureAD", () => {
     });
   });
 });
+
+describe("reconcileAzureAD — manager-edge reconciliation", () => {
+  it("links a managerId when Graph reports a manager whose email IS in Prisma", async () => {
+    mocks.listUsers.mockResolvedValueOnce([
+      gu({ email: "rep@w.com", managerEmail: "boss@w.com" }),
+      gu({ email: "boss@w.com", managerEmail: null }),
+    ]);
+    mocks.findMany.mockResolvedValueOnce([
+      {
+        id: "u-rep",
+        email: "rep@w.com",
+        displayName: "X",
+        status: "ACTIVE",
+        managerId: null,
+      },
+      {
+        id: "u-boss",
+        email: "boss@w.com",
+        displayName: "X",
+        status: "ACTIVE",
+        managerId: null,
+      },
+    ]);
+
+    const summary = await run(false);
+    expect(summary.managerEdgesLinked).toBe(1);
+    expect(summary.managerEdgesCleared).toBe(0);
+    expect(summary.managerEdgesUnresolved).toBe(0);
+    expect(mocks.txUpdateUser).toHaveBeenCalledWith({
+      where: { email: "rep@w.com" },
+      data: { managerId: "u-boss" },
+    });
+  });
+
+  it("clears managerId when Graph reports null but Prisma has one", async () => {
+    mocks.listUsers.mockResolvedValueOnce([
+      gu({ email: "rep@w.com", managerEmail: null }),
+    ]);
+    mocks.findMany.mockResolvedValueOnce([
+      {
+        id: "u-rep",
+        email: "rep@w.com",
+        displayName: "X",
+        status: "ACTIVE",
+        managerId: "u-old-boss",
+      },
+    ]);
+
+    const summary = await run(false);
+    expect(summary.managerEdgesCleared).toBe(1);
+    expect(summary.managerEdgesLinked).toBe(0);
+    expect(mocks.txUpdateUser).toHaveBeenCalledWith({
+      where: { email: "rep@w.com" },
+      data: { managerId: null },
+    });
+  });
+
+  it("counts unresolved-manager edges without writing", async () => {
+    mocks.listUsers.mockResolvedValueOnce([
+      gu({ email: "rep@w.com", managerEmail: "boss-not-in-prisma@w.com" }),
+    ]);
+    mocks.findMany.mockResolvedValueOnce([
+      {
+        id: "u-rep",
+        email: "rep@w.com",
+        displayName: "X",
+        status: "ACTIVE",
+        managerId: null,
+      },
+    ]);
+
+    const summary = await run(false);
+    expect(summary.managerEdgesUnresolved).toBe(1);
+    expect(summary.managerEdgesLinked).toBe(0);
+    expect(summary.managerEdgesCleared).toBe(0);
+    // No manager-related update should fire.
+    const managerTouches = mocks.txUpdateUser.mock.calls.filter(
+      (c: unknown[]) => {
+        const arg = c[0] as { data?: { managerId?: unknown } };
+        return arg?.data && Object.prototype.hasOwnProperty.call(arg.data, "managerId");
+      },
+    );
+    expect(managerTouches).toHaveLength(0);
+  });
+
+  it("doesn't re-write a managerId edge that already matches Graph", async () => {
+    mocks.listUsers.mockResolvedValueOnce([
+      gu({ email: "rep@w.com", managerEmail: "boss@w.com" }),
+      gu({ email: "boss@w.com", managerEmail: null }),
+    ]);
+    mocks.findMany.mockResolvedValueOnce([
+      {
+        id: "u-rep",
+        email: "rep@w.com",
+        displayName: "X",
+        status: "ACTIVE",
+        managerId: "u-boss",
+      },
+      {
+        id: "u-boss",
+        email: "boss@w.com",
+        displayName: "X",
+        status: "ACTIVE",
+        managerId: null,
+      },
+    ]);
+
+    const summary = await run(false);
+    expect(summary.managerEdgesLinked).toBe(0);
+    expect(summary.managerEdgesCleared).toBe(0);
+  });
+
+  it("dry-run reports manager counts but doesn't write", async () => {
+    mocks.listUsers.mockResolvedValueOnce([
+      gu({ email: "rep@w.com", managerEmail: "boss@w.com" }),
+      gu({ email: "boss@w.com", managerEmail: null }),
+    ]);
+    mocks.findMany.mockResolvedValueOnce([
+      {
+        id: "u-rep",
+        email: "rep@w.com",
+        displayName: "X",
+        status: "ACTIVE",
+        managerId: null,
+      },
+      {
+        id: "u-boss",
+        email: "boss@w.com",
+        displayName: "X",
+        status: "ACTIVE",
+        managerId: null,
+      },
+    ]);
+
+    const summary = await run(true);
+    expect(summary.managerEdgesLinked).toBe(1);
+    expect(mocks.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("re-points a managerId when the manager actually changed", async () => {
+    mocks.listUsers.mockResolvedValueOnce([
+      gu({ email: "rep@w.com", managerEmail: "newboss@w.com" }),
+      gu({ email: "newboss@w.com", managerEmail: null }),
+      gu({ email: "oldboss@w.com", managerEmail: null }),
+    ]);
+    mocks.findMany.mockResolvedValueOnce([
+      {
+        id: "u-rep",
+        email: "rep@w.com",
+        displayName: "X",
+        status: "ACTIVE",
+        managerId: "u-oldboss",
+      },
+      {
+        id: "u-oldboss",
+        email: "oldboss@w.com",
+        displayName: "X",
+        status: "ACTIVE",
+        managerId: null,
+      },
+      {
+        id: "u-newboss",
+        email: "newboss@w.com",
+        displayName: "X",
+        status: "ACTIVE",
+        managerId: null,
+      },
+    ]);
+
+    await run(false);
+    expect(mocks.txUpdateUser).toHaveBeenCalledWith({
+      where: { email: "rep@w.com" },
+      data: { managerId: "u-newboss" },
+    });
+  });
+});
