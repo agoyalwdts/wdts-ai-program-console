@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { SyncCursorVendorSpendButton } from "@/components/dashboard/sync-cursor-vendor-spend-button";
+import { SyncOpenAiVendorSpendButton } from "@/components/dashboard/sync-openai-vendor-spend-button";
 
 export const dynamic = "force-dynamic";
 
@@ -111,16 +112,18 @@ async function probeAzureOpenAI(): Promise<ProbeResult> {
 
 const INTEGRATION_NOTES: Record<IntegrationName, string> = {
   gateway:
-    "Usage mirror + LiteLLM: see docs/gateway-and-litellm.md (webhooks, env, Cursor inference).",
+    "Usage mirror + LiteLLM: docs/gateway-and-litellm.md; production ingest: docs/integrations/usage-ingest-production.md; GHA cron-usage-mirror-health.yml.",
   cursor:
-    "SCIM: CURSOR_SCIM_BASE_URL + CURSOR_ADMIN_TOKEN. Team Admin usage API: same token or CURSOR_TEAM_ADMIN_API_KEY — sync from Settings or POST /api/cron/sync-cursor-spend.",
-  openai: "OpenAI Enterprise admin API key with users.read + usage.read scopes.",
+    "SCIM: CURSOR_SCIM_BASE_URL + CURSOR_ADMIN_TOKEN. Team Admin usage API: same token or CURSOR_TEAM_ADMIN_API_KEY — Settings sync, POST /api/cron/sync-cursor-spend, or GHA cron-vendor-spend-sync.yml.",
+  openai:
+    "OpenAI Enterprise admin API key + org id. Vendor spend sync: POST /api/cron/sync-openai-spend or GHA cron-vendor-spend-sync.yml.",
   anthropic: "Anthropic admin API key (workspace-seat introspection beta).",
   m365graph: "Same app reg or a separate SP with Reports.Read.All + AuditLog.Read.All.",
   azuread:
     "Real client wired (PR #9). Default still synthetic until the v0.3 reconciler mirrors Graph users into the local User table.",
   deel: "Deel API token + webhook receiver URL. Now optional — CSV import covers the same need.",
-  policyrepo: "GitHub PAT or App credentials; targets agoyalwdts/wdts-ai-policy.",
+  policyrepo:
+    "GitHub PAT or App credentials; targets agoyalwdts/wdts-ai-policy. Branch protection before PAT — see docs/integrations/production-blockers-checklist.md.",
   azureopenai:
     "Resource API key from Azure Portal → Keys and Endpoint. Data plane only.",
 };
@@ -262,6 +265,28 @@ export default async function SettingsPage() {
                 </CardHeader>
                 <CardContent>
                   <SyncCursorVendorSpendButton />
+                </CardContent>
+              </Card>
+            ) : null}
+            {canVendorSpendSync ? (
+              <Card className="border-sky-200">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Radio className="h-4 w-4 text-sky-600" />
+                    ChatGPT + Codex spend (Program Health)
+                  </CardTitle>
+                  <CardDescription>
+                    Calls OpenAI{" "}
+                    <code className="font-mono text-xs">GET /v1/organization/costs</code> with admin
+                    key + org id. Buckets daily USD into <code className="font-mono text-xs">CHATGPT</code>{" "}
+                    vs <code className="font-mono text-xs">CODEX</code> using line-item hints (and env
+                    overrides). Schedule{" "}
+                    <code className="font-mono text-xs">POST /api/cron/sync-openai-spend</code> or run
+                    manually below.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <SyncOpenAiVendorSpendButton />
                 </CardContent>
               </Card>
             ) : null}

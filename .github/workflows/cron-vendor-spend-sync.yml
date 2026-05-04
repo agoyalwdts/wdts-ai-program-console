@@ -1,0 +1,75 @@
+# Nightly Cursor + OpenAI vendor spend → VendorDailySpend (HMAC cron routes).
+# Same secret contract as docs/deploy/azure.md § Cron triggers.
+#
+# Prerequisites:
+#   - Repository secret CRON_SHARED_SECRET matches App Service CRON_SHARED_SECRET.
+#   - App Service has Cursor / OpenAI credentials when those integrations are real
+#     (otherwise the corresponding job may 502 — fix env or disable that matrix leg).
+#
+# To point at a non-default host, edit DASHBOARD_BASE_URL below (or fork).
+
+name: Cron — vendor spend sync
+
+on:
+  schedule:
+    # 04:41 UTC — after AzureAD reconcile (03:37) to spread load.
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: cron-vendor-spend-${{ matrix.label }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: cursor
+            path: /api/cron/sync-cursor-spend
+          - label: openai
+            path: /api/cron/sync-openai-spend
+
+    env:
+      DASHBOARD_BASE_URL: https://wdts-ai-program-console.azurewebsites.net
+
+    steps:
+      - name: Verify secret is configured
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          if [ -z "$CRON_SHARED_SECRET" ]; then
+            echo "::error::Repository secret CRON_SHARED_SECRET is not set."
+            exit 1
+          fi
+
+      - name: POST cron sync
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          BODY='{"lookbackDays":120}'
+          SIG=$(printf '%s' "$BODY" \
+            | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" \
+            | awk '{print $2}')
+          URL="${DASHBOARD_BASE_URL}${{ matrix.path }}"
+          echo "## ${{ matrix.label }} — $URL" >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
+            -H "x-cron-signature: sha256=${SIG}" \
+            -H "content-type: application/json" \
+            --data "$BODY" \
+            "$URL")
+          set -e
+          cat /tmp/out.json >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::HTTP $HTTP from $URL (check App Service env for this integration)"
+            exit 1
+          fi
+          echo "OK — HTTP 200." >> "$GITHUB_STEP_SUMMARY"

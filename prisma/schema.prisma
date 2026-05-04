@@ -100,6 +100,8 @@ enum DecisionType {
   USAGE_INGEST_BATCH
   /// Cursor Team Admin API → VendorDailySpend upsert (cron or admin).
   CURSOR_VENDOR_SPEND_SYNC
+  /// OpenAI organization/costs API → VendorDailySpend (CHATGPT + CODEX).
+  OPENAI_VENDOR_SPEND_SYNC
 }
 
 // ---------------------------------------------------------------------------
@@ -289,6 +291,8 @@ model UsageRecord {
 /// Daily USD totals from a vendor admin API (not the gateway mirror).
 /// F1 merges CURSOR rows when `INTEGRATION_CURSOR=real` so Program Health
 /// matches Cursor’s dashboard (filtered-usage-events chargedCents sum).
+/// CHATGPT/CODEX rows from `OPENAI_ORG_COSTS_API` merge when
+/// `INTEGRATION_OPENAI=real`.
 model VendorDailySpend {
   id         String   @id @default(cuid())
   /// Stable id for the upstream system, e.g. `CURSOR_TEAM_ADMIN_API`.

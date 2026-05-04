@@ -21,6 +21,13 @@ function envNonEmpty(key: string): boolean {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+/** Canonical HTTPS origin for operator copy-paste (no trailing slash). */
+function dashboardPublicBaseUrl(): string | null {
+  const v = process.env.DASHBOARD_PUBLIC_BASE_URL?.trim();
+  if (!v) return null;
+  return v.replace(/\/+$/, "");
+}
+
 export default async function GatewayMirrorSettingsPage() {
   await requirePermission(PERMISSIONS.DASHBOARD_VIEW_SETTINGS);
 
@@ -42,6 +49,7 @@ export default async function GatewayMirrorSettingsPage() {
 
   const gatewayMode = getIntegrationMode("gateway");
   const lastEvent = usageAgg._max.ts;
+  const publicBase = dashboardPublicBaseUrl();
 
   return (
     <>
@@ -61,9 +69,45 @@ export default async function GatewayMirrorSettingsPage() {
               inference, env vars, and security notes.
             </CardDescription>
           </CardHeader>
-          <CardContent className="text-sm text-slate-700">
-            Open <code className="font-mono text-xs">docs/gateway-and-litellm.md</code> in the
-            repository clone (operator runbook).
+          <CardContent className="text-sm text-slate-700 space-y-2">
+            <p>
+              Open <code className="font-mono text-xs">docs/gateway-and-litellm.md</code> in the
+              repository clone (operator runbook).
+            </p>
+            <p>
+              Production checklist:{" "}
+              <code className="font-mono text-xs">docs/integrations/usage-ingest-production.md</code>
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-sky-100">
+          <CardHeader>
+            <CardTitle>Webhook endpoints</CardTitle>
+            <CardDescription>
+              Configure forwarders to POST here. Set{" "}
+              <code className="font-mono text-xs">DASHBOARD_PUBLIC_BASE_URL</code> on the app to show
+              full URLs.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-slate-700">
+            {publicBase ? (
+              <ul className="list-disc pl-5 space-y-2 font-mono text-xs break-all">
+                <li>{`${publicBase}/api/webhooks/usage-ingest`}</li>
+                <li>{`${publicBase}/api/webhooks/litellm`}</li>
+              </ul>
+            ) : (
+              <p className="text-slate-600">
+                <code className="font-mono text-xs">DASHBOARD_PUBLIC_BASE_URL</code> is unset — paths
+                are <code className="font-mono text-xs">/api/webhooks/usage-ingest</code> and{" "}
+                <code className="font-mono text-xs">/api/webhooks/litellm</code> on your deployed
+                origin.
+              </p>
+            )}
+            <p className="text-xs text-slate-500">
+              Smoke test: <code className="font-mono">scripts/send-usage-ingest-smoke.sh</code> (see
+              usage-ingest production doc).
+            </p>
           </CardContent>
         </Card>
 
@@ -85,6 +129,7 @@ export default async function GatewayMirrorSettingsPage() {
                 {gatewayMode}
               </Badge>
             </div>
+            <EnvRow k="DASHBOARD_PUBLIC_BASE_URL" ok={envNonEmpty("DASHBOARD_PUBLIC_BASE_URL")} />
             <EnvRow k="USAGE_INGEST_HMAC_SECRET" ok={envNonEmpty("USAGE_INGEST_HMAC_SECRET")} />
             <EnvRow k="LITELLM_WEBHOOK_SECRET" ok={envNonEmpty("LITELLM_WEBHOOK_SECRET")} />
             <EnvRow k="CRON_SHARED_SECRET" ok={envNonEmpty("CRON_SHARED_SECRET")} />
@@ -162,6 +207,15 @@ export default async function GatewayMirrorSettingsPage() {
               <code className="font-mono text-xs">maxStaleMinutes</code> (default 1440).
             </CardDescription>
           </CardHeader>
+          <CardContent className="text-sm text-slate-700">
+            <p>
+              Nightly automation: GitHub Actions workflow{" "}
+              <code className="font-mono text-xs">cron-usage-mirror-health.yml</code> (requires
+              repository secret <code className="font-mono text-xs">CRON_SHARED_SECRET</code>). After
+              ingest is mandatory, tighten the workflow body to{" "}
+              <code className="font-mono text-xs">{`{"requireBatch":true}`}</code>.
+            </p>
+          </CardContent>
         </Card>
       </div>
     </>

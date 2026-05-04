@@ -1,0 +1,67 @@
+# Daily gateway mirror freshness check — POST /api/cron/usage-mirror-health
+# Fails the job (non-200) when the last USAGE_INGEST_BATCH decision is older
+# than maxStaleMinutes. Greenfield: if no batch ever landed, requireBatch=false
+# keeps the check green until the forwarder starts posting.
+#
+# After ingest is live in prod, consider tightening:
+#   BODY='{"maxStaleMinutes":1440,"requireBatch":true}'
+#
+# Prerequisites: CRON_SHARED_SECRET repository secret (same as other cron workflows).
+
+name: Cron — usage mirror health
+
+on:
+  schedule:
+    - cron: "52 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cron-usage-mirror-health
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    name: POST /api/cron/usage-mirror-health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      DASHBOARD_BASE_URL: https://wdts-ai-program-console.azurewebsites.net
+
+    steps:
+      - name: Verify secret is configured
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          if [ -z "$CRON_SHARED_SECRET" ]; then
+            echo "::error::Repository secret CRON_SHARED_SECRET is not set."
+            exit 1
+          fi
+
+      - name: Check mirror health
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          BODY='{"maxStaleMinutes":1440,"requireBatch":false}'
+          SIG=$(printf '%s' "$BODY" \
+            | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" \
+            | awk '{print $2}')
+          URL="${DASHBOARD_BASE_URL}/api/cron/usage-mirror-health"
+          echo "## Usage mirror health — $URL" >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
+            -H "x-cron-signature: sha256=${SIG}" \
+            -H "content-type: application/json" \
+            --data "$BODY" \
+            "$URL")
+          set -e
+          cat /tmp/out.json | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::HTTP $HTTP — mirror unhealthy or cron misconfigured"
+            exit 1
+          fi
+          echo "OK — HTTP 200." >> "$GITHUB_STEP_SUMMARY"

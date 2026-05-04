@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "DecisionType" ADD VALUE 'OPENAI_VENDOR_SPEND_SYNC';

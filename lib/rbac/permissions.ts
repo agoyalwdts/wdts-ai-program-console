@@ -38,7 +38,7 @@ export const PERMISSIONS = {
   IMPORTS_EMPLOYEES: "imports.employees",
   /// Ingest Cursor admin team-usage CSV; creates prudence alerts + optional email.
   IMPORTS_CURSOR_USAGE: "imports.cursor_usage",
-  /// Pull Cursor Team Admin usage → VendorDailySpend (Program Health CURSOR tile).
+  /// Pull vendor admin APIs → VendorDailySpend (F1 CURSOR / ChatGPT / Codex tiles).
   VENDOR_SPEND_SYNC: "vendor_spend.sync",
   DECISIONS_EXPORT: "decisions.export",
 
@@ -138,9 +138,9 @@ export const PERMISSION_CATALOG: ReadonlyArray<PermissionMeta> = [
   {
     key: PERMISSIONS.VENDOR_SPEND_SYNC,
     category: "Operations",
-    displayName: "Sync vendor spend (Cursor API)",
+    displayName: "Sync vendor spend (Cursor + OpenAI)",
     description:
-      "Trigger Cursor Team Admin API pull into VendorDailySpend for accurate F1 CURSOR totals.",
+      "Trigger Cursor Team Admin and OpenAI organization costs sync into VendorDailySpend for F1.",
   },
   {
     key: PERMISSIONS.DECISIONS_EXPORT,
