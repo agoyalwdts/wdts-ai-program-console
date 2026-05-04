@@ -24,6 +24,17 @@ This does **not** replace the gateway mirror for other products; it only
 overrides the **CURSOR** tile and chart series when sync data exists for the
 selected period. See Cursor docs: Admin API (Basic auth with the team API key).
 
+### OpenAI ChatGPT + Codex (parallel path — vendor-accurate F1)
+
+When `INTEGRATION_OPENAI=real`, Program Health can show **organization-billed
+USD** from **`GET /v1/organization/costs`** (admin API key + `OpenAI-Organization`),
+bucketed into **`VendorDailySpend`** rows for **`CHATGPT`** and **`CODEX`**.
+Refresh via `POST /api/cron/sync-openai-spend` (HMAC) or **Settings → Sync ChatGPT + Codex spend**.
+Line items are mapped with heuristics (`codex` in the string → Codex, etc.),
+optional JSON env **`OPENAI_COST_LINE_ITEM_SUBSTRINGS_JSON`**, and
+**`OPENAI_COST_UNMAPPED_SPLIT`** (`ratio` default, or force `CHATGPT` / `CODEX`)
+for API spend that does not match a rule.
+
 ## Prerequisites
 
 1. Run migrations so `UsageRecord.sourceEventId` exists (idempotent upserts).
@@ -45,6 +56,9 @@ emit the same normalised JSON).
 deployment is required for those vars to remain unset or unused on the proxy.
 
 ## Ingest path A — Generic HMAC (`POST /api/webhooks/usage-ingest`)
+
+**Production runbook** (App Service secrets, pilot smoke, monitoring): see
+`docs/integrations/usage-ingest-production.md`.
 
 - **Auth:** `USAGE_INGEST_HMAC_SECRET` must be set. Header
   **`x-usage-ingest-signature: sha256=<HMAC_SHA256(secret, raw body)>`**

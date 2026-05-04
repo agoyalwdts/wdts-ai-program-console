@@ -538,6 +538,15 @@ matches the Deel webhook pattern.
   The repo secret `CRON_SHARED_SECRET` must match the App Service
   setting. No DB credential leaves Azure.
 
+  **Committed workflows** (same `CRON_SHARED_SECRET`; edit `DASHBOARD_BASE_URL`
+  inside each YAML if the app host changes):
+
+  | File | Purpose |
+  |------|---------|
+  | `.github/workflows/cron-reconcile-azuread.yml` | `POST /api/cron/reconcile-azuread` |
+  | `.github/workflows/cron-vendor-spend-sync.yml` | `POST /api/cron/sync-cursor-spend` and `sync-openai-spend` |
+  | `.github/workflows/cron-usage-mirror-health.yml` | `POST /api/cron/usage-mirror-health` |
+
 - **Azure Logic Apps / Azure Functions Timer.** Both fine; gives
   in-VNet execution if you go that route later.
 

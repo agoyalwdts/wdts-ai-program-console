@@ -16,9 +16,9 @@
  *
  *   - `listChatGptSeats()` returns one seat per user from the API,
  *     with `capUsdMonth` defaulted from `lib/program.ts` and
- *     `mtdSpendUsd` set to 0 (gateway data is the source of truth for
- *     spend; the dashboard should join real spend in via the gateway
- *     client if/when needed).
+ *     `mtdSpendUsd` set to 0 (per-seat spend is not on this Admin endpoint;
+ *     F1 totals for ChatGPT/Codex can use `VendorDailySpend` from the
+ *     organization costs sync — see `lib/vendor-spend/sync-openai-vendor-daily.ts`).
  *   - `listCodexSeats()` does the same but assigns the lowest tier
  *     ("DISCOVERY") as a deliberate TODO marker — WDTS's
  *     user-id → sub-tier mapping comes from the policy repo, not the

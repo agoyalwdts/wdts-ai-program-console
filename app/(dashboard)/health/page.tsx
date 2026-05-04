@@ -23,6 +23,7 @@ import { getAzureADClient, getDeelClient, getGatewayClient } from "@/lib/integra
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { loadCursorVendorSpendForF1, mergeCursorVendorIntoF1 } from "@/lib/f1-cursor-vendor";
+import { loadOpenAiVendorSpendForF1, mergeOpenAiVendorIntoF1 } from "@/lib/f1-openai-vendor";
 import {
   f1PeriodSpendLabel,
   parseF1Period,
@@ -50,6 +51,8 @@ async function getF1Data(period: F1Period): Promise<{
   plan: F1PeriodPlan;
   period: F1Period;
   cursorSpendSource: "gateway" | "vendor";
+  openAiChatgptSpendSource: "gateway" | "vendor";
+  openAiCodexSpendSource: "gateway" | "vendor";
 }> {
   const now = new Date();
   const plan = planF1Period(now, period);
@@ -58,17 +61,22 @@ async function getF1Data(period: F1Period): Promise<{
   const azuread = getAzureADClient();
   const deel = getDeelClient();
 
-  const [programAgg, dailyAgg, topRaw, identityAll, deelAll, vendorCursor] = await Promise.all([
-    gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
-    gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
-    gateway.topSpenders({ periodStart: plan.periodStart, periodEnd: plan.periodEnd, limit: 10 }),
-    azuread.listUsers(),
-    deel.listEmployees(),
-    loadCursorVendorSpendForF1(prisma, {
-      periodStart: plan.periodStart,
-      periodEnd: plan.periodEnd,
-    }),
-  ]);
+  const [programAgg, dailyAgg, topRaw, identityAll, deelAll, vendorCursor, vendorOpenAi] =
+    await Promise.all([
+      gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
+      gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
+      gateway.topSpenders({ periodStart: plan.periodStart, periodEnd: plan.periodEnd, limit: 10 }),
+      azuread.listUsers(),
+      deel.listEmployees(),
+      loadCursorVendorSpendForF1(prisma, {
+        periodStart: plan.periodStart,
+        periodEnd: plan.periodEnd,
+      }),
+      loadOpenAiVendorSpendForF1(prisma, {
+        periodStart: plan.periodStart,
+        periodEnd: plan.periodEnd,
+      }),
+    ]);
 
   const mtdMap = new Map<ProductKey, number>(
     programAgg.map((r) => [r.product, r.totalUsd]),
@@ -90,7 +98,23 @@ async function getF1Data(period: F1Period): Promise<{
     cursorByChartDay: vendorCursor.byChartDay,
     useVendor: vendorCursor.usedVendor,
   });
+  mergeOpenAiVendorIntoF1({
+    mtdMap,
+    days,
+    chatgptVendorTotal: vendorOpenAi.chatgpt.periodTotalUsd,
+    chatgptByChartDay: vendorOpenAi.chatgpt.byChartDay,
+    useChatgptVendor: vendorOpenAi.chatgpt.usedVendor,
+    codexVendorTotal: vendorOpenAi.codex.periodTotalUsd,
+    codexByChartDay: vendorOpenAi.codex.byChartDay,
+    useCodexVendor: vendorOpenAi.codex.usedVendor,
+  });
   const cursorSpendSource: "gateway" | "vendor" = vendorCursor.usedVendor
+    ? "vendor"
+    : "gateway";
+  const openAiChatgptSpendSource: "gateway" | "vendor" = vendorOpenAi.chatgpt.usedVendor
+    ? "vendor"
+    : "gateway";
+  const openAiCodexSpendSource: "gateway" | "vendor" = vendorOpenAi.codex.usedVendor
     ? "vendor"
     : "gateway";
 
@@ -121,6 +145,8 @@ async function getF1Data(period: F1Period): Promise<{
     plan,
     period,
     cursorSpendSource,
+    openAiChatgptSpendSource,
+    openAiCodexSpendSource,
   };
 }
 
@@ -265,6 +291,16 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                       Cursor Team Admin API (synced daily buckets)
                     </p>
                   ) : null}
+                  {key === "CHATGPT" && data.openAiChatgptSpendSource === "vendor" ? (
+                    <p className="text-[11px] text-violet-700 mt-1">
+                      OpenAI organization costs API (line-item split)
+                    </p>
+                  ) : null}
+                  {key === "CODEX" && data.openAiCodexSpendSource === "vendor" ? (
+                    <p className="text-[11px] text-violet-700 mt-1">
+                      OpenAI organization costs API (line-item split)
+                    </p>
+                  ) : null}
                 </CardHeader>
                 <CardContent>
                   <BudgetBar spend={mtd} budget={budgetPeriod} />
@@ -281,10 +317,15 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
             <CardDescription>
               {data.plan.rangeDescription}. Stacked across all 5 products. Gateway:{" "}
               <code className="font-mono">getGatewayClient().aggregateByProgramDaily()</code>
-              . CURSOR series uses{" "}
+              . CURSOR uses{" "}
               {data.cursorSpendSource === "vendor"
-                ? "the same Cursor Team Admin sync as the CURSOR tile when data exists."
-                : "that mirror (enable Cursor API sync in Settings for vendor-accurate spend)."}
+                ? "Cursor Team Admin sync when VendorDailySpend rows exist."
+                : "that mirror (Settings → sync Cursor spend for vendor totals). "}
+              CHATGPT/CODEX use{" "}
+              {data.openAiChatgptSpendSource === "vendor" ||
+              data.openAiCodexSpendSource === "vendor"
+                ? "OpenAI organization/costs sync for tiles that have vendor rows; others stay on the gateway mirror."
+                : "the gateway mirror unless you run OpenAI vendor sync in Settings."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -333,10 +374,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
         </Card>
 
         <p className="text-xs text-slate-400">
-          F1 reads gateway / AzureAD / Deel; with{" "}
-          <code className="font-mono">INTEGRATION_CURSOR=real</code> and a recent{" "}
-          <code className="font-mono">VendorDailySpend</code> sync, the CURSOR tile and chart
-          track Cursor&apos;s billed usage (filtered-usage-events), not only the gateway mirror.
+          F1 reads gateway / AzureAD / Deel. With <code className="font-mono">INTEGRATION_CURSOR=real</code>{" "}
+          and a recent <code className="font-mono">VendorDailySpend</code> sync, CURSOR matches Cursor
+          Team Admin usage. With <code className="font-mono">INTEGRATION_OPENAI=real</code> and OpenAI
+          costs sync, CHATGPT and CODEX tiles (and chart series) can track OpenAI&apos;s organization
+          costs API instead of only the gateway mirror.
         </p>
       </div>
     </>
