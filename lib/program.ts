@@ -1,12 +1,12 @@
 /**
  * Program-level constants.
  *
- * Source of truth: Executive_Policy_and_Guardrails.md §0 (footprint table)
- * and §4.6 (license inventory) in agoyalwdts/wdts-ai-policy — currently at
- * commit b9342e3, document version 2.3. The numbers below are pinned to
- * that version; bump the commit fingerprint in this docstring whenever the
- * constants are re-synced. Numbers are scaled down for the v0.2 30-user
- * prototype where they involve user counts.
+ * Source of truth: Executive_Policy_and_Guardrails.md (footprint + license
+ * inventory) in agoyalwdts/wdts-ai-policy. Re-sync when policy changes;
+ * OpenAI entitled/allotted counts live on {@link OPENAI_CHATGPT_CODEX_ENTITLED_SEATS}
+ * and {@link OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED}. Older doc pin: commit b9342e3,
+ * v2.3 for tier math. Numbers are scaled down for the v0.2 30-user prototype
+ * where they involve user counts (seed only).
  *
  * The four §0 budget envelopes the dashboard renders on F1:
  *   - Cursor                        — **$500K/yr credit envelope** ($41,667/mo).
@@ -65,7 +65,16 @@ export const ANNUAL_BUDGET_USD: Record<ProductKey, number> = {
 
 export const COMBINED_CHATGPT_CODEX_CAP_MONTH = 150_000;
 
-/** OpenAI Enterprise (ChatGPT + Codex): credits per licensed user per month,
+/** OpenAI Enterprise (ChatGPT + Codex) entitled headcount the **credit pool**
+ *  is sized for (wdts-ai-policy license inventory). Pool = entitled ×
+ *  {@link OPENAI_POOLED_CREDITS_PER_USER_MONTH} credits/month, org-wide. */
+export const OPENAI_CHATGPT_CODEX_ENTITLED_SEATS = 314;
+
+/** ChatGPT + Codex licenses **currently assigned** (may be below entitled until
+ *  full rollout). */
+export const OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED = 304;
+
+/** OpenAI Enterprise (ChatGPT + Codex): credits per entitled user per month,
  *  pooled at the organization. Overage bills at {@link OPENAI_CREDIT_OVERAGE_USD}
  *  per credit under the WDTS contract. */
 export const OPENAI_POOLED_CREDITS_PER_USER_MONTH = 500;

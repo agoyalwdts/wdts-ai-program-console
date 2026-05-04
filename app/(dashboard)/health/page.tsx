@@ -7,6 +7,8 @@ import { SpendTrendChart, type SpendPoint } from "@/components/charts/spend-tren
 import {
   COMBINED_CHATGPT_CODEX_CAP_MONTH,
   MONTHLY_BUDGET_USD,
+  OPENAI_CHATGPT_CODEX_ENTITLED_SEATS,
+  OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED,
   OPENAI_CREDIT_OVERAGE_USD,
   OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH,
   OPENAI_ILLUSTRATIVE_OVERAGE_CHARGE_USD_MONTH,
@@ -92,11 +94,20 @@ export default async function HealthPage() {
           <CardHeader>
             <CardTitle>OpenAI — ChatGPT and Codex (contract)</CardTitle>
             <CardDescription>
-              Credits are pooled: each user has{" "}
+              Policy inventory:{" "}
               <span className="font-medium text-slate-800">
-                {OPENAI_POOLED_CREDITS_PER_USER_MONTH.toLocaleString()} credits per month
+                {OPENAI_CHATGPT_CODEX_ENTITLED_SEATS.toLocaleString()} entitled seats
+              </span>{" "}
+              (ChatGPT + Codex),{" "}
+              <span className="font-medium text-slate-800">
+                {OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED.toLocaleString()} licenses allotted
               </span>
-              , shared as one organization pool. Usage beyond the pool bills at{" "}
+              . The credit pool is sized for the entitled count:{" "}
+              <span className="font-medium text-slate-800">
+                {OPENAI_POOLED_CREDITS_PER_USER_MONTH.toLocaleString()} credits per entitled user per
+                month
+              </span>
+              , pooled org-wide. Usage beyond the pool bills at{" "}
               <span className="font-medium text-slate-800">
                 {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })} per credit
               </span>{" "}
@@ -104,6 +115,15 @@ export default async function HealthPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-700">
+              <p className="font-medium text-slate-900">Pooled credits (policy basis)</p>
+              <p className="mt-1 font-mono text-slate-800">
+                {OPENAI_CHATGPT_CODEX_ENTITLED_SEATS.toLocaleString()} ×{" "}
+                {OPENAI_POOLED_CREDITS_PER_USER_MONTH.toLocaleString()} ={" "}
+                {(OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * OPENAI_POOLED_CREDITS_PER_USER_MONTH).toLocaleString()}{" "}
+                credits / month (before overage)
+              </p>
+            </div>
             <div className="rounded-lg border border-amber-300/80 bg-white/80 px-4 py-3 text-sm text-slate-800">
               <p className="font-medium text-slate-900">Illustrative overage</p>
               <p className="mt-1 text-slate-700">
