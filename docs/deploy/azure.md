@@ -182,6 +182,8 @@ None of these values lives anywhere else in production.
 | `CURSOR-ADMIN-TOKEN` | `CURSOR_ADMIN_TOKEN` | Cursor admin |
 | `DEEL-API-TOKEN` | `DEEL_API_TOKEN` | Deel admin |
 | `DEEL-WEBHOOK-SECRET` | `DEEL_WEBHOOK_SECRET` | `openssl rand -hex 32` — also configured on the Deel side |
+| `USAGE-INGEST-HMAC-SECRET` | `USAGE_INGEST_HMAC_SECRET` | `openssl rand -hex 32` — HMAC for `POST /api/webhooks/usage-ingest` (`x-usage-ingest-signature`). See [`docs/gateway-and-litellm.md`](../gateway-and-litellm.md). |
+| `LITELLM-WEBHOOK-SECRET` | `LITELLM_WEBHOOK_SECRET` | Bearer for `POST /api/webhooks/litellm` only. Unset / placeholder until LiteLLM callbacks exist; route returns **503** if unset when called. |
 
 Non-secret App Settings (set as plain values, not Key Vault refs):
 
@@ -191,6 +193,7 @@ Non-secret App Settings (set as plain values, not Key Vault refs):
 | `NODE_ENV` | `production` |
 | `AUTH_TRUST_HOST` | `true` |
 | `AUTH_URL` | `https://<app-name>.azurewebsites.net` |
+| `INTEGRATION_GATEWAY` | `synthetic` on a fresh bootstrap until usage events are ingested; flip to **`real`** once `USAGE_INGEST_HMAC_SECRET` is live and `UsageRecord` rows exist (Program Health reads the mirror). |
 | `INTEGRATION_AZUREAD` | `real` |
 | `INTEGRATION_CURSOR` | `real` |
 | `INTEGRATION_OPENAI` | `real` |
@@ -209,6 +212,35 @@ Non-secret App Settings (set as plain values, not Key Vault refs):
    on restart.
 
 No code change, no redeploy, no commit.
+
+### 3.1 Gateway usage mirror — Key Vault (not plain App Settings)
+
+`USAGE_INGEST_HMAC_SECRET` and `LITELLM_WEBHOOK_SECRET` must live in **Key
+Vault** and be referenced from App Service, same as `AZURE_AD_CLIENT_SECRET`.
+Do **not** leave the usage-ingest HMAC as a long-term plain configuration
+value.
+
+**Greenfield** (`azure-bootstrap.sh` seeds placeholders and wires refs).
+
+**Brownfield** (you temporarily set a plain `USAGE_INGEST_HMAC_SECRET` in
+Configuration): copy the working value into Key Vault, replace the app
+setting with a reference, restart once:
+
+```bash
+VAULT=wdts-ai-cons-kv
+RG=wdts-ai-program-console-rg
+APP=wdts-ai-program-console
+
+az keyvault secret set --vault-name "$VAULT" \
+  --name USAGE-INGEST-HMAC-SECRET --value '<same-secret-the-forwarder-uses>'
+
+az webapp config appsettings set --resource-group "$RG" --name "$APP" \
+  --settings "USAGE_INGEST_HMAC_SECRET=@Microsoft.KeyVault(SecretUri=https://${VAULT}.vault.azure.net/secrets/USAGE-INGEST-HMAC-SECRET/)"
+
+az webapp restart --resource-group "$RG" --name "$APP"
+```
+
+Contract and smoke test: [`docs/gateway-and-litellm.md`](../gateway-and-litellm.md).
 
 ---
 

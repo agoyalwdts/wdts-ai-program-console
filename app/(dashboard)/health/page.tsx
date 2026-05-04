@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { Topbar } from "@/components/dashboard/topbar";
+import { HealthPeriodSelector } from "@/components/dashboard/health-period-selector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
@@ -19,22 +21,44 @@ import {
 import { formatUsd } from "@/lib/utils";
 import { getAzureADClient, getDeelClient, getGatewayClient } from "@/lib/integrations";
 import { requireUser } from "@/lib/auth";
+import {
+  f1PeriodSpendLabel,
+  parseF1Period,
+  planF1Period,
+  type F1Period,
+  type F1PeriodPlan,
+} from "@/lib/f1-period";
 
 export const dynamic = "force-dynamic";
 
-async function getF1Data() {
+type SP = { period?: string };
+
+async function getF1Data(period: F1Period): Promise<{
+  mtdMap: Map<ProductKey, number>;
+  days: SpendPoint[];
+  top: {
+    id: string;
+    displayName: string;
+    email: string;
+    roleTag: string;
+    region: string;
+    total: number;
+  }[];
+  combinedChatGptCodexMtd: number;
+  plan: F1PeriodPlan;
+  period: F1Period;
+}> {
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const plan = planF1Period(now, period);
 
   const gateway = getGatewayClient();
   const azuread = getAzureADClient();
   const deel = getDeelClient();
 
   const [programAgg, dailyAgg, topRaw, identityAll, deelAll] = await Promise.all([
-    gateway.aggregateByProgram({ periodStart: startOfMonth, periodEnd: now }),
-    gateway.aggregateByProgramDaily({ since: thirtyDaysAgo, until: now }),
-    gateway.topSpenders({ periodStart: startOfMonth, periodEnd: now, limit: 10 }),
+    gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
+    gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
+    gateway.topSpenders({ periodStart: plan.periodStart, periodEnd: plan.periodEnd, limit: 10 }),
     azuread.listUsers(),
     deel.listEmployees(),
   ]);
@@ -76,12 +100,19 @@ async function getF1Data() {
     top,
     combinedChatGptCodexMtd:
       (mtdMap.get("CHATGPT") ?? 0) + (mtdMap.get("CODEX") ?? 0),
+    plan,
+    period,
   };
 }
 
-export default async function HealthPage() {
+export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   await requireUser();
-  const data = await getF1Data();
+  const sp = await props.searchParams;
+  const period = parseF1Period(sp.period);
+  const data = await getF1Data(period);
+  const m = data.plan.budgetMonthMultiplier;
+  const combinedPeriodCap = COMBINED_CHATGPT_CODEX_CAP_MONTH * m;
+  const spendLabel = f1PeriodSpendLabel(period);
 
   return (
     <>
@@ -89,6 +120,18 @@ export default async function HealthPage() {
         title="Program Health"
         subtitle="F1 — Are we on track vs the program-level budgets?"
       />
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-6 py-2.5">
+        <p className="text-sm text-slate-600">{data.plan.rangeDescription}</p>
+        <Suspense
+          fallback={
+            <span className="text-sm text-slate-500" aria-hidden>
+              Period…
+            </span>
+          }
+        >
+          <HealthPeriodSelector />
+        </Suspense>
+      </div>
       <div className="p-6 space-y-6">
         <Card className="border-amber-200 bg-amber-50/40">
           <CardHeader>
@@ -151,9 +194,11 @@ export default async function HealthPage() {
               <div>
                 <CardTitle>ChatGPT + Codex combined cap</CardTitle>
                 <CardDescription>
-                  $150,000/month program operating envelope (policy 4.6.2). User-level caps can
-                  overcommit; aggregate spend is managed to this envelope alongside the OpenAI
-                  credit pool and overage rate above.
+                  {formatUsd(COMBINED_CHATGPT_CODEX_CAP_MONTH)}/month program operating envelope
+                  ({OPENAI_CHATGPT_CODEX_ENTITLED_SEATS.toLocaleString()} entitled ×{" "}
+                  {formatUsd(OPENAI_POOLED_CREDITS_PER_USER_MONTH, { decimals: 0 })} planning line,
+                  policy). User-level caps can overcommit; aggregate spend is managed to this
+                  envelope alongside the OpenAI credit pool and overage rate above.
                 </CardDescription>
               </div>
               <div className="text-right">
@@ -161,7 +206,7 @@ export default async function HealthPage() {
                   {formatUsd(data.combinedChatGptCodexMtd)}
                 </div>
                 <div className="text-xs text-slate-500">
-                  of {formatUsd(COMBINED_CHATGPT_CODEX_CAP_MONTH)} MTD
+                  of {formatUsd(combinedPeriodCap)} · {spendLabel}
                 </div>
               </div>
             </div>
@@ -169,7 +214,7 @@ export default async function HealthPage() {
           <CardContent>
             <BudgetBar
               spend={data.combinedChatGptCodexMtd}
-              budget={COMBINED_CHATGPT_CODEX_CAP_MONTH}
+              budget={combinedPeriodCap}
               warnAt={0.9}
             />
           </CardContent>
@@ -179,7 +224,8 @@ export default async function HealthPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {PRODUCTS.map(({ key, label }) => {
             const mtd = data.mtdMap.get(key) ?? 0;
-            const budget = MONTHLY_BUDGET_USD[key as ProductKey];
+            const budgetMonthly = MONTHLY_BUDGET_USD[key as ProductKey];
+            const budgetPeriod = budgetMonthly * m;
             return (
               <Card key={key}>
                 <CardHeader className="pb-2">
@@ -193,11 +239,11 @@ export default async function HealthPage() {
                     {formatUsd(mtd)}
                   </div>
                   <div className="text-xs text-slate-500">
-                    of {formatUsd(budget)} monthly budget
+                    of {formatUsd(budgetPeriod)} · {spendLabel}
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <BudgetBar spend={mtd} budget={budget} />
+                  <BudgetBar spend={mtd} budget={budgetPeriod} />
                 </CardContent>
               </Card>
             );
@@ -207,9 +253,10 @@ export default async function HealthPage() {
         {/* Spend trend chart */}
         <Card>
           <CardHeader>
-            <CardTitle>Daily spend, last 30 days</CardTitle>
+            <CardTitle>{data.plan.chartTitle}</CardTitle>
             <CardDescription>
-              Stacked across all 5 products. Source: <code className="font-mono">getGatewayClient().aggregateByProgramDaily()</code>.
+              {data.plan.rangeDescription}. Stacked across all 5 products. Source:{" "}
+              <code className="font-mono">getGatewayClient().aggregateByProgramDaily()</code>.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -220,7 +267,7 @@ export default async function HealthPage() {
         {/* Top 10 spenders */}
         <Card>
           <CardHeader>
-            <CardTitle>Top 10 spenders (MTD)</CardTitle>
+            <CardTitle>Top 10 spenders ({spendLabel.toLowerCase()})</CardTitle>
             <CardDescription>Across all products combined.</CardDescription>
           </CardHeader>
           <CardContent className="px-0 pb-0">
@@ -231,7 +278,7 @@ export default async function HealthPage() {
                   <TH>Email</TH>
                   <TH>Role tag</TH>
                   <TH>Region</TH>
-                  <TH className="text-right pr-5">MTD spend</TH>
+                  <TH className="text-right pr-5">Period spend</TH>
                 </TR>
               </THead>
               <TBody>

@@ -16,11 +16,11 @@
  *                                     NOT a seat count. The 120-seat shape below
  *                                     is the WDTS allocation plan that fits
  *                                     ~$496.8K inside the $500K envelope.
- *   - ChatGPT + Codex (combined)    — $150K/mo operating envelope → $1.8M/yr.
- *                                     Per-product cap-sums intentionally
- *                                     overcommit this envelope (v2.3 expansion
- *                                     puts cap-sum at ~$225K/mo, 50% over)
- *                                     because aggregate utilisation stays inside.
+ *   - ChatGPT + Codex (combined)    — **$157K/mo** program envelope on F1
+ *                                     ({@link OPENAI_CHATGPT_CODEX_ENTITLED_SEATS} ×
+ *                                     {@link OPENAI_POOLED_CREDITS_PER_USER_MONTH} planning
+ *                                     line per policy). Per-product cap-sums can still
+ *                                     overcommit in the ladder; F1 shows this envelope.
  *   - Claude.ai (30 seats)          — ~$25K/yr placeholder, contract finalising.
  *   - M365 Copilot (314 today)      — ~$90K/yr placeholder, EA-discounted,
  *                                     footprint under §4.6.6 rationalisation.
@@ -36,34 +36,9 @@ export const PRODUCTS: { key: ProductKey; label: string }[] = [
   { key: "M365_COPILOT", label: "M365 Copilot" },
 ];
 
-/** Per-product monthly budgets the dashboard renders on F1.
- *
- *  - CURSOR is the §0 credit envelope ($500K/yr ÷ 12).
- *  - CHATGPT and CODEX are the dashboard's *visualisation split* of the
- *    $150K/mo combined ChatGPT+Codex operating envelope (CHATGPT carries the
- *    full 314 × $50 cap-sum; CODEX carries the residual share). NOT the
- *    per-product cap-sum — the v2.3 Codex cap-sum is ~$209K/mo, intentionally
- *    over the envelope; F1 surfaces the operating reality, not the overcommit
- *    math. The combined $150K cap is rendered as its own callout via
- *    COMBINED_CHATGPT_CODEX_CAP_MONTH.
- *  - CLAUDE_AI and M365_COPILOT are the §0 placeholder envelopes ÷ 12. */
-export const MONTHLY_BUDGET_USD: Record<ProductKey, number> = {
-  CURSOR: 41_667, // $500K / 12 (credit envelope, §4.6.1 — binding constraint is $, not seats)
-  CHATGPT: 15_700, // 314 × $50/mo cap (§4.6.2)
-  CODEX: 134_300, // residual share of the $150K combined envelope after ChatGPT
-  CLAUDE_AI: 2_083, // ~$25K / 12 placeholder (§4.6.5)
-  M365_COPILOT: 7_500, // ~$90K / 12 placeholder (§4.6.6, under review)
-};
-
-export const ANNUAL_BUDGET_USD: Record<ProductKey, number> = {
-  CURSOR: 500_000,
-  CHATGPT: 188_400,
-  CODEX: 1_611_600,
-  CLAUDE_AI: 25_000,
-  M365_COPILOT: 90_000,
-};
-
-export const COMBINED_CHATGPT_CODEX_CAP_MONTH = 150_000;
+/** ChatGPT per-user monthly cap (policy ladder); used for the ChatGPT **slice**
+ *  of the combined F1 envelope. */
+export const CHATGPT_CAP_USD_MONTH = 50;
 
 /** OpenAI Enterprise (ChatGPT + Codex) entitled headcount the **credit pool**
  *  is sized for (wdts-ai-policy license inventory). Pool = entitled ×
@@ -76,8 +51,40 @@ export const OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED = 304;
 
 /** OpenAI Enterprise (ChatGPT + Codex): credits per entitled user per month,
  *  pooled at the organization. Overage bills at {@link OPENAI_CREDIT_OVERAGE_USD}
- *  per credit under the WDTS contract. */
+ *  per credit under the WDTS contract. On F1, the **combined USD cap** uses the
+ *  same numeric planning line: entitled × this value → $157K/mo at 314 × 500. */
 export const OPENAI_POOLED_CREDITS_PER_USER_MONTH = 500;
+
+/** Combined ChatGPT+Codex **program envelope** on Program Health (USD/mo). */
+export const COMBINED_CHATGPT_CODEX_CAP_MONTH =
+  OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * OPENAI_POOLED_CREDITS_PER_USER_MONTH;
+
+/** ChatGPT portion of the combined F1 bar: entitled × ChatGPT cap-sum ($50/mo). */
+const CHATGPT_COMBINED_ENVELOPE_SLICE_USD_MONTH =
+  OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * CHATGPT_CAP_USD_MONTH;
+
+/** Per-product monthly budgets the dashboard renders on F1.
+ *
+ *  - CURSOR is the §0 credit envelope ($500K/yr ÷ 12).
+ *  - CHATGPT and CODEX split {@link COMBINED_CHATGPT_CODEX_CAP_MONTH}: ChatGPT
+ *    carries the 314 × $50 cap-sum slice; Codex carries the remainder so the
+ *    two tiles sum to the combined cap ($157K/mo at current policy).
+ *  - CLAUDE_AI and M365_COPILOT are the §0 placeholder envelopes ÷ 12. */
+export const MONTHLY_BUDGET_USD: Record<ProductKey, number> = {
+  CURSOR: 41_667, // $500K / 12 (credit envelope, §4.6.1 — binding constraint is $, not seats)
+  CHATGPT: CHATGPT_COMBINED_ENVELOPE_SLICE_USD_MONTH,
+  CODEX: COMBINED_CHATGPT_CODEX_CAP_MONTH - CHATGPT_COMBINED_ENVELOPE_SLICE_USD_MONTH,
+  CLAUDE_AI: 2_083, // ~$25K / 12 placeholder (§4.6.5)
+  M365_COPILOT: 7_500, // ~$90K / 12 placeholder (§4.6.6, under review)
+};
+
+export const ANNUAL_BUDGET_USD: Record<ProductKey, number> = {
+  CURSOR: 500_000,
+  CHATGPT: CHATGPT_COMBINED_ENVELOPE_SLICE_USD_MONTH * 12,
+  CODEX: (COMBINED_CHATGPT_CODEX_CAP_MONTH - CHATGPT_COMBINED_ENVELOPE_SLICE_USD_MONTH) * 12,
+  CLAUDE_AI: 25_000,
+  M365_COPILOT: 90_000,
+};
 
 /** USD charged per credit beyond the pooled monthly allocation. */
 export const OPENAI_CREDIT_OVERAGE_USD = 0.04;
@@ -131,5 +138,4 @@ export const CODEX_TIERS = {
   DISCOVERY: { label: "Discovery", capUsdMonth: 75 },
 };
 
-export const CHATGPT_CAP_USD_MONTH = 50;
 export const CLAUDE_CAP_USD_MONTH = 100;

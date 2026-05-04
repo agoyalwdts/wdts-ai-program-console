@@ -30,7 +30,7 @@ const COLOR: Record<string, string> = {
 
 export function SpendTrendChart({ data }: { data: SpendPoint[] }) {
   return (
-    <div style={{ width: "100%", height: 280 }}>
+    <div className="h-[280px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 10, right: 20, bottom: 0, left: 0 }}>
           <defs>

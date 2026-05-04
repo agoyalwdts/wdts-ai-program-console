@@ -458,7 +458,7 @@ async function main() {
     },
     {
       type: DecisionType.CAP_ADJUSTMENT,
-      j: "Program-level circuit breaker fired at 92% of $150K combined ChatGPT+Codex monthly cap; FinOps dashboard banner enabled.",
+      j: "Program-level circuit breaker fired at 92% of combined ChatGPT+Codex monthly cap; FinOps dashboard banner enabled.",
       before: { circuit_breaker: "GREEN" },
       after: { circuit_breaker: "AMBER", threshold_pct: 0.92 },
     },

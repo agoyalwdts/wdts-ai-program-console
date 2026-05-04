@@ -151,6 +151,7 @@ az webapp config appsettings set \
     NODE_ENV=production \
     AUTH_TRUST_HOST=true \
     AUTH_URL="https://${APP_NAME}.azurewebsites.net" \
+    INTEGRATION_GATEWAY=synthetic \
     INTEGRATION_AZUREAD=real \
     INTEGRATION_CURSOR=real \
     INTEGRATION_OPENAI=real \
@@ -343,6 +344,8 @@ KV_SECRETS=(
   CURSOR-ADMIN-TOKEN
   DEEL-API-TOKEN
   DEEL-WEBHOOK-SECRET
+  USAGE-INGEST-HMAC-SECRET
+  LITELLM-WEBHOOK-SECRET
 )
 for s in "${KV_SECRETS[@]}"; do
   set_kv_placeholder "$s"
@@ -391,6 +394,8 @@ az webapp config appsettings set \
     CURSOR_ADMIN_TOKEN="$(kv_ref CURSOR-ADMIN-TOKEN)" \
     DEEL_API_TOKEN="$(kv_ref DEEL-API-TOKEN)" \
     DEEL_WEBHOOK_SECRET="$(kv_ref DEEL-WEBHOOK-SECRET)" \
+    USAGE_INGEST_HMAC_SECRET="$(kv_ref USAGE-INGEST-HMAC-SECRET)" \
+    LITELLM_WEBHOOK_SECRET="$(kv_ref LITELLM-WEBHOOK-SECRET)" \
   --output none
 
 # ---------------------------------------------------------------------------
@@ -406,7 +411,8 @@ Next steps (manual; see docs/deploy/azure.md):
     AZURE-AD-TENANT-ID / AZURE-AD-CLIENT-ID / AZURE-AD-CLIENT-SECRET
     (overwriting the placeholders this script seeded).
   - Runbook §3: replace the remaining PLACEHOLDER-* values in Key Vault with
-    real vendor tokens, one secret at a time.
+    real vendor tokens, one secret at a time (including USAGE-INGEST-HMAC-SECRET
+    before flipping INTEGRATION_GATEWAY from synthetic → real).
   - Runbook §4: create the deploy SP, the federated credential, and the
     GitHub 'production' environment, then promote
     docs/deploy/deploy.yml.sample → .github/workflows/deploy.yml.

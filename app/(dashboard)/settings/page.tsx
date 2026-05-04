@@ -11,6 +11,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { requirePermission, getCurrentUser, userHasPermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { formatUsd } from "@/lib/utils";
+import { COMBINED_CHATGPT_CODEX_CAP_MONTH } from "@/lib/program";
 import {
   getAllIntegrationModes,
   getAzureOpenAIClient,
@@ -358,8 +359,8 @@ export default async function SettingsPage() {
           <CardContent className="space-y-2 text-sm text-slate-700">
             <Row
               k="ChatGPT + Codex monthly cap"
-              v={formatUsd(150_000)}
-              note="§4.6.2 combined operating cap"
+              v={formatUsd(COMBINED_CHATGPT_CODEX_CAP_MONTH)}
+              note="Policy: entitled seats × $500/mo planning line (lib/program.ts)"
             />
             <Row
               k="Cursor commitment"
