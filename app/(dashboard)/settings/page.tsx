@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { requirePermission, getCurrentUser } from "@/lib/auth";
+import { requirePermission, getCurrentUser, userHasPermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { formatUsd } from "@/lib/utils";
 import {
@@ -28,6 +28,8 @@ import {
   ShieldCheck,
   Upload,
   Users,
+  Bell,
+  Radio,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -107,7 +109,7 @@ async function probeAzureOpenAI(): Promise<ProbeResult> {
 
 const INTEGRATION_NOTES: Record<IntegrationName, string> = {
   gateway:
-    "Phase 0 vendor decision pending (LiteLLM / Helicone / Portkey / Cloudflare AI Gateway / build).",
+    "Usage mirror + LiteLLM: see docs/gateway-and-litellm.md (webhooks, env, Cursor inference).",
   cursor: "Cursor admin/SCIM token + workspace ID; v1.1 adds writes.",
   openai: "OpenAI Enterprise admin API key with users.read + usage.read scopes.",
   anthropic: "Anthropic admin API key (workspace-seat introspection beta).",
@@ -137,6 +139,9 @@ export default async function SettingsPage() {
     currentUser?.permissions.includes(PERMISSIONS.USERS_MANAGE) ?? false;
   const canManageRoles =
     currentUser?.permissions.includes(PERMISSIONS.ROLES_MANAGE) ?? false;
+  const canCursorPrudence =
+    currentUser != null &&
+    userHasPermission(currentUser, PERMISSIONS.IMPORTS_CURSOR_USAGE);
 
   return (
     <>
@@ -207,6 +212,51 @@ export default async function SettingsPage() {
             ) : null}
           </div>
         ) : null}
+
+        {canCursorPrudence ? (
+          <Card className="border-amber-200">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bell className="h-4 w-4 text-amber-600" />
+                Cursor usage prudence
+              </CardTitle>
+              <CardDescription>
+                Team-usage CSV heuristics (expensive models / Max mode vs tokens). Email
+                FinOps when configured.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link
+                href="/settings/cursor-alerts"
+                className="inline-flex items-center gap-1 text-sm text-amber-800 underline-offset-4 hover:underline"
+              >
+                Open Cursor alerts
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <Card className="border-emerald-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Radio className="h-4 w-4 text-emerald-600" />
+              Gateway usage mirror
+            </CardTitle>
+            <CardDescription>
+              LiteLLM / generic webhook ingest health, recent batch decisions, env checklist.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/settings/gateway-mirror"
+              className="inline-flex items-center gap-1 text-sm text-emerald-800 underline-offset-4 hover:underline"
+            >
+              Open gateway mirror
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </CardContent>
+        </Card>
 
         <Card className="border-sky-200">
           <CardHeader>

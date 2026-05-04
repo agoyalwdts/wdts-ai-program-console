@@ -1,0 +1,14 @@
+{
+  "id": "chatcmpl-fixture-failure-1",
+  "model": "gpt-4o-mini",
+  "prompt_tokens": 10,
+  "completion_tokens": 0,
+  "response_cost": 0,
+  "startTime": "2026-05-03T09:00:00.000Z",
+  "endTime": "2026-05-03T09:00:01.000Z",
+  "status": "failure",
+  "error_str": "Rate limit exceeded",
+  "metadata": {
+    "user_email": "agoyal@wdtablesystems.com"
+  }
+}

@@ -229,7 +229,7 @@ lib/integrations/<name>/
 
 | Client | Env var | Unlocks | Real status |
 |---|---|---|---|
-| `gateway`     | `INTEGRATION_GATEWAY`     | F1 / F2 / F3 / F11 / F12 | **synthetic only** (vendor TBD per Phase 0) |
+| `gateway`     | `INTEGRATION_GATEWAY`     | F1 / F2 / F3 / F11 / F12 | **`real` = Postgres mirror** of `UsageRecord` (webhook ingest). **Guidelines:** `docs/gateway-and-litellm.md`. Remote pull API still TBD. |
 | `cursor`      | `INTEGRATION_CURSOR`      | F4 / v1.1 reclamation    | **landed** — SCIM 2.0 |
 | `openai`      | `INTEGRATION_OPENAI`      | F1 / F2 / F10            | **landed** — Admin API `/organization/users` |
 | `anthropic`   | `INTEGRATION_ANTHROPIC`   | F1 / F2 (Claude)         | **landed** — Workspaces Admin API |
@@ -345,7 +345,7 @@ They map to scoping §2.
 | ~~Test DB infra~~ | **Landed** — Vitest globalSetup provisions `<db>_test` and runs migrations + seed; `**/*.db.test.ts` files connect to it. First DB-integration test exercises `syntheticGatewayClient` | §9.2 |
 | ~~F9 Codex ladder~~ | **Landed** — `/codex-ladder` shows tier distribution + promotion / demotion / dormancy queues using `getOpenAIClient().listCodexSeats()` | §2 v1.1 row 4 |
 | ~~F10 Overage / chargeback~~ | **Landed** — `/chargeback` groups spend by manager line (v0.2 stand-in for cost centre); ADR 0002 (`docs/decisions/0002-cost-centre-key.md`) proposes the real `User.costCentre` field — needs sign-off | §2 v1.1 row 5 |
-| ~~Integration real clients~~ | **Landed** — every real client except `gateway` (vendor TBD) is wired with mocked-fetch contract tests. See §6.1 + §13 for what's still operationally blocked. | §4 |
+| ~~Integration real clients~~ | **Landed** — every real client is wired or stubbed with tests. `gateway` **real** mode reads mirrored `UsageRecord` rows (HMAC webhook ingest); a remote gateway vendor HTTP client is still TBD. See §6.1 + §13. | §4 |
 | ~~AzureAD identity reconciler~~ | **Landed** — `npm run reconcile:azuread` mirrors Graph users → Prisma; wraps each pass in a `Decision` | §4 #2 |
 | ~~AzureAD reconciler — manager hierarchy~~ | **Landed** — `realAzureADClient.listUsers()` uses `$expand=manager` so the reconciler resolves `User.managerId` in a second pass; counters: `managerEdgesLinked` / `managerEdgesCleared` / `managerEdgesUnresolved` | §4 #2 |
 | ~~AzureAD reconciler — cron endpoint~~ | **Landed** — `POST /api/cron/reconcile-azuread`, HMAC-protected via `CRON_SHARED_SECRET`. Pluggable trigger (GitHub Actions schedule / Logic Apps / external uptime) — see runbook §"Cron triggers" | §4 #2 |

@@ -48,4 +48,8 @@ next-env.d.ts
 # zip-deploy payload — both are ad-hoc outputs of the manual deploy flow
 # documented in docs/deploy/azure.md. Never tracked.
 /.deploy/
+/deploy-pkg/
 /deploy.zip
+
+# Playwright
+/test-results/

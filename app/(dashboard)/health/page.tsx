@@ -7,11 +7,16 @@ import { SpendTrendChart, type SpendPoint } from "@/components/charts/spend-tren
 import {
   COMBINED_CHATGPT_CODEX_CAP_MONTH,
   MONTHLY_BUDGET_USD,
+  OPENAI_CREDIT_OVERAGE_USD,
+  OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH,
+  OPENAI_ILLUSTRATIVE_OVERAGE_CHARGE_USD_MONTH,
+  OPENAI_POOLED_CREDITS_PER_USER_MONTH,
   PRODUCTS,
   type ProductKey,
 } from "@/lib/program";
 import { formatUsd } from "@/lib/utils";
 import { getAzureADClient, getDeelClient, getGatewayClient } from "@/lib/integrations";
+import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +78,7 @@ async function getF1Data() {
 }
 
 export default async function HealthPage() {
+  await requireUser();
   const data = await getF1Data();
 
   return (
@@ -82,6 +88,42 @@ export default async function HealthPage() {
         subtitle="F1 — Are we on track vs the program-level budgets?"
       />
       <div className="p-6 space-y-6">
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardHeader>
+            <CardTitle>OpenAI — ChatGPT and Codex (contract)</CardTitle>
+            <CardDescription>
+              Credits are pooled: each user has{" "}
+              <span className="font-medium text-slate-800">
+                {OPENAI_POOLED_CREDITS_PER_USER_MONTH.toLocaleString()} credits per month
+              </span>
+              , shared as one organization pool. Usage beyond the pool bills at{" "}
+              <span className="font-medium text-slate-800">
+                {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })} per credit
+              </span>{" "}
+              under the WDTS agreement.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-lg border border-amber-300/80 bg-white/80 px-4 py-3 text-sm text-slate-800">
+              <p className="font-medium text-slate-900">Illustrative overage</p>
+              <p className="mt-1 text-slate-700">
+                If the org runs{" "}
+                <span className="font-mono font-medium">
+                  {OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH.toLocaleString()}
+                </span>{" "}
+                credits over the pooled allowance in a month, overage at{" "}
+                {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit is about{" "}
+                <span className="font-semibold text-slate-900">
+                  {formatUsd(OPENAI_ILLUSTRATIVE_OVERAGE_CHARGE_USD_MONTH)}
+                </span>{" "}
+                for that month (
+                {OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH.toLocaleString()} ×{" "}
+                {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}).
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Combined cap callout */}
         <Card>
           <CardHeader>
@@ -89,8 +131,9 @@ export default async function HealthPage() {
               <div>
                 <CardTitle>ChatGPT + Codex combined cap</CardTitle>
                 <CardDescription>
-                  $150,000/month operating cap (§4.6.2). Cap-overcommit at the user level
-                  is intentional; the program never overruns this number.
+                  $150,000/month program operating envelope (policy 4.6.2). User-level caps can
+                  overcommit; aggregate spend is managed to this envelope alongside the OpenAI
+                  credit pool and overage rate above.
                 </CardDescription>
               </div>
               <div className="text-right">
@@ -197,7 +240,7 @@ export default async function HealthPage() {
         <p className="text-xs text-slate-400">
           v0.2 — reads through gateway / azuread / deel clients (synthetic by default; flip
           INTEGRATION_GATEWAY=real etc. once Phase 0 selects the gateway vendor).
-          F1 of Dashboard_Scoping_v1.md §2.
+          F1 in Dashboard_Scoping_v1.md feature list.
         </p>
       </div>
     </>

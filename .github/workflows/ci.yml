@@ -49,6 +49,8 @@ jobs:
       # imports auth.ts which checks env). Generated per-run; no real
       # session is ever issued in CI.
       AUTH_SECRET: ci-only-secret-not-used-for-real-sessions
+      # Playwright starts `next start` on PLAYWRIGHT_PORT (3101); Auth.js needs this.
+      AUTH_TRUST_HOST: "true"
 
     steps:
       - uses: actions/checkout@v5
@@ -75,3 +77,14 @@ jobs:
 
       - name: Test (vitest globalSetup auto-provisions the test DB)
         run: npm test
+
+      - name: Build (Next.js production bundle for e2e server)
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: E2E (Playwright against /api/health)
+        run: npm run test:e2e
+        env:
+          CI: true

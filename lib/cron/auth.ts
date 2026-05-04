@@ -33,18 +33,25 @@ export type CronVerification =
   | { ok: true }
   | { ok: false; reason: string };
 
-export function verifyCronSignature(args: {
+/**
+ * Generic HMAC-SHA256 over the raw UTF-8 body. Used by cron routes
+ * (`x-cron-signature`) and usage-ingest (`x-usage-ingest-signature`).
+ */
+export function verifyHmacSha256Body(args: {
   rawBody: string;
   signatureHeader: string | null;
   secret: string;
+  missingHeaderReason?: string;
 }): CronVerification {
   if (!args.signatureHeader) {
-    return { ok: false, reason: "missing x-cron-signature header" };
+    return {
+      ok: false,
+      reason: args.missingHeaderReason ?? "missing signature header",
+    };
   }
   const expected = createHmac("sha256", args.secret)
     .update(args.rawBody, "utf-8")
     .digest("hex");
-  // Header may be either '<hex>' or 'sha256=<hex>'; normalise.
   const presented = args.signatureHeader.replace(/^sha256=/i, "").trim();
   if (presented.length !== expected.length) {
     return { ok: false, reason: "signature length mismatch" };
@@ -55,6 +62,17 @@ export function verifyCronSignature(args: {
     return { ok: false, reason: "signature mismatch" };
   }
   return { ok: true };
+}
+
+export function verifyCronSignature(args: {
+  rawBody: string;
+  signatureHeader: string | null;
+  secret: string;
+}): CronVerification {
+  return verifyHmacSha256Body({
+    ...args,
+    missingHeaderReason: "missing x-cron-signature header",
+  });
 }
 
 /**
@@ -68,6 +86,14 @@ export function verifyCronSignature(args: {
  *        https://<dashboard>/api/cron/reconcile-azuread
  */
 export function computeCronSignature(args: {
+  rawBody: string;
+  secret: string;
+}): string {
+  return computeHmacSha256Signature(args);
+}
+
+/** Same algorithm as cron — for usage-ingest curl scripts. */
+export function computeHmacSha256Signature(args: {
   rawBody: string;
   secret: string;
 }): string {

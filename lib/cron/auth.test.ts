@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { computeCronSignature, verifyCronSignature } from "./auth";
+import {
+  computeCronSignature,
+  computeHmacSha256Signature,
+  verifyCronSignature,
+  verifyHmacSha256Body,
+} from "./auth";
 
 const SECRET = "test-secret-do-not-reuse";
 
@@ -22,6 +27,12 @@ describe("computeCronSignature", () => {
     const a = computeCronSignature({ rawBody: "{}", secret: SECRET });
     const b = computeCronSignature({ rawBody: "{}", secret: SECRET + "x" });
     expect(a).not.toBe(b);
+  });
+
+  it("computeHmacSha256Signature matches computeCronSignature", () => {
+    expect(computeHmacSha256Signature({ rawBody: "{}", secret: SECRET })).toBe(
+      computeCronSignature({ rawBody: "{}", secret: SECRET }),
+    );
   });
 });
 
@@ -89,5 +100,18 @@ describe("verifyCronSignature", () => {
     });
     expect(v.ok).toBe(false);
     if (!v.ok) expect(v.reason).toMatch(/mismatch/i);
+  });
+});
+
+describe("verifyHmacSha256Body", () => {
+  it("uses custom missing-header reason", () => {
+    const v = verifyHmacSha256Body({
+      rawBody: "{}",
+      signatureHeader: null,
+      secret: SECRET,
+      missingHeaderReason: "missing x-usage-ingest-signature header",
+    });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reason).toBe("missing x-usage-ingest-signature header");
   });
 });

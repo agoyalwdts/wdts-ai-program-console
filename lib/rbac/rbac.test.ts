@@ -72,12 +72,14 @@ describe("BUILT_IN_ROLES", () => {
     expect(user.permissions).not.toContain(PERMISSIONS.USERS_MANAGE);
     expect(user.permissions).not.toContain(PERMISSIONS.ROLES_MANAGE);
     expect(user.permissions).not.toContain(PERMISSIONS.IMPORTS_EMPLOYEES);
+    expect(user.permissions).not.toContain(PERMISSIONS.IMPORTS_CURSOR_USAGE);
   });
 
   it("MANAGER does NOT have FinOps surfaces", () => {
     const m = getBuiltInRole("MANAGER")!;
     expect(m.permissions).not.toContain(PERMISSIONS.DASHBOARD_VIEW_CHARGEBACK);
     expect(m.permissions).not.toContain(PERMISSIONS.IMPORTS_EMPLOYEES);
+    expect(m.permissions).not.toContain(PERMISSIONS.IMPORTS_CURSOR_USAGE);
     expect(m.permissions).not.toContain(PERMISSIONS.USERS_MANAGE);
   });
 
@@ -85,6 +87,7 @@ describe("BUILT_IN_ROLES", () => {
     const f = getBuiltInRole("FINOPS")!;
     expect(f.permissions).toContain(PERMISSIONS.DASHBOARD_VIEW_CHARGEBACK);
     expect(f.permissions).toContain(PERMISSIONS.IMPORTS_EMPLOYEES);
+    expect(f.permissions).toContain(PERMISSIONS.IMPORTS_CURSOR_USAGE);
     expect(f.permissions).not.toContain(PERMISSIONS.USERS_MANAGE);
     expect(f.permissions).not.toContain(PERMISSIONS.ROLES_MANAGE);
   });

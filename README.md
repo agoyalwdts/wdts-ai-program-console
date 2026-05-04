@@ -28,8 +28,11 @@ v0.3 lands:
   (admin APIs), `m365graph` (Copilot reports — flipped to `real` in
   prod 2026-04-29), `azuread` (also `real` in prod), `deel`,
   `policyrepo` (write path) all have working `real.ts` implementations
-  with mocked-fetch contract tests. `gateway` stays synthetic (vendor
-  TBD per Phase 0).
+  with mocked-fetch contract tests. **`gateway`** in **`INTEGRATION_GATEWAY=real`**
+  reads mirrored **`UsageRecord`** rows (push webhooks). **Operator
+  guidelines:** [`docs/gateway-and-litellm.md`](./docs/gateway-and-litellm.md)
+  (HMAC generic ingest, LiteLLM Bearer callback, env vars, Cursor vs
+  OpenAI inference, security notes). A remote gateway pull API remains TBD.
 - **Identity reconciler** — `npm run reconcile:azuread` mirrors Graph
   users into Prisma, wraps each pass in a `Decision` row. Now also
   resolves manager edges via Graph's `$expand=manager`, so
@@ -41,7 +44,7 @@ v0.3 lands:
   DB credential. See `docs/deploy/azure.md §"Cron triggers"`.
 - **Webhooks** — `/api/webhooks/deel` HMAC-verifies + records advisory
   Decisions.
-- **CI** — GitHub Actions runs `typecheck + lint + 178 tests` on every
+- **CI** — GitHub Actions runs `typecheck + lint + Vitest` on every
   PR + push to `main`.
 - **F3 / F9 / F10** — manager queue, Codex ladder, per-team chargeback
   views landed.

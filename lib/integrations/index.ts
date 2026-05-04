@@ -18,6 +18,12 @@
  *   7. Default new vars to `synthetic` in dev; flip per-env in staging/prod.
  */
 
+export {
+  normalizeLiteLLmLogRow,
+  parseLiteLLmWebhookJson,
+} from "./litellm";
+export type { LiteLLmIngestDefaults, LiteLLmNormalizedEvent } from "./litellm";
+
 export { getGatewayClient } from "./gateway";
 export type {
   DailyProgramAggregate,

@@ -1,0 +1,15 @@
+{
+  "id": "chatcmpl-fixture-success-1",
+  "call_type": "litellm.completion",
+  "model": "gpt-4o-mini",
+  "prompt_tokens": 42,
+  "completion_tokens": 7,
+  "response_cost": 0.00012,
+  "startTime": "2026-05-03T08:00:00.000Z",
+  "endTime": "2026-05-03T08:00:02.500Z",
+  "status": "success",
+  "metadata": {
+    "user_email": "agoyal@wdtablesystems.com",
+    "request_tags": ["integration-test"]
+  }
+}

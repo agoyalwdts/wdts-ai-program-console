@@ -36,6 +36,8 @@ export const PERMISSIONS = {
 
   // Operations.
   IMPORTS_EMPLOYEES: "imports.employees",
+  /// Ingest Cursor admin team-usage CSV; creates prudence alerts + optional email.
+  IMPORTS_CURSOR_USAGE: "imports.cursor_usage",
   DECISIONS_EXPORT: "decisions.export",
 
   // Admin surfaces.
@@ -123,6 +125,13 @@ export const PERMISSION_CATALOG: ReadonlyArray<PermissionMeta> = [
     category: "Operations",
     displayName: "Import employees (CSV)",
     description: "Upsert the User table from a CSV upload.",
+  },
+  {
+    key: PERMISSIONS.IMPORTS_CURSOR_USAGE,
+    category: "Operations",
+    displayName: "Cursor usage prudence (CSV)",
+    description:
+      "Upload Cursor team-usage export; flag expensive models / Max mode vs token workload.",
   },
   {
     key: PERMISSIONS.DECISIONS_EXPORT,

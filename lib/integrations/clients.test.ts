@@ -75,14 +75,19 @@ describe("client factories return the expected method surface", () => {
   });
 });
 
-describe("real-mode clients throw NotImplementedError", () => {
-  it("gateway/real", async () => {
+describe("real-mode gateway mirrors Postgres UsageRecord", () => {
+  it("gateway/real listUsageRecords does not throw (Phase 1 mirror)", async () => {
     const c = getGatewayClient({ INTEGRATION_GATEWAY: "real" });
-    await expect(
-      c.listUsageRecords({ userId: "x", since: new Date(0) }),
-    ).rejects.toThrow(/listUsageRecords/);
+    const rows = await c.listUsageRecords({
+      userId: "00000000-0000-0000-0000-000000000000",
+      since: new Date(0),
+      until: new Date(),
+    });
+    expect(Array.isArray(rows)).toBe(true);
   });
+});
 
+describe("real-mode clients throw NotImplementedError", () => {
   it("cursor/real surfaces missing env vars as IntegrationError", async () => {
     // Detailed coverage in lib/integrations/cursor/real.test.ts.
     const c = getCursorClient({ INTEGRATION_CURSOR: "real" });

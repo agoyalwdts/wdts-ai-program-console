@@ -94,6 +94,10 @@ enum DecisionType {
   ROLE_DELETED
   // Operator data-import actions.
   EMPLOYEE_IMPORT
+  /// Cursor team-usage CSV → prudence alert rows (FinOps ingest).
+  CURSOR_USAGE_PRUDENCE_INGEST
+  /// Gateway mirror: generic HMAC or LiteLLM webhook batch applied to UsageRecord.
+  USAGE_INGEST_BATCH
 }
 
 // ---------------------------------------------------------------------------
@@ -273,6 +277,8 @@ model UsageRecord {
   /// v0.1 dropped it). Used by the manager queue and the §17.5
   /// friction-budget metric. Empty array if no layer fired.
   dlpLayersHit String[]      @default([])
+  /// Gateway / webhook idempotency key. Null for seed-only rows.
+  sourceEventId String?      @unique
 
   @@index([userId, ts])
   @@index([product, ts])
@@ -473,4 +479,38 @@ model FrictionBudgetMetric {
 
   @@unique([product, periodStart])
   @@index([periodStart])
+}
+
+/// Cursor team usage export (CSV) — prudence alerts when a row looks
+/// like an expensive model / Max mode for a relatively small generation
+/// workload. Ingested via POST /api/imports/cursor-usage; FinOps reviews
+/// on /settings/cursor-alerts. Not a vendor API — operator uploads the
+/// admin export from Cursor.
+model CursorUsagePrudenceAlert {
+  id             String    @id @default(uuid())
+  createdAt      DateTime  @default(now())
+  /// Event timestamp from the CSV `Date` column (UTC).
+  rowOccurredAt  DateTime
+  userEmail      String
+  model          String
+  maxMode        String
+  inputCacheWrite Int
+  inputNoCache   Int
+  cacheRead      Int
+  outputTokens   Int
+  totalTokens    Int
+  costUsd        Float
+  /// Stable rule id, e.g. `OPUS_MAX_LOW_OUTPUT_VS_CACHE`.
+  ruleCode       String
+  title          String
+  rationale      String
+  /// SHA-256 hex of canonical row fingerprint — dedupes re-uploads.
+  dedupeKey      String    @unique
+  sourceFilename String?
+  acknowledgedAt DateTime?
+  emailNotifiedAt DateTime?
+
+  @@index([userEmail, rowOccurredAt])
+  @@index([acknowledgedAt])
+  @@index([createdAt])
 }

@@ -65,6 +65,20 @@ export const ANNUAL_BUDGET_USD: Record<ProductKey, number> = {
 
 export const COMBINED_CHATGPT_CODEX_CAP_MONTH = 150_000;
 
+/** OpenAI Enterprise (ChatGPT + Codex): credits per licensed user per month,
+ *  pooled at the organization. Overage bills at {@link OPENAI_CREDIT_OVERAGE_USD}
+ *  per credit under the WDTS contract. */
+export const OPENAI_POOLED_CREDITS_PER_USER_MONTH = 500;
+
+/** USD charged per credit beyond the pooled monthly allocation. */
+export const OPENAI_CREDIT_OVERAGE_USD = 0.04;
+
+/** Rounded illustration for FinOps callouts (e.g. landing health page). */
+export const OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH = 350_000;
+
+export const OPENAI_ILLUSTRATIVE_OVERAGE_CHARGE_USD_MONTH =
+  OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH * OPENAI_CREDIT_OVERAGE_USD;
+
 /** Cursor sub-tiers (§4.6.1, four-sub-tier shape introduced in v2.0 and
  *  carried unchanged through v2.3). Discovery is the $50/mo floor of the
  *  promotion ladder (Discovery → Light → Standard → Power), parallel to
