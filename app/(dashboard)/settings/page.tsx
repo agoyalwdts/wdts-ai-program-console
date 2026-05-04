@@ -33,6 +33,7 @@ import {
   Radio,
 } from "lucide-react";
 import Link from "next/link";
+import { SyncCursorVendorSpendButton } from "@/components/dashboard/sync-cursor-vendor-spend-button";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +112,8 @@ async function probeAzureOpenAI(): Promise<ProbeResult> {
 const INTEGRATION_NOTES: Record<IntegrationName, string> = {
   gateway:
     "Usage mirror + LiteLLM: see docs/gateway-and-litellm.md (webhooks, env, Cursor inference).",
-  cursor: "Cursor admin/SCIM token + workspace ID; v1.1 adds writes.",
+  cursor:
+    "SCIM: CURSOR_SCIM_BASE_URL + CURSOR_ADMIN_TOKEN. Team Admin usage API: same token or CURSOR_TEAM_ADMIN_API_KEY — sync from Settings or POST /api/cron/sync-cursor-spend.",
   openai: "OpenAI Enterprise admin API key with users.read + usage.read scopes.",
   anthropic: "Anthropic admin API key (workspace-seat introspection beta).",
   m365graph: "Same app reg or a separate SP with Reports.Read.All + AuditLog.Read.All.",
@@ -143,6 +145,9 @@ export default async function SettingsPage() {
   const canCursorPrudence =
     currentUser != null &&
     userHasPermission(currentUser, PERMISSIONS.IMPORTS_CURSOR_USAGE);
+  const canVendorSpendSync =
+    currentUser != null &&
+    userHasPermission(currentUser, PERMISSIONS.VENDOR_SPEND_SYNC);
 
   return (
     <>
@@ -214,28 +219,53 @@ export default async function SettingsPage() {
           </div>
         ) : null}
 
-        {canCursorPrudence ? (
-          <Card className="border-amber-200">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell className="h-4 w-4 text-amber-600" />
-                Cursor usage prudence
-              </CardTitle>
-              <CardDescription>
-                Team-usage CSV heuristics (expensive models / Max mode vs tokens). Email
-                FinOps when configured.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Link
-                href="/settings/cursor-alerts"
-                className="inline-flex items-center gap-1 text-sm text-amber-800 underline-offset-4 hover:underline"
-              >
-                Open Cursor alerts
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </CardContent>
-          </Card>
+        {canCursorPrudence || canVendorSpendSync ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {canCursorPrudence ? (
+              <Card className="border-amber-200">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Bell className="h-4 w-4 text-amber-600" />
+                    Cursor usage prudence
+                  </CardTitle>
+                  <CardDescription>
+                    Team-usage CSV heuristics (expensive models / Max mode vs tokens). Email
+                    FinOps when configured.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Link
+                    href="/settings/cursor-alerts"
+                    className="inline-flex items-center gap-1 text-sm text-amber-800 underline-offset-4 hover:underline"
+                  >
+                    Open Cursor alerts
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </CardContent>
+              </Card>
+            ) : null}
+            {canVendorSpendSync ? (
+              <Card className="border-violet-200">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Radio className="h-4 w-4 text-violet-600" />
+                    Cursor spend (Program Health)
+                  </CardTitle>
+                  <CardDescription>
+                    Calls Cursor Team Admin{" "}
+                    <code className="font-mono text-xs">/teams/filtered-usage-events</code>{" "}
+                    (Basic auth). Upserts daily USD into the dashboard DB so the F1 CURSOR tile
+                    matches the Cursor usage dashboard. Schedule{" "}
+                    <code className="font-mono text-xs">POST /api/cron/sync-cursor-spend</code>{" "}
+                    or run manually below.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <SyncCursorVendorSpendButton />
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
         ) : null}
 
         <Card className="border-emerald-200">

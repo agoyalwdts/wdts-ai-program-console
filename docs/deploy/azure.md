@@ -179,7 +179,8 @@ None of these values lives anywhere else in production.
 | `AZURE-OPENAI-ENDPOINT` | `AZURE_OPENAI_ENDPOINT` | Prod Azure OpenAI resource (separate from dev) |
 | `AZURE-OPENAI-API-KEY` | `AZURE_OPENAI_API_KEY` | Prod Azure OpenAI resource |
 | `CURSOR-SCIM-BASE-URL` | `CURSOR_SCIM_BASE_URL` | Cursor admin |
-| `CURSOR-ADMIN-TOKEN` | `CURSOR_ADMIN_TOKEN` | Cursor admin |
+| `CURSOR-ADMIN-TOKEN` | `CURSOR_ADMIN_TOKEN` | Cursor admin (SCIM Bearer; also used for Team Admin Basic auth if `CURSOR_TEAM_ADMIN_API_KEY` unset) |
+| `CURSOR-TEAM-ADMIN-API-KEY` | `CURSOR_TEAM_ADMIN_API_KEY` | Optional separate key for `api.cursor.com` Basic auth; falls back to `CURSOR_ADMIN_TOKEN` |
 | `DEEL-API-TOKEN` | `DEEL_API_TOKEN` | Deel admin |
 | `DEEL-WEBHOOK-SECRET` | `DEEL_WEBHOOK_SECRET` | `openssl rand -hex 32` — also configured on the Deel side |
 | `USAGE-INGEST-HMAC-SECRET` | `USAGE_INGEST_HMAC_SECRET` | `openssl rand -hex 32` — HMAC for `POST /api/webhooks/usage-ingest` (`x-usage-ingest-signature`). See [`docs/gateway-and-litellm.md`](../gateway-and-litellm.md). |

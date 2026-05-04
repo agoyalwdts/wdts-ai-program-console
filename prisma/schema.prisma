@@ -98,6 +98,8 @@ enum DecisionType {
   CURSOR_USAGE_PRUDENCE_INGEST
   /// Gateway mirror: generic HMAC or LiteLLM webhook batch applied to UsageRecord.
   USAGE_INGEST_BATCH
+  /// Cursor Team Admin API → VendorDailySpend upsert (cron or admin).
+  CURSOR_VENDOR_SPEND_SYNC
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +284,24 @@ model UsageRecord {
 
   @@index([userId, ts])
   @@index([product, ts])
+}
+
+/// Daily USD totals from a vendor admin API (not the gateway mirror).
+/// F1 merges CURSOR rows when `INTEGRATION_CURSOR=real` so Program Health
+/// matches Cursor’s dashboard (filtered-usage-events chargedCents sum).
+model VendorDailySpend {
+  id         String   @id @default(cuid())
+  /// Stable id for the upstream system, e.g. `CURSOR_TEAM_ADMIN_API`.
+  vendor     String
+  product    Product
+  /// Calendar day (server-local date bucket from vendor event timestamps).
+  day        DateTime @db.Date
+  spendUsd   Float
+  eventCount Int      @default(0)
+  syncedAt   DateTime @default(now())
+
+  @@unique([vendor, product, day])
+  @@index([product, day])
 }
 
 // ---------------------------------------------------------------------------

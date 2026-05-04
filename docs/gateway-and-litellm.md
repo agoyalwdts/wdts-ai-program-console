@@ -14,6 +14,16 @@ mirror is **push-based** (webhooks).
 - **No prompt or response bodies** in the mirror (policy: gateway retains
   full content under its own retention; the dashboard stores metadata only).
 
+### Cursor (parallel path — vendor-accurate F1)
+
+When `INTEGRATION_CURSOR=real`, Program Health can show **Cursor-billed USD**
+from the **Cursor Team Admin API** (`POST /teams/filtered-usage-events`, sum
+`chargedCents`), stored in **`VendorDailySpend`** and refreshed by
+`POST /api/cron/sync-cursor-spend` (HMAC) or **Settings → Sync Cursor spend**.
+This does **not** replace the gateway mirror for other products; it only
+overrides the **CURSOR** tile and chart series when sync data exists for the
+selected period. See Cursor docs: Admin API (Basic auth with the team API key).
+
 ## Prerequisites
 
 1. Run migrations so `UsageRecord.sourceEventId` exists (idempotent upserts).

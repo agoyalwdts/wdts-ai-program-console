@@ -68,8 +68,23 @@ const debug = process.env.AUTH_DEBUG === "true";
  * Version history:
  *   1 — v0.2 shape: { role }.
  *   2 — v0.3 shape: { role, roleKey, permissions, roleSource, disabled }.
+ *   3 — built-in roles take permissions from code catalogue (getBuiltInRole)
+ *       so new keys ship without a DB seed on every deploy.
  */
-const TOKEN_SCHEMA_VERSION = 2;
+const TOKEN_SCHEMA_VERSION = 3;
+
+/** Built-in roles always use the code catalogue; custom roles use DB. */
+function effectiveDashboardPermissions(role: {
+  key: string;
+  isBuiltIn: boolean;
+  permissions: string[];
+}): string[] {
+  if (role.isBuiltIn) {
+    const def = getBuiltInRole(role.key);
+    if (def) return [...def.permissions];
+  }
+  return role.permissions;
+}
 
 /**
  * Look up the user's dashboard role + permissions, or JIT-provision
@@ -135,7 +150,7 @@ async function resolveRoleForSignIn(
       return {
         role: resolution.role,
         roleKey: existing.dashboardRole.key,
-        permissions: existing.dashboardRole.permissions,
+        permissions: effectiveDashboardPermissions(existing.dashboardRole),
         source: resolution.source,
         disabled: false,
       };

@@ -38,6 +38,8 @@ export const PERMISSIONS = {
   IMPORTS_EMPLOYEES: "imports.employees",
   /// Ingest Cursor admin team-usage CSV; creates prudence alerts + optional email.
   IMPORTS_CURSOR_USAGE: "imports.cursor_usage",
+  /// Pull Cursor Team Admin usage → VendorDailySpend (Program Health CURSOR tile).
+  VENDOR_SPEND_SYNC: "vendor_spend.sync",
   DECISIONS_EXPORT: "decisions.export",
 
   // Admin surfaces.
@@ -132,6 +134,13 @@ export const PERMISSION_CATALOG: ReadonlyArray<PermissionMeta> = [
     displayName: "Cursor usage prudence (CSV)",
     description:
       "Upload Cursor team-usage export; flag expensive models / Max mode vs token workload.",
+  },
+  {
+    key: PERMISSIONS.VENDOR_SPEND_SYNC,
+    category: "Operations",
+    displayName: "Sync vendor spend (Cursor API)",
+    description:
+      "Trigger Cursor Team Admin API pull into VendorDailySpend for accurate F1 CURSOR totals.",
   },
   {
     key: PERMISSIONS.DECISIONS_EXPORT,

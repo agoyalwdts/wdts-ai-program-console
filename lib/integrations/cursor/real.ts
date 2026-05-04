@@ -24,8 +24,10 @@
  *     Power-vs-Standard-vs-Light split will be wrong until the join
  *     lands.
  *   - `mtdSpendUsd`, `lastActivityTs`, `idleDays` come from
- *     GatewayClient, not Cursor. The real client returns 0 / null /
- *     null and lets the consumer (e.g. F4 page) join gateway data in.
+ *     GatewayClient / VendorDailySpend sync, not SCIM. The real client
+ *     returns 0 / null / null; F4 can join gateway data; F1 CURSOR totals
+ *     prefer `VendorDailySpend` when `INTEGRATION_CURSOR=real` (Team Admin
+ *     API sync — see `lib/integrations/cursor/team-admin-usage.ts`).
  *   - `listWaitlist()` returns `[]` because the waitlist is a WDTS
  *     dashboard concept, not a Cursor concept. The synthetic client
  *     materialises a waitlist from Prisma; the real client deliberately

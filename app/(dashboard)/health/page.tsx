@@ -21,6 +21,8 @@ import {
 import { formatUsd } from "@/lib/utils";
 import { getAzureADClient, getDeelClient, getGatewayClient } from "@/lib/integrations";
 import { requireUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { loadCursorVendorSpendForF1, mergeCursorVendorIntoF1 } from "@/lib/f1-cursor-vendor";
 import {
   f1PeriodSpendLabel,
   parseF1Period,
@@ -47,6 +49,7 @@ async function getF1Data(period: F1Period): Promise<{
   combinedChatGptCodexMtd: number;
   plan: F1PeriodPlan;
   period: F1Period;
+  cursorSpendSource: "gateway" | "vendor";
 }> {
   const now = new Date();
   const plan = planF1Period(now, period);
@@ -55,12 +58,16 @@ async function getF1Data(period: F1Period): Promise<{
   const azuread = getAzureADClient();
   const deel = getDeelClient();
 
-  const [programAgg, dailyAgg, topRaw, identityAll, deelAll] = await Promise.all([
+  const [programAgg, dailyAgg, topRaw, identityAll, deelAll, vendorCursor] = await Promise.all([
     gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
     gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
     gateway.topSpenders({ periodStart: plan.periodStart, periodEnd: plan.periodEnd, limit: 10 }),
     azuread.listUsers(),
     deel.listEmployees(),
+    loadCursorVendorSpendForF1(prisma, {
+      periodStart: plan.periodStart,
+      periodEnd: plan.periodEnd,
+    }),
   ]);
 
   const mtdMap = new Map<ProductKey, number>(
@@ -75,6 +82,17 @@ async function getF1Data(period: F1Period): Promise<{
     CLAUDE_AI: d.byProduct.CLAUDE_AI,
     M365_COPILOT: d.byProduct.M365_COPILOT,
   }));
+
+  mergeCursorVendorIntoF1({
+    mtdMap,
+    days,
+    cursorVendorTotal: vendorCursor.periodTotalUsd,
+    cursorByChartDay: vendorCursor.byChartDay,
+    useVendor: vendorCursor.usedVendor,
+  });
+  const cursorSpendSource: "gateway" | "vendor" = vendorCursor.usedVendor
+    ? "vendor"
+    : "gateway";
 
   const identityById = new Map(identityAll.map((u) => [u.azureObjectId, u]));
   const deelByEmail = new Map(deelAll.map((d) => [d.email, d]));
@@ -102,6 +120,7 @@ async function getF1Data(period: F1Period): Promise<{
       (mtdMap.get("CHATGPT") ?? 0) + (mtdMap.get("CODEX") ?? 0),
     plan,
     period,
+    cursorSpendSource,
   };
 }
 
@@ -241,6 +260,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   <div className="text-xs text-slate-500">
                     of {formatUsd(budgetPeriod)} · {spendLabel}
                   </div>
+                  {key === "CURSOR" && data.cursorSpendSource === "vendor" ? (
+                    <p className="text-[11px] text-violet-700 mt-1">
+                      Cursor Team Admin API (synced daily buckets)
+                    </p>
+                  ) : null}
                 </CardHeader>
                 <CardContent>
                   <BudgetBar spend={mtd} budget={budgetPeriod} />
@@ -255,8 +279,12 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           <CardHeader>
             <CardTitle>{data.plan.chartTitle}</CardTitle>
             <CardDescription>
-              {data.plan.rangeDescription}. Stacked across all 5 products. Source:{" "}
-              <code className="font-mono">getGatewayClient().aggregateByProgramDaily()</code>.
+              {data.plan.rangeDescription}. Stacked across all 5 products. Gateway:{" "}
+              <code className="font-mono">getGatewayClient().aggregateByProgramDaily()</code>
+              . CURSOR series uses{" "}
+              {data.cursorSpendSource === "vendor"
+                ? "the same Cursor Team Admin sync as the CURSOR tile when data exists."
+                : "that mirror (enable Cursor API sync in Settings for vendor-accurate spend)."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -305,9 +333,10 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
         </Card>
 
         <p className="text-xs text-slate-400">
-          v0.2 — reads through gateway / azuread / deel clients (synthetic by default; flip
-          INTEGRATION_GATEWAY=real etc. once Phase 0 selects the gateway vendor).
-          F1 in Dashboard_Scoping_v1.md feature list.
+          F1 reads gateway / AzureAD / Deel; with{" "}
+          <code className="font-mono">INTEGRATION_CURSOR=real</code> and a recent{" "}
+          <code className="font-mono">VendorDailySpend</code> sync, the CURSOR tile and chart
+          track Cursor&apos;s billed usage (filtered-usage-events), not only the gateway mirror.
         </p>
       </div>
     </>

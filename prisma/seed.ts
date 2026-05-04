@@ -41,6 +41,7 @@ async function main() {
   await prisma.budgetSnapshot.deleteMany();
   await prisma.frictionBudgetMetric.deleteMany();
   await prisma.cursorUsagePrudenceAlert.deleteMany();
+  await prisma.vendorDailySpend.deleteMany();
   await prisma.usageRecord.deleteMany();
   await prisma.decision.deleteMany();
   await prisma.license.deleteMany();
