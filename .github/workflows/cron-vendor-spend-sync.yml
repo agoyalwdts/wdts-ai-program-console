@@ -6,6 +6,11 @@
 #   - App Service has Cursor / OpenAI credentials when those integrations are real
 #     (otherwise the corresponding job may 502 — fix env or disable that matrix leg).
 #
+# Cursor lookback is intentionally smaller than OpenAI: Team Admin filtered-usage-events
+# paginates heavily; 120d in one run often hits API rate limits. Daily cron refreshes
+# recent days; older VendorDailySpend rows stay in Postgres. Use Settings → sync or
+# a one-off POST with lookbackDays:120 for a full backfill.
+#
 # To point at a non-default host, edit DASHBOARD_BASE_URL below (or fork).
 
 name: Cron — vendor spend sync
@@ -33,8 +38,10 @@ jobs:
         include:
           - label: cursor
             path: /api/cron/sync-cursor-spend
+            lookbackDays: 28
           - label: openai
             path: /api/cron/sync-openai-spend
+            lookbackDays: 120
 
     env:
       DASHBOARD_BASE_URL: https://wdts-ai-program-console.azurewebsites.net
@@ -53,7 +60,7 @@ jobs:
         env:
           CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
         run: |
-          BODY='{"lookbackDays":120}'
+          BODY='{"lookbackDays":${{ matrix.lookbackDays }}}'
           SIG=$(printf '%s' "$BODY" \
             | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" \
             | awk '{print $2}')

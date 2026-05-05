@@ -40,6 +40,16 @@ type FilteredUsagePage = {
 /** Max window per request — Cursor limits some team endpoints to 30 days; stay under. */
 export const CURSOR_USAGE_CHUNK_MS = 25 * 24 * 60 * 60 * 1000;
 
+/** Space out pagination calls to avoid burst 429s from Cursor's API. */
+const INTER_REQUEST_MS = 250;
+
+/** Retries per page when Cursor returns 429 (Retry-After or exponential backoff). */
+const RATE_LIMIT_MAX_ATTEMPTS = 8;
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
 export function resolveCursorTeamAdminApiKey(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
@@ -85,21 +95,48 @@ export async function fetchCursorFilteredUsageByUtcDay(args: {
     let page = 1;
     const pageSize = 500;
     for (let guard = 0; guard < 5000; guard++) {
-      const res = await f(`${CURSOR_TEAM_ADMIN_API_BASE}/teams/filtered-usage-events`, {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${auth}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          startDate: chunkStart,
-          endDate: chunkEnd,
-          page,
-          pageSize,
-        }),
-      });
-      const text = await res.text();
+      if (page > 1) {
+        await sleep(INTER_REQUEST_MS);
+      }
+      let res!: Response;
+      let text!: string;
+      let nextBackoffMs = 2000;
+      for (let attempt = 0; attempt < RATE_LIMIT_MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+          await sleep(nextBackoffMs);
+        }
+        res = await f(`${CURSOR_TEAM_ADMIN_API_BASE}/teams/filtered-usage-events`, {
+          method: "POST",
+          headers: {
+            Authorization: `Basic ${auth}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            startDate: chunkStart,
+            endDate: chunkEnd,
+            page,
+            pageSize,
+          }),
+        });
+        text = await res.text();
+        if (res.status === 429) {
+          const ra = res.headers.get("retry-after");
+          const sec = ra ? Number.parseInt(ra, 10) : NaN;
+          nextBackoffMs =
+            Number.isFinite(sec) && sec > 0
+              ? Math.min(120_000, sec * 1000)
+              : Math.min(60_000, 2000 * 2 ** attempt);
+          continue;
+        }
+        break;
+      }
+      if (res.status === 429) {
+        throw new IntegrationError(
+          "cursor",
+          `POST /teams/filtered-usage-events → 429: rate limit (exhausted ${RATE_LIMIT_MAX_ATTEMPTS} retries): ${text.slice(0, 400)}`,
+        );
+      }
       if (!res.ok) {
         throw new IntegrationError(
           "cursor",
