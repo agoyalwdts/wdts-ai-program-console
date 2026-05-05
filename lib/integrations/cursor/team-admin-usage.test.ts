@@ -34,6 +34,50 @@ describe("calendarYmdFromMillis", () => {
 });
 
 describe("fetchCursorFilteredUsageByUtcDay", () => {
+  it("retries on 429 using Retry-After then succeeds", async () => {
+    vi.useFakeTimers();
+    const payload = JSON.stringify({
+      usageEvents: [{ timestamp: String(Date.UTC(2026, 4, 4, 12, 0, 0)), chargedCents: 100 }],
+      pagination: { hasNextPage: false, currentPage: 1, pageSize: 500, numPages: 1 },
+    });
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          status: 429,
+          ok: false,
+          headers: {
+            get: (n: string) => (n.toLowerCase() === "retry-after" ? "1" : null),
+          },
+          text: async () => '{"code":"error"}',
+        } as unknown as Response;
+      }
+      return {
+        status: 200,
+        ok: true,
+        headers: { get: () => null },
+        text: async () => payload,
+      } as unknown as Response;
+    });
+
+    const start = Date.UTC(2026, 4, 4, 0, 0, 0);
+    const end = Date.UTC(2026, 4, 4, 23, 59, 59);
+    const p = fetchCursorFilteredUsageByUtcDay({
+      startMs: start,
+      endMs: end,
+      opts: { apiKey: "k", fetchImpl: fetchImpl as unknown as typeof fetch },
+    });
+    await vi.advanceTimersByTimeAsync(5000);
+    const map = await p;
+    vi.useRealTimers();
+
+    expect(calls).toBe(2);
+    const ymd = calendarYmdFromMillis(Date.UTC(2026, 4, 4, 12, 0, 0));
+    expect(map.get(ymd)?.spendUsd).toBeCloseTo(1);
+    expect(map.get(ymd)?.eventCount).toBe(1);
+  });
+
   it("aggregates chargedCents into daily buckets", async () => {
     const t0 = new Date(2026, 4, 4, 10, 0, 0).getTime();
     const t1 = new Date(2026, 4, 4, 11, 0, 0).getTime();
