@@ -224,8 +224,9 @@ export default async function AnalyticsPage() {
           <CardHeader>
             <CardTitle className="text-base">APIs not surfaced as separate panels</CardTitle>
             <CardDescription className="text-xs">
-              These are documented on the same host and may be added later (pagination, exports, or
-              write paths stay out of this read-only page).
+              Pagination beyond the first page, CSV downloads, and write paths stay out of this
+              read-only page. Conversation insights require the feature enabled on the team or the
+              API returns 401.
             </CardDescription>
           </CardHeader>
           <CardContent className="text-xs text-slate-600 space-y-2">
@@ -239,14 +240,15 @@ export default async function AnalyticsPage() {
                 logs pagination, groups, spend limits, member removal, …
               </li>
               <li>
-                <span className="font-medium">Analytics API:</span> conversation insights,
-                leaderboard, Bugbot, plans/skills/commands (beyond the seven team metrics above), and
-                all <code className="bg-slate-100 px-1 rounded">/analytics/by-user/…</code> routes.
+                <span className="font-medium">Analytics API:</span> CSV exports; additional
+                leaderboard / by-user pages beyond the first page; optional{" "}
+                <code className="bg-slate-100 px-1 rounded">users=</code> filters on team endpoints.
               </li>
               <li>
-                <span className="font-medium">AI Code Tracking:</span>{" "}
-                <code className="bg-slate-100 px-1 rounded">/analytics/ai-code/changes</code>, CSV
-                exports, commit detail hashes.
+                <span className="font-medium">AI Code Tracking:</span> streaming{" "}
+                <code className="bg-slate-100 px-1 rounded">*.csv</code> endpoints and{" "}
+                <code className="bg-slate-100 px-1 rounded">/analytics/ai-code/commits/:hash</code>{" "}
+                commit detail (alpha).
               </li>
               <li>
                 <span className="font-medium">Cloud Agents:</span> create runs, streams, artifacts,

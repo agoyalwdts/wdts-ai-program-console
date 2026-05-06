@@ -25,7 +25,10 @@ export type CursorOverviewPanel = {
   query?: Record<string, string>;
 };
 
-/** Panels we fetch on /analytics (subset of full vendor catalogue). */
+/**
+ * Panels fetched on `/analytics` (Cursor Analytics, AI Code Tracking, Admin, Cloud Agents).
+ * Team + by-user + leaderboard calls run in parallel — watch Enterprise rate limits (see Cursor API docs).
+ */
 export const CURSOR_OVERVIEW_PANELS: CursorOverviewPanel[] = [
   {
     key: "analyticsDau",
@@ -70,6 +73,123 @@ export const CURSOR_OVERVIEW_PANELS: CursorOverviewPanel[] = [
     path: "/analytics/team/mcp",
   },
   {
+    key: "analyticsTeamCommands",
+    label: "Commands adoption",
+    apiFamily: "Analytics API",
+    path: "/analytics/team/commands",
+  },
+  {
+    key: "analyticsTeamPlans",
+    label: "Plans adoption",
+    apiFamily: "Analytics API",
+    path: "/analytics/team/plans",
+  },
+  {
+    key: "analyticsTeamSkills",
+    label: "Skills adoption",
+    apiFamily: "Analytics API",
+    path: "/analytics/team/skills",
+  },
+  {
+    key: "analyticsTeamAskMode",
+    label: "Ask mode adoption",
+    apiFamily: "Analytics API",
+    path: "/analytics/team/ask-mode",
+  },
+  {
+    key: "analyticsConversationInsights",
+    label: "Conversation insights",
+    apiFamily: "Analytics API",
+    path: "/analytics/team/conversation-insights",
+    query: {
+      include: "intents,complexity,categories,guidanceLevels,workTypes",
+    },
+  },
+  {
+    key: "analyticsLeaderboard",
+    label: "Usage leaderboard",
+    apiFamily: "Analytics API",
+    path: "/analytics/team/leaderboard",
+    query: { page: "1", pageSize: "25" },
+  },
+  {
+    key: "analyticsBugbot",
+    label: "Bugbot PR reviews",
+    apiFamily: "Analytics API",
+    path: "/analytics/team/bugbot",
+    query: { prState: "merged", page: "1", pageSize: "50" },
+  },
+  {
+    key: "analyticsByUserAgentEdits",
+    label: "By-user — agent edits",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/agent-edits",
+    query: { page: "1", pageSize: "25" },
+  },
+  {
+    key: "analyticsByUserTabs",
+    label: "By-user — tabs",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/tabs",
+    query: { page: "1", pageSize: "25" },
+  },
+  {
+    key: "analyticsByUserModels",
+    label: "By-user — models",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/models",
+    query: { page: "1", pageSize: "25" },
+  },
+  {
+    key: "analyticsByUserTopExtensions",
+    label: "By-user — top file extensions",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/top-file-extensions",
+    query: { page: "1", pageSize: "25" },
+  },
+  {
+    key: "analyticsByUserClientVersions",
+    label: "By-user — client versions",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/client-versions",
+    query: { page: "1", pageSize: "25" },
+  },
+  {
+    key: "analyticsByUserMcp",
+    label: "By-user — MCP",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/mcp",
+    query: { page: "1", pageSize: "25" },
+  },
+  {
+    key: "analyticsByUserCommands",
+    label: "By-user — commands",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/commands",
+    query: { page: "1", pageSize: "25" },
+  },
+  {
+    key: "analyticsByUserPlans",
+    label: "By-user — plans",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/plans",
+    query: { page: "1", pageSize: "25" },
+  },
+  {
+    key: "analyticsByUserSkills",
+    label: "By-user — skills",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/skills",
+    query: { page: "1", pageSize: "25" },
+  },
+  {
+    key: "analyticsByUserAskMode",
+    label: "By-user — ask mode",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/ask-mode",
+    query: { page: "1", pageSize: "25" },
+  },
+  {
     key: "adminMembers",
     label: "Team members",
     apiFamily: "Admin API",
@@ -80,6 +200,13 @@ export const CURSOR_OVERVIEW_PANELS: CursorOverviewPanel[] = [
     label: "AI code commits (sample page)",
     apiFamily: "AI Code Tracking API",
     path: "/analytics/ai-code/commits",
+    query: { page: "1", pageSize: "20" },
+  },
+  {
+    key: "aiCodeChanges",
+    label: "AI code changes (sample page)",
+    apiFamily: "AI Code Tracking API",
+    path: "/analytics/ai-code/changes",
     query: { page: "1", pageSize: "20" },
   },
   {
@@ -118,11 +245,19 @@ export type CursorApiOverview = {
   slices: Record<string, CursorApiSlice>;
 };
 
+export type LoadCursorApiOverviewOptions = {
+  env?: IntegrationEnv;
+  fetchImpl?: Fetch;
+  /** Passed to every Analytics + AI Code Tracking path that accepts startDate/endDate. */
+  analyticsWindow?: { startDate: string; endDate: string };
+};
+
 export async function loadCursorApiOverview(
-  env: IntegrationEnv = process.env,
-  fetchImpl?: Fetch,
+  opts: LoadCursorApiOverviewOptions = {},
 ): Promise<CursorApiOverview> {
-  const window = { startDate: "30d", endDate: "today" };
+  const env = opts.env ?? process.env;
+  const fetchImpl = opts.fetchImpl;
+  const window = opts.analyticsWindow ?? { startDate: "30d", endDate: "today" };
   const apiKey = resolveCursorTeamAdminApiKey(env);
   const mode = getIntegrationMode("cursor", env);
 
@@ -172,12 +307,8 @@ export async function loadCursorApiOverview(
         ...baseQuery,
         ...panel.query,
       };
-      // Admin + Cloud paths ignore startDate/endDate; leaving them does not matter for /teams/members;
-      // strip for cleaner URLs on paths that are not analytics.
-      if (
-        panel.path.startsWith("/teams/") ||
-        panel.path.startsWith("/v1/")
-      ) {
+      // Admin + Cloud Agents paths are not date-scoped in our UI; strip range params.
+      if (panel.path.startsWith("/teams/") || panel.path.startsWith("/v1/")) {
         delete q.startDate;
         delete q.endDate;
       }
