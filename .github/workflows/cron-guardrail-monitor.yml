@@ -1,0 +1,63 @@
+# Active guardrail monitoring — POST /api/cron/guardrail-monitor
+# Scans recent UsageRecord + Decision rows for day-one defaults drift,
+# complexity-advisor overrides, and cloud-control violations.
+#
+# Prerequisites: CRON_SHARED_SECRET repo secret.
+
+name: Cron — guardrail monitor
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cron-guardrail-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    name: POST /api/cron/guardrail-monitor
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      DASHBOARD_BASE_URL: https://wdts-ai-program-console.azurewebsites.net
+
+    steps:
+      - name: Verify secret is configured
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          if [ -z "$CRON_SHARED_SECRET" ]; then
+            echo "::error::Repository secret CRON_SHARED_SECRET is not set."
+            exit 1
+          fi
+
+      - name: Run guardrail monitor
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          BODY='{"windowHours":24}'
+          SIG=$(printf '%s' "$BODY" \
+            | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" \
+            | awk '{print $2}')
+          URL="${DASHBOARD_BASE_URL}/api/cron/guardrail-monitor"
+          echo "## Guardrail monitor — $URL" >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
+            -H "x-cron-signature: sha256=${SIG}" \
+            -H "content-type: application/json" \
+            --data "$BODY" \
+            "$URL")
+          set -e
+          cat /tmp/out.json | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::HTTP $HTTP — guardrail monitor failed"
+            exit 1
+          fi
+          echo "OK — HTTP 200." >> "$GITHUB_STEP_SUMMARY"

@@ -39,6 +39,8 @@ export const PERMISSIONS = {
   IMPORTS_EMPLOYEES: "imports.employees",
   /// Ingest Cursor admin team-usage CSV; creates prudence alerts + optional email.
   IMPORTS_CURSOR_USAGE: "imports.cursor_usage",
+  /// Monitor complexity/model/cloud guardrail alerts and acknowledge them.
+  GUARDRAILS_MONITOR: "guardrails.monitor",
   /// Pull vendor admin APIs → VendorDailySpend (F1 CURSOR / ChatGPT / Codex tiles + Codex Enterprise Analytics).
   VENDOR_SPEND_SYNC: "vendor_spend.sync",
   DECISIONS_EXPORT: "decisions.export",
@@ -142,6 +144,13 @@ export const PERMISSION_CATALOG: ReadonlyArray<PermissionMeta> = [
     displayName: "Cursor usage prudence (CSV)",
     description:
       "Upload Cursor team-usage export; flag expensive models / Max mode vs token workload.",
+  },
+  {
+    key: PERMISSIONS.GUARDRAILS_MONITOR,
+    category: "Operations",
+    displayName: "Guardrails monitor",
+    description:
+      "View/acknowledge day-one model posture, complexity-advisor, and cloud-control alerts.",
   },
   {
     key: PERMISSIONS.VENDOR_SPEND_SYNC,

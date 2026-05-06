@@ -106,6 +106,8 @@ enum DecisionType {
   CODEX_ENTERPRISE_ANALYTICS_SYNC
   /// Operator-uploaded ChatGPT / Codex / Cursor admin exports (CSV/JSON).
   PROGRAM_VENDOR_EXPORT_IMPORT
+  /// Automated guardrail monitor findings (model posture / cloud controls).
+  GUARDRAIL_POLICY_ALERT
 }
 
 // ---------------------------------------------------------------------------
@@ -560,4 +562,41 @@ model CursorUsagePrudenceAlert {
   @@index([userEmail, rowOccurredAt])
   @@index([acknowledgedAt])
   @@index([createdAt])
+}
+
+/// Cross-vendor guardrail findings:
+/// - day-one defaults drift (fast/yolo disablement + default model posture)
+/// - complexity-aware heavy-model advisor overrides
+/// - cloud governance controls (allowlist/env-gating/high-risk ops)
+///
+/// Produced by `lib/guardrails/monitor.ts` via the HMAC-protected cron route
+/// `POST /api/cron/guardrail-monitor`. Reviewed on `/settings/guardrails`.
+model GuardrailPolicyAlert {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  occurredAt     DateTime
+  /// `MODEL_POSTURE`, `COMPLEXITY_ADVISOR`, `CLOUD_CONTROL`.
+  category       String
+  /// `LOW`, `MEDIUM`, `HIGH`.
+  severity       String
+  /// Stable rule id, e.g. `NON_COMPLEX_HEAVY_MODEL_SELECTED`.
+  ruleCode       String
+  title          String
+  rationale      String
+  recommendation String?
+  environment    String?
+  product        Product?
+  userEmail      String?
+  model          String?
+  source         String?
+  /// JSON details for replay/debug (input fields, thresholds, context ids).
+  context        Json
+  dedupeKey      String   @unique
+  acknowledgedAt DateTime?
+  emailNotifiedAt DateTime?
+
+  @@index([occurredAt])
+  @@index([category, severity])
+  @@index([acknowledgedAt])
+  @@index([product, occurredAt])
 }

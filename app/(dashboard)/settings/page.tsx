@@ -183,6 +183,9 @@ export default async function SettingsPage() {
   const canVendorSpendSync =
     currentUser != null &&
     userHasPermission(currentUser, PERMISSIONS.VENDOR_SPEND_SYNC);
+  const canGuardrailsMonitor =
+    currentUser != null &&
+    userHasPermission(currentUser, PERMISSIONS.GUARDRAILS_MONITOR);
 
   return (
     <>
@@ -254,8 +257,31 @@ export default async function SettingsPage() {
           </div>
         ) : null}
 
-        {canCursorPrudence || canVendorSpendSync ? (
+        {canCursorPrudence || canVendorSpendSync || canGuardrailsMonitor ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {canGuardrailsMonitor ? (
+              <Card className="border-rose-200">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-rose-600" />
+                    Day-one guardrails monitor
+                  </CardTitle>
+                  <CardDescription>
+                    Active alerts for model defaults, complexity-aware nudges, and cloud controls
+                    (allowlist, environment gating, step-up approvals).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Link
+                    href="/settings/guardrails"
+                    className="inline-flex items-center gap-1 text-sm text-rose-800 underline-offset-4 hover:underline"
+                  >
+                    Open guardrails monitor
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </CardContent>
+              </Card>
+            ) : null}
             {canCursorPrudence ? (
               <Card className="border-amber-200">
                 <CardHeader>
