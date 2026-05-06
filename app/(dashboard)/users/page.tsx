@@ -20,11 +20,14 @@ import {
   getGatewayClient,
 } from "@/lib/integrations";
 import type { DeelEmployee, UsageRecord } from "@/lib/integrations";
+import { requireUser } from "@/lib/auth";
 import { Search, ChevronRight, AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-type SP = { q?: string; user?: string };
+const PAGE_SIZE = 50;
+
+type SP = { q?: string; user?: string; page?: string };
 
 function matches(u: DeelEmployee, q: string) {
   if (!q) return true;
@@ -36,9 +39,11 @@ function matches(u: DeelEmployee, q: string) {
   );
 }
 
-async function getDirectory(q: string) {
-  // Identity + role tag come through Deel + Azure AD per scoping §3.3.
-  // Synthetic clients read from Postgres; real clients hit the IdP / HRIS.
+async function getDirectoryPage(q: string, page: number) {
+  // Directory rows come from Deel `listEmployees()`; Azure AD is only used
+  // to enrich display when the integration exposes it. Links and detail use
+  // Prisma `User.id` (UUID) when a row exists for that email — never Entra
+  // object ids, which are not primary keys in our schema.
   const [employees, identityAll] = await Promise.all([
     getDeelClient().listEmployees(),
     getAzureADClient().listUsers(),
@@ -47,24 +52,48 @@ async function getDirectory(q: string) {
 
   const matched = employees
     .filter((e) => matches(e, q))
-    .sort((a, b) => a.displayName.localeCompare(b.displayName))
-    .slice(0, 50)
-    .map((e) => {
-      const id = idByEmail.get(e.email);
-      return {
-        id: id?.azureObjectId ?? e.email,
-        email: e.email,
-        displayName: e.displayName,
-        roleTag: e.roleTag,
-        region: e.region,
-        status: e.status,
-      };
-    });
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-  return matched;
+  const total = matched.length;
+  const safePage = Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
+  const currentPage = Math.min(safePage, pageCount);
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const slice = matched.slice(start, start + PAGE_SIZE);
+
+  const emails = slice.map((e) => e.email);
+  const prismaRows =
+    emails.length === 0
+      ? []
+      : await prisma.user.findMany({
+          where: { email: { in: emails } },
+          select: { id: true, email: true },
+        });
+  const prismaIdByEmail = new Map(prismaRows.map((u) => [u.email, u.id]));
+
+  const rows = slice.map((e) => {
+    const id = idByEmail.get(e.email);
+    return {
+      id: prismaIdByEmail.get(e.email) ?? e.email,
+      email: e.email,
+      displayName: id?.displayName?.trim() ? id.displayName : e.displayName,
+      roleTag: e.roleTag,
+      region: e.region,
+      status: e.status,
+    };
+  });
+
+  return {
+    rows,
+    total,
+    page: currentPage,
+    pageCount,
+    showingFrom: total === 0 ? 0 : start + 1,
+    showingTo: start + rows.length,
+  };
 }
 
-async function getUserDetail(userId: string) {
+async function getUserDetail(selection: string) {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -72,8 +101,10 @@ async function getUserDetail(userId: string) {
   // it from Azure AD + Deel nightly. Reading from it here is fine — it's a
   // cache of the integration clients' data, scoped to a single user with
   // their licences pre-joined. See .cursor/rules/data-model.mdc.
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [{ id: selection }, { email: selection }],
+    },
     include: {
       manager: { select: { displayName: true, email: true } },
       licenses: true,
@@ -83,13 +114,14 @@ async function getUserDetail(userId: string) {
 
   const gateway = getGatewayClient();
   const since = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); // 90 days
+  const uid = user.id;
   const [aggs, recent, deelEmp]: [
     Awaited<ReturnType<typeof gateway.aggregateByUser>>,
     UsageRecord[],
     DeelEmployee | null,
   ] = await Promise.all([
-    gateway.aggregateByUser({ userIds: [userId], periodStart: startOfMonth, periodEnd: now }),
-    gateway.listUsageRecords({ userId, since, limit: 25 }),
+    gateway.aggregateByUser({ userIds: [uid], periodStart: startOfMonth, periodEnd: now }),
+    gateway.listUsageRecords({ userId: uid, since, limit: 25 }),
     getDeelClient().getEmployeeByEmail(user.email),
   ]);
 
@@ -111,10 +143,12 @@ async function getUserDetail(userId: string) {
 }
 
 export default async function UsersPage(props: { searchParams: Promise<SP> }) {
+  await requireUser();
   const sp = await props.searchParams;
   const q = sp.q?.trim() || "";
-  const directory = await getDirectory(q);
-  const selectedId = sp.user || directory[0]?.id;
+  const pageNum = parseInt(sp.page ?? "1", 10);
+  const directory = await getDirectoryPage(q, pageNum);
+  const selectedId = sp.user || directory.rows[0]?.id;
   const detail = selectedId ? await getUserDetail(selectedId) : null;
 
   return (
@@ -137,9 +171,7 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
                   className="pl-9"
                 />
               </div>
-              {selectedId ? (
-                <input type="hidden" name="user" value={selectedId} />
-              ) : null}
+
               <Button type="submit">Search</Button>
             </form>
           </CardContent>
@@ -151,22 +183,36 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
             <CardHeader>
               <CardTitle>Results</CardTitle>
               <CardDescription>
-                {directory.length} user{directory.length === 1 ? "" : "s"} matching{" "}
-                <code className="font-mono text-slate-700">{q || "all"}</code>. Source:{" "}
+                {directory.total === 0 ? (
+                  <>No users matching </>
+                ) : (
+                  <>
+                    Showing {directory.showingFrom}–{directory.showingTo} of {directory.total}{" "}
+                    user{directory.total === 1 ? "" : "s"} matching{" "}
+                  </>
+                )}
+                <code className="font-mono text-slate-700">{q || "all"}</code>
+                {directory.pageCount > 1 ? (
+                  <>
+                    {" "}
+                    (page {directory.page} of {directory.pageCount})
+                  </>
+                ) : null}
+                . Directory:{" "}
                 <code className="font-mono text-slate-700">
                   getDeelClient().listEmployees()
                 </code>
-                .
+                ; detail loads from Prisma <code className="font-mono">User</code> by id/email.
               </CardDescription>
             </CardHeader>
             <CardContent className="px-0 pb-0">
               <ul className="divide-y divide-slate-100 max-h-[680px] overflow-y-auto">
-                {directory.map((u) => {
+                {directory.rows.map((u) => {
                   const isActive = u.id === selectedId;
                   return (
-                    <li key={u.id}>
+                    <li key={`${u.email}:${u.id}`}>
                       <Link
-                        href={`/users?q=${encodeURIComponent(q)}&user=${u.id}`}
+                        href={`/users?q=${encodeURIComponent(q)}&page=${directory.page}&user=${encodeURIComponent(u.id)}`}
                         className={
                           "flex items-center gap-3 px-5 py-3 text-sm hover:bg-slate-50 transition-colors " +
                           (isActive ? "bg-slate-100" : "")
@@ -189,10 +235,39 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
                     </li>
                   );
                 })}
-                {directory.length === 0 ? (
+                {directory.rows.length === 0 ? (
                   <li className="p-5 text-sm text-slate-500">No users matched.</li>
                 ) : null}
               </ul>
+              {directory.pageCount > 1 ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-5 py-3 text-xs text-slate-600">
+                  <span>
+                    Page {directory.page} of {directory.pageCount}
+                  </span>
+                  <div className="flex gap-3">
+                    {directory.page > 1 ? (
+                      <Link
+                        href={`/users?q=${encodeURIComponent(q)}&page=${directory.page - 1}${selectedId ? `&user=${encodeURIComponent(selectedId)}` : ""}`}
+                        className="font-medium text-sky-700 hover:underline"
+                      >
+                        Previous
+                      </Link>
+                    ) : (
+                      <span className="text-slate-300">Previous</span>
+                    )}
+                    {directory.page < directory.pageCount ? (
+                      <Link
+                        href={`/users?q=${encodeURIComponent(q)}&page=${directory.page + 1}`}
+                        className="font-medium text-sky-700 hover:underline"
+                      >
+                        Next
+                      </Link>
+                    ) : (
+                      <span className="text-slate-300">Next</span>
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 
@@ -200,6 +275,14 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
           <div className="lg:col-span-2 space-y-4">
             {detail ? (
               <UserDetail detail={detail} />
+            ) : selectedId ? (
+              <Card>
+                <CardContent className="p-10 text-sm text-slate-500">
+                  No dashboard profile for this person yet — there is no matching{" "}
+                  <code className="font-mono text-slate-700">User</code> row (by Prisma id or
+                  email). They may need an Azure AD reconciler pass or roster import.
+                </CardContent>
+              </Card>
             ) : (
               <Card>
                 <CardContent className="p-10 text-sm text-slate-500">
