@@ -70,8 +70,10 @@ const debug = process.env.AUTH_DEBUG === "true";
  *   2 — v0.3 shape: { role, roleKey, permissions, roleSource, disabled }.
  *   3 — built-in roles take permissions from code catalogue (getBuiltInRole)
  *       so new keys ship without a DB seed on every deploy.
+ *   4 — legacy users without dashboardRoleId now resolve USER permissions
+ *       via the same catalogue path (fixes stale/missing dashboard.view_*).
  */
-const TOKEN_SCHEMA_VERSION = 3;
+const TOKEN_SCHEMA_VERSION = 4;
 
 /** Built-in roles always use the code catalogue; custom roles use DB. */
 function effectiveDashboardPermissions(role: {
@@ -156,11 +158,16 @@ async function resolveRoleForSignIn(
       };
     }
     // Existing user with no role assigned (legacy seed). Treat as USER.
+    // Must use effectiveDashboardPermissions — not raw Role.permissions —
+    // so built-in USER picks up new catalogue keys (e.g. dashboard.view_analytics).
     const userRole = await prisma.role.findUnique({ where: { key: "USER" } });
+    const builtInUser = getBuiltInRole("USER");
     return {
       role: "USER",
       roleKey: "USER",
-      permissions: userRole?.permissions ?? [],
+      permissions: userRole
+        ? effectiveDashboardPermissions(userRole)
+        : [...(builtInUser?.permissions ?? [])],
       source: { kind: "default" },
       disabled: false,
     };
