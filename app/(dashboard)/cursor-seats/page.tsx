@@ -154,7 +154,10 @@ export default async function CursorSeatsPage() {
                   shape below is WDTS&apos;s allocation plan that fits inside the
                   envelope (~$41,400/mo cap-sum). Hover a cell for the holder + idle
                   days; empty cells are unallocated / reclaimable per §4.6.4. Source:{" "}
-                  <code className="font-mono">getCursorClient().listSeats()</code>.
+                  <code className="font-mono">getCursorClient().listSeats()</code>{" "}
+                  (Prisma <code className="font-mono">License</code> rows, product{" "}
+                  <code className="font-mono">CURSOR</code>, in both synthetic and real
+                  integration modes).
                 </CardDescription>
               </div>
               <div className="flex items-center gap-3 text-xs">

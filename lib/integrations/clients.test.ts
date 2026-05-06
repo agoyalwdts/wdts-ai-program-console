@@ -88,7 +88,7 @@ describe("real-mode gateway mirrors Postgres UsageRecord", () => {
 });
 
 describe("real-mode clients throw NotImplementedError", () => {
-  it("cursor/real falls back to synthetic when SCIM URL or token is missing", async () => {
+  it("cursor/real uses Prisma licenses for listSeats (no SCIM gate)", async () => {
     const c = getCursorClient({ INTEGRATION_CURSOR: "real" });
     const seats = await c.listSeats();
     expect(Array.isArray(seats)).toBe(true);

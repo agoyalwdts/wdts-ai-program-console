@@ -30,6 +30,7 @@ import { prisma } from "@/lib/prisma";
 import { formatPct, formatUsd, initials } from "@/lib/utils";
 import { PRODUCTS, type ProductKey } from "@/lib/program";
 import { getGatewayClient } from "@/lib/integrations";
+import { requireUser } from "@/lib/auth";
 import { ChevronRight, AlertTriangle, Users as UsersIcon } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -144,6 +145,7 @@ function idleBadge(days: number | null) {
 }
 
 export default async function ManagersPage(props: { searchParams: Promise<SP> }) {
+  await requireUser();
   const sp = await props.searchParams;
   const managers = await getManagerSummaries();
   const selectedId = sp.manager || managers[0]?.id;
@@ -163,7 +165,10 @@ export default async function ManagersPage(props: { searchParams: Promise<SP> })
               <CardTitle>Managers</CardTitle>
               <CardDescription>
                 {managers.length} manager{managers.length === 1 ? "" : "s"} with at
-                least one direct report. Counts surface reports {">"}={" "}
+                least one direct report. Who counts as a manager comes from the
+                dashboard <code className="font-mono">User.managerId</code> graph
+                (filled by the Microsoft Entra reconciler), not from Deel. Counts
+                surface reports {">"}={" "}
                 {Math.round(OVER_CAP_THRESHOLD * 100)}% of any product cap, idle ≥{" "}
                 {IDLE_THRESHOLD_DAYS}d, or with a recent reclamation /
                 exception / demotion in the decision log.

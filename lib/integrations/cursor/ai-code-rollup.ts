@@ -66,7 +66,9 @@ export type AiCodeRollup = {
 };
 
 const MAX_DEFAULT_PAGES = 25;
-const DEFAULT_PAGE_SIZE = 1000;
+/** Cursor rejects pageSize above 500 on GET /analytics/ai-code/commits. */
+const AI_CODE_COMMITS_MAX_PAGE_SIZE = 500;
+const DEFAULT_PAGE_SIZE = 500;
 
 function utcYmdFromIso(ts: string | null | undefined): string | null {
   if (!ts?.trim()) return null;
@@ -99,7 +101,10 @@ export async function fetchAllAiCodeCommitsForWindow(args: {
   maxPages?: number;
   pageSize?: number;
 }): Promise<AiCodeCommitItem[]> {
-  const pageSize = Math.min(Math.max(args.pageSize ?? DEFAULT_PAGE_SIZE, 1), 1000);
+  const pageSize = Math.min(
+    Math.max(args.pageSize ?? DEFAULT_PAGE_SIZE, 1),
+    AI_CODE_COMMITS_MAX_PAGE_SIZE,
+  );
   const maxPages = Math.max(1, Math.min(args.maxPages ?? MAX_DEFAULT_PAGES, 100));
   const out: AiCodeCommitItem[] = [];
 

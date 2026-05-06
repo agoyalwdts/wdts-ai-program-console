@@ -10,7 +10,10 @@ import { analyticsWindowToEpochMs } from "@/lib/cursor-analytics-dates";
 import { IntegrationError } from "../errors";
 import { getIntegrationMode, type IntegrationEnv } from "../env";
 import { cursorTeamGetJson, cursorTeamPostJson } from "./cursor-team-http";
-import { resolveCursorTeamAdminApiKey } from "./team-admin-usage";
+import {
+  resolveCursorCloudAgentsApiKey,
+  resolveCursorTeamAdminApiKey,
+} from "./team-admin-usage";
 import type { Fetch } from "../_http";
 import {
   fetchAllAiCodeCommitsForWindow,
@@ -218,6 +221,7 @@ export async function loadCursorApiOverview(
   const fetchImpl = opts.fetchImpl;
   const window = opts.analyticsWindow ?? { startDate: "30d", endDate: "today" };
   const apiKey = resolveCursorTeamAdminApiKey(env);
+  const cloudAgentsApiKey = resolveCursorCloudAgentsApiKey(env);
   const mode = getIntegrationMode("cursor", env);
   const usersFilter = parseUsersFilter(env);
 
@@ -303,8 +307,18 @@ export async function loadCursorApiOverview(
         delete q.startDate;
         delete q.endDate;
       }
+      const isCloudAgentsPath = panel.path.startsWith("/v1/");
+      if (isCloudAgentsPath && !cloudAgentsApiKey) {
+        return [
+          panel.key,
+          skipped(
+            "Cloud Agents API needs CURSOR_CLOUD_AGENTS_API_KEY (or CURSOR_INTEGRATIONS_API_KEY) from Dashboard → Integrations. Admin API keys return 401 on /v1/*.",
+          ),
+        ] as const;
+      }
+      const keyForRequest = isCloudAgentsPath ? cloudAgentsApiKey! : apiKey;
       const slice = await mapErr(() =>
-        cursorTeamGetJson({ path: panel.path, query: q, apiKey, fetchImpl }),
+        cursorTeamGetJson({ path: panel.path, query: q, apiKey: keyForRequest, fetchImpl }),
       );
       return [panel.key, slice] as const;
     }),
