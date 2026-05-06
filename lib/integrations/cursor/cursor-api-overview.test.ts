@@ -44,6 +44,30 @@ describe("loadCursorApiOverview", () => {
     expect(out.aiCodeRollup.status).toBe("skipped");
   });
 
+  it("skips Cloud Agents panels without CURSOR_CLOUD_AGENTS_API_KEY", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const out = await loadCursorApiOverview({
+      env: {
+        INTEGRATION_CURSOR: "real",
+        CURSOR_TEAM_ADMIN_API_KEY: "crsr_x",
+        CURSOR_CLOUD_AGENTS_API_KEY: "",
+        CURSOR_INTEGRATIONS_API_KEY: "",
+      },
+      fetchImpl,
+    });
+
+    expect(out.slices.cloudMe?.status).toBe("skipped");
+    expect(out.slices.cloudAgents?.status).toBe("skipped");
+    const cloudCalls = vi.mocked(fetchImpl).mock.calls.filter(([u]) => String(u).includes("/v1/"));
+    expect(cloudCalls.length).toBe(0);
+  });
+
   it("fetches each panel when real + key (mocked)", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const u = String(input);
@@ -76,6 +100,8 @@ describe("loadCursorApiOverview", () => {
       env: {
         INTEGRATION_CURSOR: "real",
         CURSOR_TEAM_ADMIN_API_KEY: "crsr_x",
+        /** /v1/* panels 401 with Admin keys only — Integrations key is separate. */
+        CURSOR_CLOUD_AGENTS_API_KEY: "crsr_cloud_integrations",
       },
       fetchImpl,
     });

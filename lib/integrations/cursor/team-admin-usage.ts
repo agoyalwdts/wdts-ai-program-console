@@ -86,6 +86,18 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
+/**
+ * Cloud Agents API v1 (`/v1/me`, `/v1/agents`, …) requires a key from Dashboard → Integrations
+ * (or a service account key). Admin / SCIM tokens return 401 on these paths.
+ */
+export function resolveCursorCloudAgentsApiKey(
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  const k =
+    env.CURSOR_CLOUD_AGENTS_API_KEY?.trim() || env.CURSOR_INTEGRATIONS_API_KEY?.trim();
+  return k || null;
+}
+
 export function resolveCursorTeamAdminApiKey(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
