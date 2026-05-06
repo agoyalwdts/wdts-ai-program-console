@@ -11,7 +11,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { requirePermission, getCurrentUser, userHasPermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { formatUsd } from "@/lib/utils";
-import { COMBINED_CHATGPT_CODEX_CAP_MONTH } from "@/lib/program";
+import { OPENAI_COMBINED_MONTHLY_PLANNING_USD } from "@/lib/program";
 import {
   fetchCodexEnterpriseWorkspaceUsageRows,
   getAllIntegrationModes,
@@ -362,7 +362,8 @@ export default async function SettingsPage() {
                     (scoped <code className="font-mono text-xs">codex.enterprise.analytics.read</code>
                     ). Upserts daily CODEX buckets into <code className="font-mono text-xs">VendorDailySpend</code>
                     . Optional <code className="font-mono text-xs">OPENAI_CODEX_ANALYTICS_USD_PER_CREDIT</code>{" "}
-                    (default 0.04). Schedule{" "}
+                    (default follows <code className="font-mono text-xs">OPENAI_CREDIT_OVERAGE_USD</code> in{" "}
+                    <code className="font-mono text-xs">lib/program.ts</code>). Schedule{" "}
                     <code className="font-mono text-xs">POST /api/cron/sync-codex-enterprise-spend</code>{" "}
                     or run below.
                   </CardDescription>
@@ -501,9 +502,9 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-slate-700">
             <Row
-              k="ChatGPT + Codex monthly cap"
-              v={formatUsd(COMBINED_CHATGPT_CODEX_CAP_MONTH)}
-              note="Policy: entitled seats × $500/mo planning line (lib/program.ts)"
+              k="ChatGPT + Codex monthly planning"
+              v={formatUsd(OPENAI_COMBINED_MONTHLY_PLANNING_USD)}
+              note="314 × $35/mo pool license + ~200k overage credits × $0.07 (lib/program.ts)"
             />
             <Row
               k="Cursor commitment"
