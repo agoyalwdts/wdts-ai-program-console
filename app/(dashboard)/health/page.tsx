@@ -238,10 +238,13 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const openAiOverageUsdPeriod = Math.max(0, combinedUsd - openAiBaselineUsdPeriod);
   const spendLabel = f1PeriodSpendLabel(period);
   const programPlanningPeriodUsd = PROGRAM_MONTHLY_PLANNING_USD_TOTAL * m;
-  const observedProgramPeriodUsd = PRODUCTS.reduce(
-    (acc, { key }) => acc + (data.mtdMap.get(key) ?? 0),
-    0,
-  );
+  /** Copilot is EA prepaid — economic outlay follows commit, not gateway “usage USD”. */
+  const observedProgramPeriodUsd = PRODUCTS.reduce((acc, { key }) => {
+    if (key === "M365_COPILOT") {
+      return acc + MONTHLY_BUDGET_USD.M365_COPILOT * m;
+    }
+    return acc + (data.mtdMap.get(key) ?? 0);
+  }, 0);
 
   return (
     <>
@@ -469,8 +472,9 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           </CardContent>
           <CardContent className="pt-0 border-t border-slate-200/80">
             <p className="text-xs text-slate-600">
-              <span className="font-medium text-slate-700">Observed spend</span> this period (all
-              products, gateway / vendor):{" "}
+              <span className="font-medium text-slate-700">Period outlay (est.)</span> — Cursor,
+              OpenAI, Claude from gateway or vendor; M365 Copilot at EA monthly commit (prepaid, not
+              usage-metered in the mirror).{" "}
               <span className="font-mono tabular-nums text-slate-900">
                 {formatUsd(observedProgramPeriodUsd, { decimals: 0 })}
               </span>{" "}
@@ -485,6 +489,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
             const mtd = data.mtdMap.get(key) ?? 0;
             const budgetMonthly = MONTHLY_BUDGET_USD[key as ProductKey];
             const budgetPeriod = budgetMonthly * m;
+            const isPrepaidCopilotTile = key === "M365_COPILOT";
             const isOpenAiProduct = key === "CHATGPT" || key === "CODEX";
             const mtdDisplay = isOpenAiProduct
               ? key === "CHATGPT"
@@ -508,12 +513,16 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                     <Badge variant="outline">{key}</Badge>
                   </div>
                   <div className="text-2xl font-semibold text-slate-900 mt-1">
-                    {isOpenAiProduct ? formatCredits(mtdDisplay) : formatUsd(mtd)}
+                    {isOpenAiProduct
+                      ? formatCredits(mtdDisplay)
+                      : formatUsd(isPrepaidCopilotTile ? budgetPeriod : mtd)}
                   </div>
                   <div className="text-xs text-slate-500">
                     {isOpenAiProduct
                       ? `of ${formatCredits(budgetDisplay)} planning credits · ${spendLabel}`
-                      : `of ${formatUsd(budgetPeriod)} · ${spendLabel}`}
+                      : isPrepaidCopilotTile
+                        ? `Committed (prepaid) · ${spendLabel}`
+                        : `of ${formatUsd(budgetPeriod)} · ${spendLabel}`}
                   </div>
                   {isOpenAiProduct ? (
                     <p className="text-[11px] text-slate-500 mt-1">
@@ -556,19 +565,33 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   ) : null}
                   {key === "M365_COPILOT" ? (
                     <p className="text-[11px] text-slate-500 mt-1">
-                      Prepaid seats ({M365_COPILOT_LICENSES_ENTITLED} ×{" "}
-                      {formatUsd(M365_COPILOT_USD_PER_LICENSE_YEAR, { decimals: 2 })}/yr); bar
-                      compares gateway-reported activity to a level monthly commit, not marginal
-                      per-call cost.
+                      {M365_COPILOT_LICENSES_ENTITLED.toLocaleString()} EA seats ×{" "}
+                      {formatUsd(M365_COPILOT_USD_PER_LICENSE_YEAR, { decimals: 2 })}/yr — you owe
+                      the level monthly charge regardless of usage. The gateway usage mirror often
+                      stays at $0 because Copilot is prepaid, not metered as incremental API spend.
                     </p>
                   ) : null}
                 </CardHeader>
                 <CardContent>
-                  <BudgetBar
-                    spend={mtdDisplay}
-                    budget={budgetDisplay}
-                    unit={isOpenAiProduct ? "credits" : "usd"}
-                  />
+                  {isPrepaidCopilotTile ? (
+                    <div className="space-y-1.5">
+                      <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div className="h-full w-full rounded-full bg-sky-600" />
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-slate-500">
+                        <span>Prepaid for this period</span>
+                        <span className="font-mono tabular-nums text-slate-700">
+                          {formatUsd(budgetPeriod, { decimals: 0 })}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <BudgetBar
+                      spend={mtdDisplay}
+                      budget={budgetDisplay}
+                      unit={isOpenAiProduct ? "credits" : "usd"}
+                    />
+                  )}
                 </CardContent>
               </Card>
             );
