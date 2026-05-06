@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma";
 import { PRODUCTS, type ProductKey } from "@/lib/program";
 import { formatUsd, initials } from "@/lib/utils";
 import { getGatewayClient } from "@/lib/integrations";
+import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -109,9 +110,28 @@ async function getChargeback(spec: string | undefined) {
     budgetByUser.set(l.userId, m);
   }
 
-  // Build team buckets keyed by manager (or "no-manager" for top-level users).
+  // Build team buckets keyed by manager (or "no-manager" when managerId is unset).
   const teams = new Map<string, Team>();
-  function getTeam(u: (typeof users)[number]): Team {
+  function getOrCreateNoManagerTeam(): Team {
+    let team = teams.get("no-manager");
+    if (!team) {
+      team = {
+        key: "no-manager",
+        managerId: null,
+        managerName: "Unmanaged / top-level",
+        managerEmail: null,
+        members: [],
+        totalSpend: 0,
+        totalBudget: 0,
+        spendByProduct: emptyProductMap(),
+        budgetByProduct: emptyProductMap(),
+      };
+      teams.set("no-manager", team);
+    }
+    return team;
+  }
+
+  function teamForUser(u: (typeof users)[number]): Team {
     if (u.manager) {
       const key = `manager:${u.manager.id}`;
       let team = teams.get(key);
@@ -131,27 +151,11 @@ async function getChargeback(spec: string | undefined) {
       }
       return team;
     }
-    let team = teams.get("no-manager");
-    if (!team) {
-      team = {
-        key: "no-manager",
-        managerId: null,
-        managerName: "Unmanaged / top-level",
-        managerEmail: null,
-        members: [],
-        totalSpend: 0,
-        totalBudget: 0,
-        spendByProduct: emptyProductMap(),
-        budgetByProduct: emptyProductMap(),
-      };
-      teams.set("no-manager", team);
-    }
-    return team;
+    return getOrCreateNoManagerTeam();
   }
 
   for (const u of users) {
-    if (u.managerId == null) continue; // managers themselves form their own row only as a destination.
-    const team = getTeam(u);
+    const team = teamForUser(u);
     const spend = spendByUser.get(u.id) ?? emptyProductMap();
     const budget = budgetByUser.get(u.id) ?? emptyProductMap();
     let totalSpend = 0;
@@ -197,6 +201,7 @@ async function getChargeback(spec: string | undefined) {
 }
 
 export default async function ChargebackPage(props: { searchParams: Promise<SP> }) {
+  await requireUser();
   const sp = await props.searchParams;
   const data = await getChargeback(sp.month);
 

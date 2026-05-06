@@ -12,6 +12,7 @@ import { CODEX_TIERS } from "@/lib/program";
 import { cn, formatUsd } from "@/lib/utils";
 import { getOpenAIClient } from "@/lib/integrations";
 import type { CodexSeat, CodexSubTier } from "@/lib/integrations/openai";
+import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,7 @@ async function getLadder() {
 }
 
 export default async function CodexLadderPage() {
+  await requireUser();
   const data = await getLadder();
   const total = data.all.length;
   const totalSpend = data.all.reduce((s, x) => s + x.mtdSpendUsd, 0);
@@ -89,7 +91,11 @@ export default async function CodexLadderPage() {
       <div className="p-6 space-y-6">
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Total Codex seats" value={total} sub="from getOpenAIClient().listCodexSeats()" />
+          <StatCard
+            label="Total Codex seats"
+            value={total}
+            sub="getOpenAIClient().listCodexSeats() → Prisma License (CODEX)"
+          />
           <StatCard label="Aggregate MTD" value={formatUsd(totalSpend, { decimals: 0 })} sub={`of ${formatUsd(totalCap, { decimals: 0 })} cap`} />
           <StatCard label="Promotion candidates" value={data.promotionCandidates.length} sub="Discovery ≥ 50% cap" tone="emerald" />
           <StatCard label="Demotion candidates" value={data.demotionCandidates.length} sub="Power/Standard/Light < 10% cap" tone="amber" />

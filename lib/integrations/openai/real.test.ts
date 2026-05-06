@@ -1,7 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { CHATGPT_CAP_USD_MONTH, CODEX_TIERS } from "@/lib/program";
+import { CHATGPT_CAP_USD_MONTH } from "@/lib/program";
 import { IntegrationError } from "../errors";
 import { makeRealOpenAIClient } from "./real";
+const mockCodexFromPrisma = vi.fn();
+
+vi.mock("./prisma-codex-seats", () => ({
+  listCodexSeatsFromPrisma: () => mockCodexFromPrisma(),
+}));
 
 type Recorded = { url: string; method: string; headers: Record<string, string> };
 
@@ -33,6 +38,7 @@ const ENV = {
 
 describe("makeRealOpenAIClient", () => {
   beforeEach(() => {
+    mockCodexFromPrisma.mockReset();
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
       throw new Error("real fetch invoked — test forgot to inject fetchImpl");
     });
@@ -93,27 +99,23 @@ describe("makeRealOpenAIClient", () => {
     expect(calls[0].headers["openai-organization"]).toBe("org-test");
   });
 
-  it("listCodexSeats returns DISCOVERY-tier defaults flagged for policy-repo join", async () => {
-    const { fetchImpl } = makeMockFetch(() => ({
-      status: 200,
-      body: {
-        data: [
-          { object: "organization.user", id: "u_1", email: "a@w.com", name: "A", role: "reader" },
-        ],
-        has_more: false,
+  it("listCodexSeats reads Prisma CODEX licenses (no Admin API round-trip)", async () => {
+    mockCodexFromPrisma.mockResolvedValue([
+      {
+        userId: "uuid-1",
+        email: "a@w.com",
+        displayName: "A",
+        subTier: "STANDARD",
+        capUsdMonth: 100,
+        mtdSpendUsd: 12,
+        lastActivityTs: null,
+        idleDays: 3,
       },
-    }));
-    const seats = await makeRealOpenAIClient({ fetchImpl, env: ENV }).listCodexSeats();
+    ]);
+    const seats = await makeRealOpenAIClient({ env: ENV }).listCodexSeats();
     expect(seats).toHaveLength(1);
-    expect(seats[0]).toMatchObject({
-      userId: "u_1",
-      email: "a@w.com",
-      subTier: "DISCOVERY",
-      capUsdMonth: CODEX_TIERS.DISCOVERY.capUsdMonth,
-      mtdSpendUsd: 0,
-      lastActivityTs: null,
-      idleDays: null,
-    });
+    expect(seats[0]?.subTier).toBe("STANDARD");
+    expect(mockCodexFromPrisma).toHaveBeenCalledTimes(1);
   });
 
   it("throws IntegrationError when env vars are missing", async () => {

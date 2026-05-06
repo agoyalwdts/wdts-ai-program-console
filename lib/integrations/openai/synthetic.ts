@@ -1,20 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import type { ChatGptSeat, CodexSeat, CodexSubTier, OpenAIClient } from "./types";
-
-function asCodexSubTier(s: string): CodexSubTier {
-  switch (s) {
-    case "codex_power":
-      return "POWER";
-    case "codex_standard":
-      return "STANDARD";
-    case "codex_light":
-      return "LIGHT";
-    case "codex_discovery":
-      return "DISCOVERY";
-    default:
-      throw new Error(`Unknown Codex sub-tier from DB: ${s}`);
-  }
-}
+import { listCodexSeatsFromPrisma } from "./prisma-codex-seats";
+import type { ChatGptSeat, OpenAIClient } from "./types";
 
 async function mtdAndLastActivityByUser(product: "CHATGPT" | "CODEX") {
   const now = new Date();
@@ -54,30 +40,7 @@ export const syntheticOpenAIClient: OpenAIClient = {
     }));
   },
 
-  async listCodexSeats(): Promise<CodexSeat[]> {
-    const [ls, { mtdMap, lastSeenMap }] = await Promise.all([
-      prisma.license.findMany({ where: { product: "CODEX" }, include: { user: true } }),
-      mtdAndLastActivityByUser("CODEX"),
-    ]);
-    const now = new Date();
-    return ls.map((l) => {
-      const last = lastSeenMap.get(l.userId) ?? null;
-      const idleDays = last
-        ? Math.max(
-            0,
-            Math.floor((now.getTime() - new Date(last).getTime()) / (24 * 60 * 60 * 1000)),
-          )
-        : null;
-      return {
-        userId: l.userId,
-        email: l.user.email,
-        displayName: l.user.displayName,
-        subTier: asCodexSubTier(l.subTier),
-        capUsdMonth: l.capUsdMonth ?? 0,
-        mtdSpendUsd: mtdMap.get(l.userId) ?? 0,
-        lastActivityTs: last,
-        idleDays,
-      };
-    });
+  async listCodexSeats() {
+    return listCodexSeatsFromPrisma();
   },
 };
