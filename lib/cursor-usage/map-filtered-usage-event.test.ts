@@ -12,7 +12,8 @@ describe("mapFilteredUsageEventToParsedRow", () => {
       kind: "Usage-based",
       maxMode: true,
       isTokenBasedCall: true,
-      chargedCents: 14.79,
+      /** $14.79 — field is cents per Admin API */
+      chargedCents: 1479,
       tokenUsage: {
         inputTokens: 167_907,
         outputTokens: 13_340,

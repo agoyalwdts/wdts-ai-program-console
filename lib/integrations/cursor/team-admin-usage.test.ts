@@ -26,31 +26,30 @@ describe("resolveCursorTeamAdminApiKey", () => {
 });
 
 describe("cursorChargedFieldToUsd", () => {
-  it("treats integers as cents", () => {
+  it("converts API cents (integer) to USD", () => {
     expect(cursorChargedFieldToUsd(100)).toBe(1);
     expect(cursorChargedFieldToUsd(2136)).toBeCloseTo(21.36);
+    expect(cursorChargedFieldToUsd(8)).toBeCloseTo(0.08);
   });
 
-  it("treats non-integers as USD (doc sample shape)", () => {
-    expect(cursorChargedFieldToUsd(21.36232)).toBeCloseTo(21.36232);
+  it("converts fractional cents per Admin API examples (not dollars)", () => {
+    expect(cursorChargedFieldToUsd(21.36232)).toBeCloseTo(0.2136232, 8);
+    expect(cursorChargedFieldToUsd(37.33)).toBeCloseTo(0.3733, 8);
   });
 
-  it("snaps large near-integer cent floats (IEEE noise) to cents, not USD", () => {
+  it("handles large cent totals and float noise via single ÷100", () => {
     expect(cursorChargedFieldToUsd(522206.99999999994)).toBeCloseTo(5222.07, 2);
     expect(cursorChargedFieldToUsd(511257.99999999994)).toBeCloseTo(5112.58, 2);
-  });
-
-  it("snaps jumbo cent floats with >1e-4 deviation (serialization) to cents", () => {
     expect(cursorChargedFieldToUsd(522206.49)).toBeCloseTo(5222.06, 2);
     expect(cursorChargedFieldToUsd(517026.33)).toBeCloseTo(5170.26, 2);
   });
 
-  it("snaps sub-100 near-integer cent floats (IEEE noise) — avoids ~100× inflation per event", () => {
+  it("handles sub-integer cent noise", () => {
     expect(cursorChargedFieldToUsd(49.99999999999994)).toBeCloseTo(0.5, 8);
     expect(cursorChargedFieldToUsd(21.000000000000004)).toBeCloseTo(0.21, 8);
   });
 
-  it("coerces numeric strings from JSON to cents", () => {
+  it("coerces numeric strings from JSON", () => {
     expect(cursorChargedFieldToUsd("2136")).toBeCloseTo(21.36, 8);
   });
 });
