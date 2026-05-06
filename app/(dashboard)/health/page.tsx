@@ -32,7 +32,7 @@ import {
   type ProductKey,
 } from "@/lib/program";
 import { formatUsd } from "@/lib/utils";
-import { getAzureADClient, getDeelClient, getGatewayClient } from "@/lib/integrations";
+import { getDeelClient, getGatewayClient } from "@/lib/integrations";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { loadCursorVendorSpendForF1, mergeCursorVendorIntoF1 } from "@/lib/f1-cursor-vendor";
@@ -88,14 +88,12 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
     | "manual_export";
 }> {
   const gateway = getGatewayClient();
-  const azuread = getAzureADClient();
   const deel = getDeelClient();
 
   const [
     programAgg,
     dailyAgg,
     topRaw,
-    identityAll,
     deelAll,
     vendorCursor,
     vendorManualExport,
@@ -105,7 +103,6 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
     gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
     gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
     gateway.topSpenders({ periodStart: plan.periodStart, periodEnd: plan.periodEnd, limit: 10 }),
-    azuread.listUsers(),
     deel.listEmployees(),
     loadCursorVendorSpendForF1(prisma, {
       periodStart: plan.periodStart,
@@ -184,19 +181,27 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   if (vendorOpenAi.codex.usedVendor) codexSpendSource = "openai_org_costs";
   if (vendorCodexEnterprise.usedVendor) codexSpendSource = "codex_enterprise_analytics";
 
-  const identityById = new Map(identityAll.map((u) => [u.azureObjectId, u]));
   const deelByEmail = new Map(deelAll.map((d) => [d.email, d]));
+  const topUserIds = topRaw.map((r) => r.userId);
+  const topUsers =
+    topUserIds.length === 0
+      ? []
+      : await prisma.user.findMany({
+          where: { id: { in: topUserIds } },
+          select: { id: true, displayName: true, email: true, roleTag: true, region: true },
+        });
+  const userById = new Map(topUsers.map((u) => [u.id, u]));
   const top = topRaw
     .map((r) => {
-      const id = identityById.get(r.userId);
-      const hr = id ? deelByEmail.get(id.email) : undefined;
-      if (!id) return null;
+      const u = userById.get(r.userId);
+      if (!u) return null;
+      const hr = deelByEmail.get(u.email);
       return {
         id: r.userId,
-        displayName: id.displayName,
-        email: id.email,
-        roleTag: hr?.roleTag ?? "—",
-        region: hr?.region ?? "—",
+        displayName: u.displayName,
+        email: u.email,
+        roleTag: hr?.roleTag ?? u.roleTag ?? "—",
+        region: hr?.region ?? u.region ?? "—",
         total: r.totalUsd,
       };
     })

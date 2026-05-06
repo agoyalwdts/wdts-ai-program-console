@@ -19,29 +19,18 @@
  *     `mtdSpendUsd` set to 0 (per-seat spend is not on this Admin endpoint;
  *     F1 totals for ChatGPT/Codex can use `VendorDailySpend` from the
  *     organization costs sync — see `lib/vendor-spend/sync-openai-vendor-daily.ts`).
- *   - `listCodexSeats()` does the same but assigns the lowest tier
- *     ("DISCOVERY") as a deliberate TODO marker — WDTS's
- *     user-id → sub-tier mapping comes from the policy repo, not the
- *     OpenAI API. A future integration step joins the policy state in.
- *
- * This is intentional: the v0.3 real client honours the strategic
- * posture (vendor APIs are read-only / authoritative for membership;
- * the policy repo is authoritative for entitlement). A future PR
- * lands the policy-repo read path that lets these methods return
- * true sub-tier state.
+ *   - `listCodexSeats()` reads Prisma `License` rows (product CODEX) plus
+ *     usage aggregates — same shape as the synthetic client — so F9 matches
+ *     dashboard program state (tiers from policy / seed), not org membership alone.
  *
  * Refs: scoping §4 integration #5; §4.6.2 Codex tiers; AGENTS.md §3.
  */
 
 import { paginate, type Fetch } from "../_http";
 import { IntegrationError } from "../errors";
-import { CHATGPT_CAP_USD_MONTH, CODEX_TIERS } from "@/lib/program";
-import type {
-  ChatGptSeat,
-  CodexSeat,
-  CodexSubTier,
-  OpenAIClient,
-} from "./types";
+import { CHATGPT_CAP_USD_MONTH } from "@/lib/program";
+import { listCodexSeatsFromPrisma } from "./prisma-codex-seats";
+import type { ChatGptSeat, OpenAIClient } from "./types";
 
 const API_BASE = "https://api.openai.com/v1";
 
@@ -105,9 +94,6 @@ async function listOrgUsers(env: Env, fetchImpl?: Fetch): Promise<OrgUser[]> {
 
 /** ChatGPT cap is a flat $/month per scoping §4.6.2. */
 const CHATGPT_DEFAULT_CAP = CHATGPT_CAP_USD_MONTH;
-/** Codex DISCOVERY cap — the lowest tier — used as a deliberate floor
- *  when the policy-repo join hasn't run yet (see TODO note above). */
-const CODEX_DEFAULT_CAP = CODEX_TIERS.DISCOVERY.capUsdMonth;
 
 /** Factory exported for tests; also wired as the default singleton. */
 export function makeRealOpenAIClient(opts?: {
@@ -129,24 +115,10 @@ export function makeRealOpenAIClient(opts?: {
       }));
     },
 
-    async listCodexSeats(): Promise<CodexSeat[]> {
-      const env = readEnv(opts?.env);
-      const users = await listOrgUsers(env, opts?.fetchImpl);
-      // TODO(v0.4): join policy-repo state to derive subTier per user.
-      // DISCOVERY as default makes "incorrect" cases visible — a
-      // POWER user mis-classified as DISCOVERY shows up immediately
-      // on F9, where DISCOVERY users are a minority.
-      const defaultTier: CodexSubTier = "DISCOVERY";
-      return users.map((u) => ({
-        userId: u.id,
-        email: u.email,
-        displayName: u.name ?? u.email,
-        subTier: defaultTier,
-        capUsdMonth: CODEX_DEFAULT_CAP,
-        mtdSpendUsd: 0,
-        lastActivityTs: null,
-        idleDays: null,
-      }));
+    async listCodexSeats() {
+      // F9 reads dashboard `License` (CODEX) + gateway usage — same as
+      // synthetic. Org Admin API membership is not a substitute for tier caps.
+      return listCodexSeatsFromPrisma();
     },
   };
 }
