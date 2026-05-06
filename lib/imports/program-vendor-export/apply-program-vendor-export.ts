@@ -12,6 +12,7 @@ import {
   MANUAL_CODEX_ADMIN_EXPORT_VENDOR_KEY,
 } from "./vendor-keys";
 import type { ProgramVendorExportKind } from "./kinds";
+import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
 
 export type ProgramVendorExportBundle = {
   chatgptUsers?: { filename: string; text: string };
@@ -56,7 +57,7 @@ export async function applyProgramVendorExportBundle(
       try {
         const parsed = parseChatgptUsersCsv(bundle.chatgptUsers.text);
         const nDays = inclusiveDayCountYmd(parsed.periodStart, parsed.periodEnd);
-        const perDay = parsed.totalCredits / nDays;
+        const perDayUsd = (parsed.totalCredits / nDays) * OPENAI_CREDIT_OVERAGE_USD;
         const { gte, lte } = rangeBounds(parsed.periodStart, parsed.periodEnd);
 
         await tx.vendorDailySpend.deleteMany({
@@ -72,7 +73,7 @@ export async function applyProgramVendorExportBundle(
             vendor: MANUAL_CHATGPT_USERS_CSV_VENDOR_KEY,
             product: Product.CHATGPT,
             day: calendarDayAtNoonFromYmd(ymd),
-            spendUsd: perDay,
+            spendUsd: perDayUsd,
             eventCount: 0,
           }),
         );
@@ -126,7 +127,7 @@ export async function applyProgramVendorExportBundle(
           vendor: MANUAL_CODEX_ADMIN_EXPORT_VENDOR_KEY,
           product: Product.CODEX,
           day: calendarDayAtNoonFromYmd(d.date),
-          spendUsd: d.credits,
+          spendUsd: d.credits * OPENAI_CREDIT_OVERAGE_USD,
           eventCount: d.turns,
         }));
         await tx.vendorDailySpend.createMany({ data: spendRows });
@@ -172,7 +173,7 @@ export async function applyProgramVendorExportBundle(
             vendor: MANUAL_CODEX_ADMIN_EXPORT_VENDOR_KEY,
             product: Product.CODEX,
             day: calendarDayAtNoonFromYmd(ymd),
-            spendUsd: parsed.creditsByDate[ymd] ?? 0,
+            spendUsd: (parsed.creditsByDate[ymd] ?? 0) * OPENAI_CREDIT_OVERAGE_USD,
             eventCount: 0,
           }));
           await tx.vendorDailySpend.createMany({ data: spendRows });

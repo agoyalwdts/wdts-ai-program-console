@@ -50,44 +50,49 @@ export const OPENAI_CHATGPT_CODEX_ENTITLED_SEATS = 314;
 export const OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED = 304;
 
 /** OpenAI Enterprise (ChatGPT + Codex): credits per entitled user per month,
- *  pooled at the organization. Overage bills at {@link OPENAI_CREDIT_OVERAGE_USD}
- *  per credit under the WDTS contract. On F1, the **combined USD cap** uses the
- *  same numeric planning line: entitled × this value → $157K/mo at 314 × 500. */
+ *  pooled at the organization. */
 export const OPENAI_POOLED_CREDITS_PER_USER_MONTH = 500;
+
+/** Pooled monthly credits across entitled seats. */
+export const OPENAI_POOLED_CREDITS_MONTH =
+  OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * OPENAI_POOLED_CREDITS_PER_USER_MONTH;
+
+/** Typical additional monthly credits beyond pooled entitlement (planning average). */
+export const OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH = 200_000;
+
+/** Planning envelope in credits/month (pooled + average overage). */
+export const OPENAI_TARGET_CREDITS_MONTH =
+  OPENAI_POOLED_CREDITS_MONTH + OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH;
+
+/** USD charged per credit beyond the pooled monthly allocation. */
+export const OPENAI_CREDIT_OVERAGE_USD = 0.04;
 
 /** Combined ChatGPT+Codex **program envelope** on Program Health (USD/mo). */
 export const COMBINED_CHATGPT_CODEX_CAP_MONTH =
-  OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * OPENAI_POOLED_CREDITS_PER_USER_MONTH;
-
-/** ChatGPT portion of the combined F1 bar: entitled × ChatGPT cap-sum ($50/mo). */
-const CHATGPT_COMBINED_ENVELOPE_SLICE_USD_MONTH =
-  OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * CHATGPT_CAP_USD_MONTH;
+  OPENAI_TARGET_CREDITS_MONTH * OPENAI_CREDIT_OVERAGE_USD;
 
 /** Per-product monthly budgets the dashboard renders on F1.
  *
  *  - CURSOR is the §0 credit envelope ($500K/yr ÷ 12).
- *  - CHATGPT and CODEX split {@link COMBINED_CHATGPT_CODEX_CAP_MONTH}: ChatGPT
- *    carries the 314 × $50 cap-sum slice; Codex carries the remainder so the
- *    two tiles sum to the combined cap ($157K/mo at current policy).
+ *  - CHATGPT and CODEX share a pooled credit envelope. For per-product cards we
+ *    use a neutral 50/50 planning split to avoid overfitting unknown line-item
+ *    allocation while preserving a stable budget ratio for fallback allocations.
  *  - CLAUDE_AI and M365_COPILOT are the §0 placeholder envelopes ÷ 12. */
 export const MONTHLY_BUDGET_USD: Record<ProductKey, number> = {
   CURSOR: 41_667, // $500K / 12 (credit envelope, §4.6.1 — binding constraint is $, not seats)
-  CHATGPT: CHATGPT_COMBINED_ENVELOPE_SLICE_USD_MONTH,
-  CODEX: COMBINED_CHATGPT_CODEX_CAP_MONTH - CHATGPT_COMBINED_ENVELOPE_SLICE_USD_MONTH,
+  CHATGPT: COMBINED_CHATGPT_CODEX_CAP_MONTH / 2,
+  CODEX: COMBINED_CHATGPT_CODEX_CAP_MONTH / 2,
   CLAUDE_AI: 2_083, // ~$25K / 12 placeholder (§4.6.5)
   M365_COPILOT: 7_500, // ~$90K / 12 placeholder (§4.6.6, under review)
 };
 
 export const ANNUAL_BUDGET_USD: Record<ProductKey, number> = {
   CURSOR: 500_000,
-  CHATGPT: CHATGPT_COMBINED_ENVELOPE_SLICE_USD_MONTH * 12,
-  CODEX: (COMBINED_CHATGPT_CODEX_CAP_MONTH - CHATGPT_COMBINED_ENVELOPE_SLICE_USD_MONTH) * 12,
+  CHATGPT: (COMBINED_CHATGPT_CODEX_CAP_MONTH / 2) * 12,
+  CODEX: (COMBINED_CHATGPT_CODEX_CAP_MONTH / 2) * 12,
   CLAUDE_AI: 25_000,
   M365_COPILOT: 90_000,
 };
-
-/** USD charged per credit beyond the pooled monthly allocation. */
-export const OPENAI_CREDIT_OVERAGE_USD = 0.04;
 
 /** Rounded illustration for FinOps callouts (e.g. landing health page). */
 export const OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH = 350_000;
