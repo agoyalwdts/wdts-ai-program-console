@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { CURSOR_OVERVIEW_PANELS } from "@/lib/integrations/cursor/cursor-api-overview";
 import type { CursorApiOverview, CursorApiSlice } from "@/lib/integrations/cursor/cursor-api-overview";
+import { formatUsd } from "@/lib/utils";
 
 const PALETTE = ["#10b981", "#0ea5e9", "#8b5cf6", "#f59e0b", "#ec4899", "#64748b"];
 
@@ -144,9 +145,11 @@ function CursorAiCodeEnterpriseSection({ overview }: { overview: CursorApiOvervi
           <CardDescription>
             Built from{" "}
             <span className="font-mono text-[11px]">/analytics/ai-code/commits</span> (rolled up),
-            <span className="font-mono text-[11px]"> /analytics/team/leaderboard</span>, and model
-            message totals. Matches the Cursor admin “AI code” and leaderboard views where the API
-            exposes data.
+            <span className="font-mono text-[11px]"> /analytics/team/leaderboard</span>, conversation
+            insights, by-user models (optional{" "}
+            <span className="font-mono text-[11px]">CURSOR_ANALYTICS_USERS_FILTER</span>), plus Admin
+            POST <span className="font-mono text-[11px]">/teams/daily-usage-data</span> and{" "}
+            <span className="font-mono text-[11px]">/teams/spend</span> (vendor limits vs policy).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -515,6 +518,69 @@ function PanelBody({ panelKey, slice }: { panelKey: string; slice: CursorApiSlic
     );
   }
 
+  if (panelKey === "analyticsConversationInsights") {
+    const root = slice.data;
+    if (!isObj(root) || !isObj(root.data)) return <GenericTable rows={rows} />;
+    const intentsBlock = isObj(root.data.intents) ? root.data.intents : {};
+    const dist = Array.isArray(intentsBlock.distribution)
+      ? (intentsBlock.distribution as Row[])
+      : [];
+    const chartData = dist
+      .map((x) => ({
+        name: String(x.intent ?? x.label ?? "").slice(0, 28),
+        count: Number(x.count ?? 0) || 0,
+      }))
+      .filter((x) => x.name.length > 0);
+    if (chartData.length === 0) return <GenericTable rows={rows} />;
+    return (
+      <div className="h-[220px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-25} height={70} />
+            <YAxis tick={{ fontSize: 10 }} />
+            <Tooltip />
+            <Bar dataKey="count" name="Conversations" fill={PALETTE[2]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  if (panelKey === "analyticsByUserModels") {
+    const root = slice.data;
+    if (!isObj(root) || !isObj(root.data)) return <GenericTable rows={rows} />;
+    const dataObj = root.data as Record<string, unknown>;
+    const emails = Object.keys(dataObj).filter((k) => Array.isArray(dataObj[k]));
+    const tableRows = emails.slice(0, 25).map((email) => {
+      const arr = dataObj[email] as Row[];
+      return { email, periods: arr.length };
+    });
+    if (tableRows.length === 0) return <GenericTable rows={rows} />;
+    return (
+      <div className="max-h-64 overflow-auto rounded-md border border-slate-200">
+        <Table>
+          <THead>
+            <TR>
+              <TH className="pl-2">User</TH>
+              <TH className="pr-2 text-right">Metric rows</TH>
+            </TR>
+          </THead>
+          <TBody>
+            {tableRows.map((r) => (
+              <TR key={r.email}>
+                <TD className="pl-2 text-xs font-mono truncate max-w-[220px]" title={r.email}>
+                  {r.email}
+                </TD>
+                <TD className="pr-2 text-right text-xs tabular-nums">{r.periods}</TD>
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+      </div>
+    );
+  }
+
   if (panelKey === "analyticsTopExtensions") {
     const data = rows
       .map((r) => ({
@@ -542,10 +608,101 @@ function PanelBody({ panelKey, slice }: { panelKey: string; slice: CursorApiSlic
   return <GenericTable rows={rows} />;
 }
 
+function CursorAdminApiSection({ overview }: { overview: CursorApiOverview }) {
+  const daily = overview.slices.adminDailyUsage;
+  const spend = overview.slices.adminTeamSpend;
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card className="border-slate-200">
+        <CardHeader className="pb-2">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <CardTitle className="text-base">Daily usage (Admin API)</CardTitle>
+              <CardDescription className="text-xs mt-1">
+                POST <span className="font-mono">/teams/daily-usage-data</span> — hourly aggregates;
+                Cursor recommends polling ≤ once per hour. Range clamped to 30 days.
+              </CardDescription>
+            </div>
+            <SliceBadge slice={daily} />
+          </div>
+        </CardHeader>
+        <CardContent className="text-xs text-slate-600">
+          {!daily || daily.status !== "ok" ? (
+            <PanelBody panelKey="__adminDaily" slice={daily} />
+          ) : isObj(daily.data) && Array.isArray((daily.data as { data?: unknown }).data) ? (
+            <p>
+              <span className="font-semibold text-slate-900">
+                {(daily.data as { data: unknown[] }).data.length}
+              </span>{" "}
+              day-user metric rows in this window.
+            </p>
+          ) : (
+            <p className="text-slate-500">Unexpected response shape.</p>
+          )}
+        </CardContent>
+      </Card>
+      <Card className="border-slate-200">
+        <CardHeader className="pb-2">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <CardTitle className="text-base">Team spend &amp; limits (Admin API)</CardTitle>
+              <CardDescription className="text-xs mt-1">
+                POST <span className="font-mono">/teams/spend</span> —{" "}
+                <span className="font-mono">monthlyLimitDollars</span> /{" "}
+                <span className="font-mono">hardLimitOverrideDollars</span> vs WDTS policy caps
+                (read-only). Writes use{" "}
+                <span className="font-mono">/teams/user-spend-limit</span> (not called here).
+              </CardDescription>
+            </div>
+            <SliceBadge slice={spend} />
+          </div>
+        </CardHeader>
+        <CardContent className="text-xs text-slate-600">
+          {!spend || spend.status !== "ok" ? (
+            <PanelBody panelKey="__adminSpend" slice={spend} />
+          ) : isObj(spend.data) && Array.isArray((spend.data as { teamMemberSpend?: unknown }).teamMemberSpend) ? (
+            <div className="max-h-64 overflow-auto rounded-md border border-slate-200">
+              <Table>
+                <THead>
+                  <TR>
+                    <TH className="pl-2">Email</TH>
+                    <TH className="text-right">Monthly limit ($)</TH>
+                    <TH className="text-right pr-2">Cycle spend</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {((spend.data as { teamMemberSpend: Row[] }).teamMemberSpend ?? [])
+                    .slice(0, 30)
+                    .map((m, i) => (
+                      <TR key={String(m.email ?? i)}>
+                        <TD className="pl-2 font-mono truncate max-w-[200px]" title={String(m.email ?? "")}>
+                          {String(m.email ?? "—")}
+                        </TD>
+                        <TD className="text-right tabular-nums">
+                          {m.monthlyLimitDollars == null ? "—" : String(m.monthlyLimitDollars)}
+                        </TD>
+                        <TD className="text-right pr-2 tabular-nums">
+                          {formatUsd((Number(m.overallSpendCents ?? 0) || 0) / 100, { decimals: 2 })}
+                        </TD>
+                      </TR>
+                    ))}
+                </TBody>
+              </Table>
+            </div>
+          ) : (
+            <p className="text-slate-500">Unexpected response shape.</p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function AnalyticsCursorPanels({ overview }: { overview: CursorApiOverview }) {
   return (
     <div className="space-y-4">
       <CursorAiCodeEnterpriseSection overview={overview} />
+      <CursorAdminApiSection overview={overview} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {CURSOR_GRID_PANELS.map((p) => {
         const slice = overview.slices[p.key];

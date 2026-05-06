@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { CURSOR_OVERVIEW_PANELS, loadCursorApiOverview } from "./cursor-api-overview";
+import {
+  CURSOR_OVERVIEW_ADMIN_SLICE_KEYS,
+  CURSOR_OVERVIEW_PANELS,
+  loadCursorApiOverview,
+} from "./cursor-api-overview";
+
+const ALL_SLICE_KEYS = [
+  ...CURSOR_OVERVIEW_PANELS.map((p) => p.key),
+  ...CURSOR_OVERVIEW_ADMIN_SLICE_KEYS,
+];
 
 describe("loadCursorApiOverview", () => {
   it("skips all panels when INTEGRATION_CURSOR is synthetic", async () => {
@@ -11,8 +20,8 @@ describe("loadCursorApiOverview", () => {
     });
     expect(out.integrationMode).toBe("synthetic");
     expect(out.apiKeyConfigured).toBe(true);
-    for (const p of CURSOR_OVERVIEW_PANELS) {
-      const s = out.slices[p.key];
+    for (const key of ALL_SLICE_KEYS) {
+      const s = out.slices[key];
       expect(s?.status).toBe("skipped");
     }
     expect(out.aiCodeRollup.status).toBe("skipped");
@@ -29,13 +38,35 @@ describe("loadCursorApiOverview", () => {
     expect(out.integrationMode).toBe("real");
     expect(out.apiKeyConfigured).toBe(false);
     expect(out.slices.analyticsDau?.status).toBe("skipped");
+    for (const key of CURSOR_OVERVIEW_ADMIN_SLICE_KEYS) {
+      expect(out.slices[key]?.status).toBe("skipped");
+    }
     expect(out.aiCodeRollup.status).toBe("skipped");
   });
 
   it("fetches each panel when real + key (mocked)", async () => {
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const u = String(input);
-      return new Response(JSON.stringify({ ok: true, url: u }), {
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST" && u.includes("daily-usage-data")) {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (method === "POST" && u.includes("/teams/spend")) {
+        return new Response(
+          JSON.stringify({ teamMemberSpend: [], totalPages: 1 }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (u.includes("/analytics/ai-code/commits")) {
+        return new Response(JSON.stringify({ items: [], totalCount: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, url: u, method }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -51,9 +82,9 @@ describe("loadCursorApiOverview", () => {
 
     expect(out.integrationMode).toBe("real");
     expect(out.apiKeyConfigured).toBe(true);
-    expect(fetchImpl).toHaveBeenCalledTimes(CURSOR_OVERVIEW_PANELS.length + 1);
-    for (const p of CURSOR_OVERVIEW_PANELS) {
-      expect(out.slices[p.key]?.status).toBe("ok");
+    expect(vi.mocked(fetchImpl).mock.calls.length).toBe(CURSOR_OVERVIEW_PANELS.length + 3);
+    for (const key of ALL_SLICE_KEYS) {
+      expect(out.slices[key]?.status).toBe("ok");
     }
     expect(out.aiCodeRollup.status).toBe("ok");
     if (out.aiCodeRollup.status === "ok") {
