@@ -29,6 +29,10 @@ import {
   mergeCodexEnterpriseVendorIntoF1,
 } from "@/lib/f1-codex-enterprise-analytics";
 import {
+  loadManualVendorExportSpendForF1,
+  mergeManualVendorExportIntoF1,
+} from "@/lib/f1-manual-vendor-export";
+import {
   f1PeriodSpendLabel,
   resolveF1PlanFromSearchParams,
   type F1Period,
@@ -54,33 +58,50 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   plan: F1PeriodPlan;
   period: F1Period;
   cursorSpendSource: "gateway" | "vendor";
-  openAiChatgptSpendSource: "gateway" | "vendor";
-  codexSpendSource: "gateway" | "openai_org_costs" | "codex_enterprise_analytics";
+  openAiChatgptSpendSource: "gateway" | "vendor" | "manual_export";
+  codexSpendSource:
+    | "gateway"
+    | "openai_org_costs"
+    | "codex_enterprise_analytics"
+    | "manual_export";
 }> {
   const gateway = getGatewayClient();
   const azuread = getAzureADClient();
   const deel = getDeelClient();
 
-  const [programAgg, dailyAgg, topRaw, identityAll, deelAll, vendorCursor, vendorOpenAi, vendorCodexEnterprise] =
-    await Promise.all([
-      gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
-      gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
-      gateway.topSpenders({ periodStart: plan.periodStart, periodEnd: plan.periodEnd, limit: 10 }),
-      azuread.listUsers(),
-      deel.listEmployees(),
-      loadCursorVendorSpendForF1(prisma, {
-        periodStart: plan.periodStart,
-        periodEnd: plan.periodEnd,
-      }),
-      loadOpenAiVendorSpendForF1(prisma, {
-        periodStart: plan.periodStart,
-        periodEnd: plan.periodEnd,
-      }),
-      loadCodexEnterpriseVendorSpendForF1(prisma, {
-        periodStart: plan.periodStart,
-        periodEnd: plan.periodEnd,
-      }),
-    ]);
+  const [
+    programAgg,
+    dailyAgg,
+    topRaw,
+    identityAll,
+    deelAll,
+    vendorCursor,
+    vendorManualExport,
+    vendorOpenAi,
+    vendorCodexEnterprise,
+  ] = await Promise.all([
+    gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
+    gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
+    gateway.topSpenders({ periodStart: plan.periodStart, periodEnd: plan.periodEnd, limit: 10 }),
+    azuread.listUsers(),
+    deel.listEmployees(),
+    loadCursorVendorSpendForF1(prisma, {
+      periodStart: plan.periodStart,
+      periodEnd: plan.periodEnd,
+    }),
+    loadManualVendorExportSpendForF1(prisma, {
+      periodStart: plan.periodStart,
+      periodEnd: plan.periodEnd,
+    }),
+    loadOpenAiVendorSpendForF1(prisma, {
+      periodStart: plan.periodStart,
+      periodEnd: plan.periodEnd,
+    }),
+    loadCodexEnterpriseVendorSpendForF1(prisma, {
+      periodStart: plan.periodStart,
+      periodEnd: plan.periodEnd,
+    }),
+  ]);
 
   const mtdMap = new Map<ProductKey, number>(
     programAgg.map((r) => [r.product, r.totalUsd]),
@@ -102,6 +123,12 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
     cursorByChartDay: vendorCursor.byChartDay,
     useVendor: vendorCursor.usedVendor,
   });
+  mergeManualVendorExportIntoF1({
+    mtdMap,
+    days,
+    chatgpt: vendorManualExport.chatgpt,
+    codex: vendorManualExport.codex,
+  });
   mergeOpenAiVendorIntoF1({
     mtdMap,
     days,
@@ -122,15 +149,18 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   const cursorSpendSource: "gateway" | "vendor" = vendorCursor.usedVendor
     ? "vendor"
     : "gateway";
-  const openAiChatgptSpendSource: "gateway" | "vendor" = vendorOpenAi.chatgpt.usedVendor
-    ? "vendor"
-    : "gateway";
-  const codexSpendSource: "gateway" | "openai_org_costs" | "codex_enterprise_analytics" =
-    vendorCodexEnterprise.usedVendor
-      ? "codex_enterprise_analytics"
-      : vendorOpenAi.codex.usedVendor
-        ? "openai_org_costs"
-        : "gateway";
+  let openAiChatgptSpendSource: "gateway" | "vendor" | "manual_export" = "gateway";
+  if (vendorManualExport.chatgpt.used) openAiChatgptSpendSource = "manual_export";
+  if (vendorOpenAi.chatgpt.usedVendor) openAiChatgptSpendSource = "vendor";
+
+  let codexSpendSource:
+    | "gateway"
+    | "openai_org_costs"
+    | "codex_enterprise_analytics"
+    | "manual_export" = "gateway";
+  if (vendorManualExport.codex.used) codexSpendSource = "manual_export";
+  if (vendorOpenAi.codex.usedVendor) codexSpendSource = "openai_org_costs";
+  if (vendorCodexEnterprise.usedVendor) codexSpendSource = "codex_enterprise_analytics";
 
   const identityById = new Map(identityAll.map((u) => [u.azureObjectId, u]));
   const deelByEmail = new Map(deelAll.map((d) => [d.email, d]));
@@ -311,6 +341,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                       OpenAI organization costs API (line-item split)
                     </p>
                   ) : null}
+                  {key === "CHATGPT" && data.openAiChatgptSpendSource === "manual_export" ? (
+                    <p className="text-[11px] text-amber-800 mt-1">
+                      ChatGPT Business users CSV (credits spread evenly per export day)
+                    </p>
+                  ) : null}
                   {key === "CODEX" && data.codexSpendSource === "codex_enterprise_analytics" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
                       Codex Enterprise Analytics (api.chatgpt.com)
@@ -319,6 +354,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   {key === "CODEX" && data.codexSpendSource === "openai_org_costs" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
                       OpenAI organization costs API (line-item split)
+                    </p>
+                  ) : null}
+                  {key === "CODEX" && data.codexSpendSource === "manual_export" ? (
+                    <p className="text-[11px] text-amber-800 mt-1">
+                      Codex daily JSON export (workspace totals, or sessions aggregate)
                     </p>
                   ) : null}
                 </CardHeader>
@@ -344,13 +384,17 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               CHATGPT uses{" "}
               {data.openAiChatgptSpendSource === "vendor"
                 ? "OpenAI organization/costs when vendor rows exist; otherwise the gateway mirror."
-                : "the gateway mirror unless you run OpenAI vendor sync in Settings."}{" "}
+                : data.openAiChatgptSpendSource === "manual_export"
+                  ? "uploaded ChatGPT users CSV (Settings → Data imports) when no OpenAI vendor rows override it."
+                  : "the gateway mirror unless you run OpenAI vendor sync in Settings."}{" "}
               CODEX uses{" "}
               {data.codexSpendSource === "codex_enterprise_analytics"
                 ? "Codex Enterprise Analytics sync when configured (overrides org costs for the CODEX tile)."
                 : data.codexSpendSource === "openai_org_costs"
                   ? "OpenAI organization/costs when vendor rows exist."
-                  : "the gateway mirror unless you run vendor sync in Settings."}
+                  : data.codexSpendSource === "manual_export"
+                    ? "uploaded Codex daily JSON (workspace preferred; sessions JSON fills spend if workspace is absent)."
+                    : "the gateway mirror unless you run vendor sync in Settings."}
             </CardDescription>
           </CardHeader>
           <CardContent>

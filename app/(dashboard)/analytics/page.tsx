@@ -19,6 +19,8 @@ import {
   type CursorApiSlice,
 } from "@/lib/integrations/cursor/cursor-api-overview";
 import { getIntegrationMode } from "@/lib/integrations/env";
+import { loadLatestProgramVendorExportSnapshots } from "@/lib/analytics/manual-vendor-snapshots";
+import { AnalyticsManualVendorCharts } from "@/components/dashboard/analytics-manual-vendor-charts";
 
 export const dynamic = "force-dynamic";
 
@@ -100,16 +102,18 @@ export default async function AnalyticsPage() {
   since.setHours(0, 0, 0, 0);
   since.setDate(since.getDate() - ROLLUP_DAYS);
 
-  const [cursorOverview, vendorRollup, openAiMode, codexEaMode] = await Promise.all([
-    loadCursorApiOverview(),
-    prisma.vendorDailySpend.groupBy({
-      by: ["vendor", "product"],
-      where: { day: { gte: since } },
-      _sum: { spendUsd: true, eventCount: true },
-    }),
-    Promise.resolve(getIntegrationMode("openai")),
-    Promise.resolve(getIntegrationMode("codexenterprise")),
-  ]);
+  const [cursorOverview, vendorRollup, openAiMode, codexEaMode, manualVendorSnapshots] =
+    await Promise.all([
+      loadCursorApiOverview(),
+      prisma.vendorDailySpend.groupBy({
+        by: ["vendor", "product"],
+        where: { day: { gte: since } },
+        _sum: { spendUsd: true, eventCount: true },
+      }),
+      Promise.resolve(getIntegrationMode("openai")),
+      Promise.resolve(getIntegrationMode("codexenterprise")),
+      loadLatestProgramVendorExportSnapshots(prisma),
+    ]);
 
   const sortedRollup = [...vendorRollup].sort((a, b) => {
     const v = a.vendor.localeCompare(b.vendor);
@@ -144,6 +148,8 @@ export default async function AnalyticsPage() {
           </Link>{" "}
           is for orchestrating agents, not a separate metrics surface — it is not wired here.
         </p>
+
+        <AnalyticsManualVendorCharts snapshots={manualVendorSnapshots} />
 
         <Card>
           <CardHeader>
