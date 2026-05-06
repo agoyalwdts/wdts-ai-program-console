@@ -143,7 +143,7 @@ const INTEGRATION_NOTES: Record<IntegrationName, string> = {
   gateway:
     "Usage mirror + LiteLLM: docs/gateway-and-litellm.md; production ingest: docs/integrations/usage-ingest-production.md; GHA cron-usage-mirror-health.yml.",
   cursor:
-    "SCIM: CURSOR_SCIM_BASE_URL + CURSOR_ADMIN_TOKEN. Team Admin usage API: same token or CURSOR_TEAM_ADMIN_API_KEY — Settings sync, POST /api/cron/sync-cursor-spend, or GHA cron-vendor-spend-sync.yml.",
+    "SCIM: CURSOR_SCIM_BASE_URL + CURSOR_ADMIN_TOKEN. Team Admin usage API: same token or CURSOR_TEAM_ADMIN_API_KEY — Settings sync, POST /api/cron/sync-cursor-spend, or GHA cron-vendor-spend-sync.yml. Optional CURSOR_ANALYTICS_USERS_FILTER=comma,separated,emails scopes /analytics conversation-insights and /analytics/by-user/* on the Analytics page.",
   openai:
     "OpenAI Enterprise admin API key + org id. Vendor spend sync: POST /api/cron/sync-openai-spend or GHA cron-vendor-spend-sync.yml.",
   codexenterprise:

@@ -6,9 +6,10 @@
  * VendorDailySpend sync; this module is for the operator analytics surface.
  */
 
+import { analyticsWindowToEpochMs } from "@/lib/cursor-analytics-dates";
 import { IntegrationError } from "../errors";
 import { getIntegrationMode, type IntegrationEnv } from "../env";
-import { cursorTeamGetJson } from "./cursor-team-http";
+import { cursorTeamGetJson, cursorTeamPostJson } from "./cursor-team-http";
 import { resolveCursorTeamAdminApiKey } from "./team-admin-usage";
 import type { Fetch } from "../_http";
 import {
@@ -82,6 +83,22 @@ export const CURSOR_OVERVIEW_PANELS: CursorOverviewPanel[] = [
     query: { page: "1", pageSize: "10" },
   },
   {
+    key: "analyticsConversationInsights",
+    label: "Conversation insights",
+    apiFamily: "Analytics API",
+    path: "/analytics/team/conversation-insights",
+    query: {
+      include: "intents,complexity,categories,guidanceLevels,workTypes",
+    },
+  },
+  {
+    key: "analyticsByUserModels",
+    label: "Model usage (by user)",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/models",
+    query: { page: "1", pageSize: "50" },
+  },
+  {
     key: "adminMembers",
     label: "Team members",
     apiFamily: "Admin API",
@@ -137,6 +154,63 @@ export type LoadCursorApiOverviewOptions = {
   analyticsWindow?: { startDate: string; endDate: string };
 };
 
+/** Slices loaded outside {@link CURSOR_OVERVIEW_PANELS} (Admin POST endpoints). */
+export const CURSOR_OVERVIEW_ADMIN_SLICE_KEYS = ["adminDailyUsage", "adminTeamSpend"] as const;
+
+function parseUsersFilter(env: IntegrationEnv): string | undefined {
+  const raw = env.CURSOR_ANALYTICS_USERS_FILTER?.trim();
+  if (!raw) return undefined;
+  const parts = raw
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return undefined;
+  return parts.join(",");
+}
+
+type TeamSpendResponse = {
+  teamMemberSpend?: unknown[];
+  totalPages?: number;
+};
+
+async function fetchAdminDailyUsageSnapshot(args: {
+  apiKey: string;
+  window: { startDate: string; endDate: string };
+  fetchImpl?: Fetch;
+}): Promise<unknown> {
+  const { startMs, endMs } = analyticsWindowToEpochMs(args.window);
+  return cursorTeamPostJson({
+    path: "/teams/daily-usage-data",
+    body: { startDate: startMs, endDate: endMs },
+    apiKey: args.apiKey,
+    fetchImpl: args.fetchImpl,
+  });
+}
+
+async function fetchTeamSpendAllPages(args: {
+  apiKey: string;
+  fetchImpl?: Fetch;
+}): Promise<{ teamMemberSpend: unknown[]; pagesFetched: number }> {
+  const all: unknown[] = [];
+  let page = 1;
+  let pagesFetched = 0;
+  for (;;) {
+    const res = await cursorTeamPostJson<TeamSpendResponse>({
+      path: "/teams/spend",
+      body: { page, pageSize: 100 },
+      apiKey: args.apiKey,
+      fetchImpl: args.fetchImpl,
+    });
+    pagesFetched += 1;
+    const batch = Array.isArray(res.teamMemberSpend) ? res.teamMemberSpend : [];
+    all.push(...batch);
+    const totalPages = typeof res.totalPages === "number" && res.totalPages > 0 ? res.totalPages : 1;
+    if (page >= totalPages || page >= 500) break;
+    page += 1;
+  }
+  return { teamMemberSpend: all, pagesFetched };
+}
+
 export async function loadCursorApiOverview(
   opts: LoadCursorApiOverviewOptions = {},
 ): Promise<CursorApiOverview> {
@@ -145,6 +219,7 @@ export async function loadCursorApiOverview(
   const window = opts.analyticsWindow ?? { startDate: "30d", endDate: "today" };
   const apiKey = resolveCursorTeamAdminApiKey(env);
   const mode = getIntegrationMode("cursor", env);
+  const usersFilter = parseUsersFilter(env);
 
   const skipped = (reason: string): CursorApiSlice => ({
     status: "skipped",
@@ -157,12 +232,13 @@ export async function loadCursorApiOverview(
   });
 
   if (mode !== "real") {
-    const slices = Object.fromEntries(
-      CURSOR_OVERVIEW_PANELS.map((p) => [
-        p.key,
-        skipped("INTEGRATION_CURSOR is not `real`."),
-      ]),
-    );
+    const skipPairs = [
+      ...CURSOR_OVERVIEW_PANELS.map((p) => [p.key, skipped("INTEGRATION_CURSOR is not `real`.")] as const),
+      ...CURSOR_OVERVIEW_ADMIN_SLICE_KEYS.map(
+        (k) => [k, skipped("INTEGRATION_CURSOR is not `real`.")] as const,
+      ),
+    ];
+    const slices = Object.fromEntries(skipPairs);
     return {
       integrationMode: "synthetic",
       apiKeyConfigured: Boolean(apiKey),
@@ -173,12 +249,23 @@ export async function loadCursorApiOverview(
   }
 
   if (!apiKey) {
-    const slices = Object.fromEntries(
-      CURSOR_OVERVIEW_PANELS.map((p) => [
-        p.key,
-        skipped("No Team Admin API key (set CURSOR_TEAM_ADMIN_API_KEY or CURSOR_ADMIN_TOKEN)."),
-      ]),
-    );
+    const skipPairs = [
+      ...CURSOR_OVERVIEW_PANELS.map(
+        (p) =>
+          [
+            p.key,
+            skipped("No Team Admin API key (set CURSOR_TEAM_ADMIN_API_KEY or CURSOR_ADMIN_TOKEN)."),
+          ] as const,
+      ),
+      ...CURSOR_OVERVIEW_ADMIN_SLICE_KEYS.map(
+        (k) =>
+          [
+            k,
+            skipped("No Team Admin API key (set CURSOR_TEAM_ADMIN_API_KEY or CURSOR_ADMIN_TOKEN)."),
+          ] as const,
+      ),
+    ];
+    const slices = Object.fromEntries(skipPairs);
     return {
       integrationMode: "real",
       apiKeyConfigured: false,
@@ -201,6 +288,12 @@ export async function loadCursorApiOverview(
         ...baseQuery,
         ...panel.query,
       };
+      if (
+        usersFilter &&
+        (panel.key === "analyticsConversationInsights" || panel.key === "analyticsByUserModels")
+      ) {
+        q.users = usersFilter;
+      }
       // Admin + Cloud paths ignore startDate/endDate; leaving them does not matter for /teams/members;
       // strip for cleaner URLs on paths that are not analytics.
       if (
@@ -216,6 +309,24 @@ export async function loadCursorApiOverview(
       return [panel.key, slice] as const;
     }),
   );
+
+  const [adminDailySlice, adminSpendSlice] = await Promise.all([
+    mapErr(() =>
+      fetchAdminDailyUsageSnapshot({ apiKey, window, fetchImpl }),
+    ),
+    mapErr(async () => {
+      const { teamMemberSpend, pagesFetched } = await fetchTeamSpendAllPages({
+        apiKey,
+        fetchImpl,
+      });
+      return {
+        teamMemberSpend,
+        pagesFetched,
+        note:
+          "POST /teams/spend — monthlyLimitDollars / hardLimitOverrideDollars vs policy caps (read-only).",
+      };
+    }),
+  ]);
 
   let aiCodeRollup: AiCodeRollupSlice;
   try {
@@ -240,7 +351,11 @@ export async function loadCursorApiOverview(
     integrationMode: "real",
     apiKeyConfigured: true,
     window,
-    slices: Object.fromEntries(entries),
+    slices: {
+      ...Object.fromEntries(entries),
+      adminDailyUsage: adminDailySlice,
+      adminTeamSpend: adminSpendSlice,
+    },
     aiCodeRollup,
   };
 }
