@@ -5,8 +5,8 @@
  * POST https://api.cursor.com/teams/filtered-usage-events
  * Auth: Basic (API key as username, empty password).
  *
- * Sums `chargedCents` (see {@link cursorChargedFieldToUsd}) → USD per Cursor docs
- * (reconciles with /teams/spend).
+ * Sums `chargedCents` → USD. Cursor documents this field as **cents** (possibly
+ * fractional); USD is always `chargedCents / 100` (reconciles with /teams/spend).
  */
 
 import { IntegrationError } from "../errors";
@@ -49,45 +49,18 @@ export type CursorFilteredUsageEventFull = {
 };
 
 /**
- * Cursor documents `chargedCents` as cents, but JSON examples use non-integer
- * dollar-shaped floats ({@link https://cursor.com/docs/account/teams/admin-api }).
- * Integer values → ÷100. Other floats that are still USD (e.g. 14.79, 21.36232) stay as-is.
- *
- * Large and **small** cent amounts can arrive as non-integers due to IEEE noise (e.g.
- * 522206.99999999994 or 49.99999999999994). Without snapping, values below 100 were misread as USD
- * (~$50 for a 50¢ charge), inflating MTD ~100×. Snap any near-integer ≥ 1 cent to cents; doc-style
- * dollar floats (14.79, 21.36232) stay off-integer (beyond float noise) and pass through as USD.
- *
- * JSON may send numeric strings — coerce with {@link Number}.
- *
- * **Large cent integers** sometimes arrive with **>1e-4** deviation from a whole cent
- * (e.g. `522206.49` from serialization). Those used to fall through as USD and inflate MTD ~100×.
- * If the value is huge and within **$1** of a whole cent count, treat as cents.
+ * Cursor Admin API: `chargedCents` is “total amount charged **in cents**” for the event, including
+ * fractional values in examples ({@link https://cursor.com/docs/account/teams/admin-api } e.g.
+ * `21.36232`, `37.33`). USD is always cents ÷ 100 — treating non-integers as dollars was a ~100×
+ * inflation bug on MTD sums. Numeric strings from JSON are coerced with {@link Number}.
  */
-const CHARGED_CENTS_INTEGER_EPS = 1e-4;
-/** Non-integers at or above this (cent-scale before ÷100) may use the loose “near whole” rule. */
-const CHARGED_CENTS_JUMBO_NEAREST = 100_000;
-const CHARGED_CENTS_JUMBO_MAX_DIST_FROM_WHOLE = 1;
-
 export function cursorChargedFieldToUsd(
   chargedCents: number | string | undefined | null,
 ): number {
   if (chargedCents == null) return 0;
   const n = typeof chargedCents === "number" ? chargedCents : Number(chargedCents);
   if (!Number.isFinite(n)) return 0;
-  if (Number.isInteger(n)) return n / 100;
-  const nearest = Math.round(n);
-  const dist = Math.abs(n - nearest);
-  if (nearest >= 1 && dist <= CHARGED_CENTS_INTEGER_EPS) {
-    return nearest / 100;
-  }
-  if (
-    nearest >= CHARGED_CENTS_JUMBO_NEAREST &&
-    dist < CHARGED_CENTS_JUMBO_MAX_DIST_FROM_WHOLE
-  ) {
-    return nearest / 100;
-  }
-  return n;
+  return n / 100;
 }
 
 type FilteredUsagePage = {
