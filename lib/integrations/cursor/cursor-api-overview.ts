@@ -118,11 +118,19 @@ export type CursorApiOverview = {
   slices: Record<string, CursorApiSlice>;
 };
 
+export type LoadCursorApiOverviewOptions = {
+  env?: IntegrationEnv;
+  fetchImpl?: Fetch;
+  /** Analytics / AI Code Tracking date window; defaults to `30d` … `today`. */
+  analyticsWindow?: { startDate: string; endDate: string };
+};
+
 export async function loadCursorApiOverview(
-  env: IntegrationEnv = process.env,
-  fetchImpl?: Fetch,
+  opts: LoadCursorApiOverviewOptions = {},
 ): Promise<CursorApiOverview> {
-  const window = { startDate: "30d", endDate: "today" };
+  const env = opts.env ?? process.env;
+  const fetchImpl = opts.fetchImpl;
+  const window = opts.analyticsWindow ?? { startDate: "30d", endDate: "today" };
   const apiKey = resolveCursorTeamAdminApiKey(env);
   const mode = getIntegrationMode("cursor", env);
 
