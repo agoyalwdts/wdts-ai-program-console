@@ -18,6 +18,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { formatUsd } from "@/lib/utils";
 
+/** Compare YYYY-MM-DD (or ISO prefix) strings. */
+function dayKey(s: string): string {
+  return s.slice(0, 10);
+}
+
+function inSelectedPeriod(day: string, rangeStart: string, rangeEnd: string): boolean {
+  const d = dayKey(day);
+  return d >= rangeStart && d <= rangeEnd;
+}
+
+/** True if [aStart,aEnd] overlaps [bStart,bEnd] (inclusive YYYY-MM-DD). */
+function rangesOverlap(
+  aStart: string | null,
+  aEnd: string | null,
+  bStart: string,
+  bEnd: string,
+): boolean {
+  if (!aStart || !aEnd) return true;
+  return aStart <= bEnd && aEnd >= bStart;
+}
+
 function findSnapshot(
   snapshots: ManualVendorSnapshotDTO[],
   kind: string,
@@ -25,14 +46,31 @@ function findSnapshot(
   return snapshots.find((s) => s.kind === kind);
 }
 
-function CodexWorkspaceChart({ payload }: { payload: unknown }) {
+function CodexWorkspaceChart({
+  payload,
+  rangeStart,
+  rangeEnd,
+}: {
+  payload: unknown;
+  rangeStart: string;
+  rangeEnd: string;
+}) {
   const p = payload as { days?: { date: string; credits: number; users: number; turns: number }[] };
-  const data = (p.days ?? []).map((d) => ({
-    date: d.date.slice(5),
-    credits: d.credits,
-    users: d.users,
-  }));
-  if (data.length === 0) return <p className="text-sm text-slate-500">No series in payload.</p>;
+  const data = (p.days ?? [])
+    .filter((d) => inSelectedPeriod(d.date, rangeStart, rangeEnd))
+    .sort((a, b) => dayKey(a.date).localeCompare(dayKey(b.date)))
+    .map((d) => ({
+      date: d.date.slice(5),
+      credits: d.credits,
+      users: d.users,
+    }));
+  if (data.length === 0)
+    return (
+      <p className="text-sm text-slate-500">
+        No days in selected period {rangeStart}–{rangeEnd}. Widen the period selector or check the
+        import window.
+      </p>
+    );
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -52,12 +90,26 @@ function CodexWorkspaceChart({ payload }: { payload: unknown }) {
   );
 }
 
-function CodexSessionsChart({ payload }: { payload: unknown }) {
+function CodexSessionsChart({
+  payload,
+  rangeStart,
+  rangeEnd,
+}: {
+  payload: unknown;
+  rangeStart: string;
+  rangeEnd: string;
+}) {
   const p = payload as { creditsByDate?: Record<string, number> };
   const data = Object.entries(p.creditsByDate ?? {})
+    .filter(([date]) => inSelectedPeriod(date, rangeStart, rangeEnd))
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, credits]) => ({ date: date.slice(5), credits }));
-  if (data.length === 0) return <p className="text-sm text-slate-500">No aggregated days.</p>;
+  if (data.length === 0)
+    return (
+      <p className="text-sm text-slate-500">
+        No session days in selected period {rangeStart}–{rangeEnd}.
+      </p>
+    );
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -75,14 +127,30 @@ function CodexSessionsChart({ payload }: { payload: unknown }) {
   );
 }
 
-function CodexCodeReviewChart({ payload }: { payload: unknown }) {
+function CodexCodeReviewChart({
+  payload,
+  rangeStart,
+  rangeEnd,
+}: {
+  payload: unknown;
+  rangeStart: string;
+  rangeEnd: string;
+}) {
   const p = payload as { days?: { date: string; n_reviews: number; n_comments: number }[] };
-  const data = (p.days ?? []).map((d) => ({
-    date: d.date.slice(5),
-    reviews: d.n_reviews,
-    comments: d.n_comments,
-  }));
-  if (data.length === 0) return <p className="text-sm text-slate-500">No rows.</p>;
+  const data = (p.days ?? [])
+    .filter((d) => inSelectedPeriod(d.date, rangeStart, rangeEnd))
+    .sort((a, b) => dayKey(a.date).localeCompare(dayKey(b.date)))
+    .map((d) => ({
+      date: d.date.slice(5),
+      reviews: d.n_reviews,
+      comments: d.n_comments,
+    }));
+  if (data.length === 0)
+    return (
+      <p className="text-sm text-slate-500">
+        No code-review days in selected period {rangeStart}–{rangeEnd}.
+      </p>
+    );
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -100,7 +168,15 @@ function CodexCodeReviewChart({ payload }: { payload: unknown }) {
   );
 }
 
-function CursorTeamChart({ payload }: { payload: unknown }) {
+function CursorTeamChart({
+  payload,
+  rangeStart,
+  rangeEnd,
+}: {
+  payload: unknown;
+  rangeStart: string;
+  rangeEnd: string;
+}) {
   const p = payload as {
     dateColumn?: string;
     headers?: string[];
@@ -120,14 +196,23 @@ function CursorTeamChart({ payload }: { payload: unknown }) {
     .map((r) => {
       const day = (r[dateCol] ?? "").trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+      if (!inSelectedPeriod(day, rangeStart, rangeEnd)) return null;
       return {
+        sortDay: day,
         date: day.slice(5),
         dau: dauCol ? Number((r[dauCol] ?? "").replace(/,/g, "")) || 0 : 0,
         chats: chatCol ? Number((r[chatCol] ?? "").replace(/,/g, "")) || 0 : 0,
       };
     })
-    .filter((x): x is NonNullable<typeof x> => x != null);
-  if (data.length === 0) return <p className="text-sm text-slate-500">No dated rows.</p>;
+    .filter((x): x is NonNullable<typeof x> => x != null)
+    .sort((a, b) => a.sortDay.localeCompare(b.sortDay))
+    .map((x) => ({ date: x.date, dau: x.dau, chats: x.chats }));
+  if (data.length === 0)
+    return (
+      <p className="text-sm text-slate-500">
+        No CSV rows in selected period {rangeStart}–{rangeEnd}.
+      </p>
+    );
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -223,8 +308,11 @@ function GenericCsvPreview({
 
 export function AnalyticsManualVendorCharts({
   snapshots,
+  chartDateRange,
 }: {
   snapshots: ManualVendorSnapshotDTO[];
+  /** Same local-calendar window as Program Health / page period selector. */
+  chartDateRange: { start: string; end: string };
 }) {
   if (snapshots.length === 0) {
     return (
@@ -261,9 +349,14 @@ export function AnalyticsManualVendorCharts({
         {s.periodStart && s.periodEnd ? (
           <>
             {" "}
-            · period {s.periodStart} → {s.periodEnd}
+            · file covers {s.periodStart} → {s.periodEnd}
           </>
         ) : null}
+        {" "}
+        · chart window{" "}
+        <span className="font-medium text-slate-700">
+          {chartDateRange.start} → {chartDateRange.end}
+        </span>
       </p>
     );
   }
@@ -279,7 +372,9 @@ export function AnalyticsManualVendorCharts({
           <Link href="/settings/imports" className="underline underline-offset-2 text-slate-800">
             Settings → Data imports
           </Link>
-          . Re-upload anytime to refresh.
+          . Time-series charts below are <span className="font-medium text-slate-700">clipped</span>{" "}
+          to the period you selected at the top (same calendar window as Program Health). Re-upload
+          anytime to refresh imports.
         </p>
       </div>
 
@@ -292,7 +387,11 @@ export function AnalyticsManualVendorCharts({
           <CardContent>
             {meta(workspace)}
             {workspace ? (
-              <CodexWorkspaceChart payload={workspace.payload} />
+              <CodexWorkspaceChart
+                payload={workspace.payload}
+                rangeStart={chartDateRange.start}
+                rangeEnd={chartDateRange.end}
+              />
             ) : (
               <p className="text-sm text-slate-500">No workspace JSON imported.</p>
             )}
@@ -307,7 +406,11 @@ export function AnalyticsManualVendorCharts({
           <CardContent>
             {meta(sessions)}
             {sessions ? (
-              <CodexSessionsChart payload={sessions.payload} />
+              <CodexSessionsChart
+                payload={sessions.payload}
+                rangeStart={chartDateRange.start}
+                rangeEnd={chartDateRange.end}
+              />
             ) : (
               <p className="text-sm text-slate-500">No sessions JSON imported.</p>
             )}
@@ -321,7 +424,11 @@ export function AnalyticsManualVendorCharts({
           <CardContent>
             {meta(codeReview)}
             {codeReview ? (
-              <CodexCodeReviewChart payload={codeReview.payload} />
+              <CodexCodeReviewChart
+                payload={codeReview.payload}
+                rangeStart={chartDateRange.start}
+                rangeEnd={chartDateRange.end}
+              />
             ) : (
               <p className="text-sm text-slate-500">No code review JSON imported.</p>
             )}
@@ -336,7 +443,22 @@ export function AnalyticsManualVendorCharts({
           <CardContent>
             {meta(chatgptUsers)}
             {chatgptUsers ? (
-              <ChatgptUsersTable payload={chatgptUsers.payload} />
+              <>
+                {!rangesOverlap(
+                  chatgptUsers.periodStart,
+                  chatgptUsers.periodEnd,
+                  chartDateRange.start,
+                  chartDateRange.end,
+                ) ? (
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-3">
+                    This CSV&apos;s reporting window ({chatgptUsers.periodStart ?? "?"} →{" "}
+                    {chatgptUsers.periodEnd ?? "?"}) does not overlap the selected period (
+                    {chartDateRange.start} → {chartDateRange.end}). Rankings are still the full export;
+                    use Program Health for prorated spend in the selected window.
+                  </p>
+                ) : null}
+                <ChatgptUsersTable payload={chatgptUsers.payload} />
+              </>
             ) : (
               <p className="text-sm text-slate-500">No users CSV imported.</p>
             )}
@@ -383,7 +505,13 @@ export function AnalyticsManualVendorCharts({
           </CardHeader>
           <CardContent>
             {meta(cursorTeam)}
-            {cursorTeam ? <CursorTeamChart payload={cursorTeam.payload} /> : null}
+            {cursorTeam ? (
+              <CursorTeamChart
+                payload={cursorTeam.payload}
+                rangeStart={chartDateRange.start}
+                rangeEnd={chartDateRange.end}
+              />
+            ) : null}
             {!cursorTeam ? <p className="text-sm text-slate-500">No Cursor team CSV.</p> : null}
           </CardContent>
         </Card>
