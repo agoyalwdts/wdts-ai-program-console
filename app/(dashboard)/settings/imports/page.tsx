@@ -2,6 +2,7 @@ import { Topbar } from "@/components/dashboard/topbar";
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ImportEmployeesPanel } from "./import-employees-panel";
+import { ImportProgramVendorPanel } from "./import-program-vendor-panel";
 import {
   Card,
   CardContent,
@@ -32,15 +33,45 @@ export default async function SettingsImportsPage() {
     },
   });
 
+  const recentVendorExports = await prisma.decision.findMany({
+    where: { type: "PROGRAM_VENDOR_EXPORT_IMPORT" },
+    orderBy: { ts: "desc" },
+    take: 5,
+    select: {
+      id: true,
+      ts: true,
+      actorEmail: true,
+      justification: true,
+      afterState: true,
+    },
+  });
+
   const userCount = await prisma.user.count();
 
   return (
     <>
       <Topbar
         title="Data imports"
-        subtitle="Upload employee rosters as CSV. Bypasses the Deel integration."
+        subtitle="Employee roster CSV and optional ChatGPT / Codex / Cursor admin exports."
       />
-      <div className="p-6 space-y-6 max-w-4xl">
+      <div className="p-6 space-y-6 max-w-5xl">
+        <Card>
+          <CardHeader>
+            <CardTitle>Program vendor exports — ChatGPT, Codex, Cursor</CardTitle>
+            <CardDescription>
+              Until OpenAI and Codex analytics APIs are fully wired, drop the Business admin CSV/JSON
+              exports here. ChatGPT users CSV and Codex workspace JSON update Program Health spend
+              tiles via manual{" "}
+              <code className="text-xs bg-slate-100 px-1 py-0.5 rounded">VendorDailySpend</code>{" "}
+              rows (live vendor syncs still take precedence). All accepted files also store the
+              latest snapshot for the Analytics page.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ImportProgramVendorPanel />
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Employees — CSV upload</CardTitle>
@@ -146,6 +177,41 @@ export default async function SettingsImportsPage() {
                         · unchanged {fmt(after.unchanged)} · total{" "}
                         {fmt(after.total)}
                       </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent vendor exports</CardTitle>
+            <CardDescription>
+              Decision log type{" "}
+              <code className="font-mono">PROGRAM_VENDOR_EXPORT_IMPORT</code> — last five bundles.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {recentVendorExports.length === 0 ? (
+              <div className="text-sm text-slate-500">No vendor export bundles yet.</div>
+            ) : (
+              <ul className="text-sm text-slate-700 space-y-2">
+                {recentVendorExports.map((d) => {
+                  const after = safeParse(d.afterState);
+                  const kinds = Array.isArray(after.kinds)
+                    ? (after.kinds as string[]).join(", ")
+                    : "";
+                  return (
+                    <li
+                      key={d.id}
+                      className="border-b border-slate-100 pb-2 last:border-0"
+                    >
+                      <div className="text-slate-900">
+                        {d.ts.toISOString().slice(0, 16).replace("T", " ")} UTC — {d.actorEmail}
+                      </div>
+                      <div className="text-xs text-slate-600 font-mono mt-0.5">{kinds}</div>
                     </li>
                   );
                 })}

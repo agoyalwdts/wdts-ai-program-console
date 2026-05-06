@@ -104,6 +104,8 @@ enum DecisionType {
   OPENAI_VENDOR_SPEND_SYNC
   /// Codex Enterprise Analytics API (api.chatgpt.com) → VendorDailySpend (CODEX only).
   CODEX_ENTERPRISE_ANALYTICS_SYNC
+  /// Operator-uploaded ChatGPT / Codex / Cursor admin exports (CSV/JSON).
+  PROGRAM_VENDOR_EXPORT_IMPORT
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +310,25 @@ model VendorDailySpend {
 
   @@unique([vendor, product, day])
   @@index([product, day])
+}
+
+/// Normalised payload from an operator-uploaded vendor export (ChatGPT admin
+/// CSVs, Codex daily JSON, Cursor team analytics CSV). Used for Analytics UI;
+/// spend-driving kinds also upsert {@link VendorDailySpend} for F1 until live
+/// APIs replace them.
+model ProgramVendorExportSnapshot {
+  id          String    @id @default(cuid())
+  /// Stable kind — see `lib/imports/program-vendor-export/kinds.ts`.
+  kind        String
+  filename    String
+  periodStart DateTime? @db.Date
+  periodEnd   DateTime? @db.Date
+  rowCount    Int       @default(0)
+  payload     Json
+  actorEmail  String
+  createdAt   DateTime  @default(now())
+
+  @@index([kind, createdAt])
 }
 
 // ---------------------------------------------------------------------------
