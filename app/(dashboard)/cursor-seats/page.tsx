@@ -11,7 +11,13 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { CURSOR_SEATS, CURSOR_TIERS, CURSOR_TOTAL_SEATS } from "@/lib/program";
 import { cn, formatUsd, initials } from "@/lib/utils";
 import { getCursorClient } from "@/lib/integrations";
-import type { CursorSeat as ApiCursorSeat, CursorSubTier } from "@/lib/integrations";
+import type {
+  CursorClient,
+  CursorSeat as ApiCursorSeat,
+  CursorSubTier,
+} from "@/lib/integrations";
+import { syntheticCursorClient } from "@/lib/integrations/cursor/synthetic";
+import { getIntegrationMode } from "@/lib/integrations/env";
 import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -39,8 +45,7 @@ const TIER_ORDER: readonly CursorSubTier[] = [
   "DISCOVERY",
 ] as const;
 
-async function getSeatBoard() {
-  const cursor = getCursorClient();
+async function loadSeatBoard(cursor: CursorClient) {
   const [seats, waitlist] = await Promise.all([
     cursor.listSeats(),
     cursor.listWaitlist(),
@@ -79,6 +84,22 @@ async function getSeatBoard() {
   const all: Cell[] = TIER_ORDER.flatMap((t) => cellsByTier[t]);
 
   return { all, cellsByTier, waitlist };
+}
+
+async function getSeatBoard() {
+  const primary = getCursorClient();
+  try {
+    return await loadSeatBoard(primary);
+  } catch (err) {
+    if (getIntegrationMode("cursor", process.env) === "real") {
+      console.error(
+        "[cursor-seats] Primary Cursor client failed; falling back to synthetic (Prisma) board",
+        err,
+      );
+      return await loadSeatBoard(syntheticCursorClient);
+    }
+    throw err;
+  }
 }
 
 export default async function CursorSeatsPage() {

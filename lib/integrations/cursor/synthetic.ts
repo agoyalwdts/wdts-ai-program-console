@@ -23,7 +23,9 @@ function asSubTier(s: string): CursorSubTier {
     case "cursor_discovery":
       return "DISCOVERY";
     default:
-      throw new Error(`Unknown Cursor sub-tier from DB: ${s}`);
+      // Prod DB drift / manual rows — keep F4 up; prefer floor tier.
+      console.warn(`[cursor/synthetic] unknown License.subTier "${s}", mapping to DISCOVERY`);
+      return "DISCOVERY";
   }
 }
 

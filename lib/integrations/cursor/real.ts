@@ -115,10 +115,12 @@ async function listScimUsers(env: Env, fetchImpl?: Fetch): Promise<ScimUser[]> {
         Accept: "application/scim+json",
       },
     });
-    out.push(...page.Resources);
-    if (page.Resources.length < count) break;
+    const resources = Array.isArray(page.Resources) ? page.Resources : [];
+    out.push(...resources);
+    const total = typeof page.totalResults === "number" ? page.totalResults : out.length;
+    if (resources.length < count) break;
     startIndex += count;
-    if (out.length >= page.totalResults) break;
+    if (out.length >= total) break;
   }
   return out;
 }
