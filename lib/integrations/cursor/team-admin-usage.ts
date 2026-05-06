@@ -5,7 +5,8 @@
  * POST https://api.cursor.com/teams/filtered-usage-events
  * Auth: Basic (API key as username, empty password).
  *
- * Sums `chargedCents` / 100 → USD per Cursor docs (reconciles with /teams/spend).
+ * Sums `chargedCents` (see {@link cursorChargedFieldToUsd}) → USD per Cursor docs
+ * (reconciles with /teams/spend).
  */
 
 import { IntegrationError } from "../errors";
@@ -20,15 +21,45 @@ export type CursorTeamAdminUsageOpts = {
   fetchImpl?: Fetch;
 };
 
-export type FilteredUsageEvent = {
-  timestamp: string;
-  userEmail?: string;
-  chargedCents?: number;
-  model?: string;
+/** Token block on token-billed usage events (Admin API). */
+export type CursorTokenUsagePayload = {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheWriteTokens?: number;
+  cacheReadTokens?: number;
+  totalCents?: number;
+  discountPercentOff?: number;
 };
 
+/** Full event shape from POST /teams/filtered-usage-events (superset of vendor rollup fields). */
+export type CursorFilteredUsageEventFull = {
+  timestamp: string;
+  userEmail?: string;
+  model?: string;
+  kind?: string;
+  maxMode?: boolean;
+  requestsCosts?: number;
+  isTokenBasedCall?: boolean;
+  isChargeable?: boolean;
+  isHeadless?: boolean;
+  tokenUsage?: CursorTokenUsagePayload;
+  chargedCents?: number;
+  cursorTokenFee?: number;
+  isFreeBugbot?: boolean;
+};
+
+/**
+ * Cursor documents `chargedCents` as cents; JSON examples sometimes use non-integer
+ * dollar floats. Integer values are treated as cents (÷100); non-integers as USD.
+ */
+export function cursorChargedFieldToUsd(chargedCents: number | undefined): number {
+  if (chargedCents == null || !Number.isFinite(chargedCents)) return 0;
+  if (Number.isInteger(chargedCents)) return chargedCents / 100;
+  return chargedCents;
+}
+
 type FilteredUsagePage = {
-  usageEvents: FilteredUsageEvent[];
+  usageEvents: CursorFilteredUsageEventFull[];
   pagination: {
     currentPage: number;
     pageSize: number;
@@ -58,12 +89,6 @@ export function resolveCursorTeamAdminApiKey(
   return k || null;
 }
 
-function chargedUsd(ev: FilteredUsageEvent): number {
-  const c = ev.chargedCents;
-  if (c == null || !Number.isFinite(c)) return 0;
-  return c / 100;
-}
-
 /** Calendar date key YYYY-MM-DD using the host local timezone (matches F1 daily chart buckets on the server). */
 export function calendarYmdFromMillis(ms: number): string {
   const d = new Date(ms);
@@ -75,6 +100,107 @@ export function calendarYmdFromMillis(ms: number): string {
 
 export type DailyBucket = { spendUsd: number; eventCount: number };
 
+async function postFilteredUsageEventsPage(args: {
+  chunkStart: number;
+  chunkEnd: number;
+  page: number;
+  pageSize: number;
+  auth: string;
+  fetchImpl: typeof fetch;
+}): Promise<FilteredUsagePage> {
+  const { chunkStart, chunkEnd, page, pageSize, auth, fetchImpl } = args;
+  let res!: Response;
+  let text!: string;
+  let nextBackoffMs = 2000;
+  for (let attempt = 0; attempt < RATE_LIMIT_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await sleep(nextBackoffMs);
+    }
+    res = await fetchImpl(`${CURSOR_TEAM_ADMIN_API_BASE}/teams/filtered-usage-events`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        startDate: chunkStart,
+        endDate: chunkEnd,
+        page,
+        pageSize,
+      }),
+    });
+    text = await res.text();
+    if (res.status === 429) {
+      const ra = res.headers.get("retry-after");
+      const sec = ra ? Number.parseInt(ra, 10) : NaN;
+      nextBackoffMs =
+        Number.isFinite(sec) && sec > 0
+          ? Math.min(120_000, sec * 1000)
+          : Math.min(60_000, 2000 * 2 ** attempt);
+      continue;
+    }
+    break;
+  }
+  if (res.status === 429) {
+    throw new IntegrationError(
+      "cursor",
+      `POST /teams/filtered-usage-events → 429: rate limit (exhausted ${RATE_LIMIT_MAX_ATTEMPTS} retries): ${text.slice(0, 400)}`,
+    );
+  }
+  if (!res.ok) {
+    throw new IntegrationError(
+      "cursor",
+      `POST /teams/filtered-usage-events → ${res.status}: ${text.slice(0, 600)}`,
+    );
+  }
+  try {
+    return JSON.parse(text) as FilteredUsagePage;
+  } catch {
+    throw new IntegrationError("cursor", "filtered-usage-events: invalid JSON body");
+  }
+}
+
+/**
+ * Fetch every usage event in [startMs, endMs], chunking and paginating per Admin API limits.
+ */
+export async function fetchCursorFilteredUsageEventsInRange(args: {
+  startMs: number;
+  endMs: number;
+  opts: CursorTeamAdminUsageOpts;
+  pageSize?: number;
+}): Promise<CursorFilteredUsageEventFull[]> {
+  const { startMs, endMs, opts } = args;
+  const pageSize = Math.min(Math.max(args.pageSize ?? 500, 1), 500);
+  const f = opts.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const auth = Buffer.from(`${opts.apiKey}:`).toString("base64");
+  const out: CursorFilteredUsageEventFull[] = [];
+
+  let chunkStart = startMs;
+  while (chunkStart <= endMs) {
+    const chunkEnd = Math.min(chunkStart + CURSOR_USAGE_CHUNK_MS - 1, endMs);
+    let page = 1;
+    for (let guard = 0; guard < 5000; guard++) {
+      if (page > 1) {
+        await sleep(INTER_REQUEST_MS);
+      }
+      const body = await postFilteredUsageEventsPage({
+        chunkStart,
+        chunkEnd,
+        page,
+        pageSize,
+        auth,
+        fetchImpl: f,
+      });
+      out.push(...(body.usageEvents ?? []));
+      if (body.pagination?.hasNextPage !== true) break;
+      page += 1;
+    }
+    chunkStart = chunkEnd + 1;
+  }
+  return out;
+}
+
 /**
  * Fetch all usage events in [startMs, endMs], paginating each chunk.
  * Aggregates by UTC calendar day.
@@ -84,87 +210,17 @@ export async function fetchCursorFilteredUsageByUtcDay(args: {
   endMs: number;
   opts: CursorTeamAdminUsageOpts;
 }): Promise<Map<string, DailyBucket>> {
-  const { startMs, endMs, opts } = args;
+  const events = await fetchCursorFilteredUsageEventsInRange(args);
   const out = new Map<string, DailyBucket>();
-  const f = opts.fetchImpl ?? globalThis.fetch.bind(globalThis);
-  const auth = Buffer.from(`${opts.apiKey}:`).toString("base64");
-
-  let chunkStart = startMs;
-  while (chunkStart <= endMs) {
-    const chunkEnd = Math.min(chunkStart + CURSOR_USAGE_CHUNK_MS - 1, endMs);
-    let page = 1;
-    const pageSize = 500;
-    for (let guard = 0; guard < 5000; guard++) {
-      if (page > 1) {
-        await sleep(INTER_REQUEST_MS);
-      }
-      let res!: Response;
-      let text!: string;
-      let nextBackoffMs = 2000;
-      for (let attempt = 0; attempt < RATE_LIMIT_MAX_ATTEMPTS; attempt++) {
-        if (attempt > 0) {
-          await sleep(nextBackoffMs);
-        }
-        res = await f(`${CURSOR_TEAM_ADMIN_API_BASE}/teams/filtered-usage-events`, {
-          method: "POST",
-          headers: {
-            Authorization: `Basic ${auth}`,
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            startDate: chunkStart,
-            endDate: chunkEnd,
-            page,
-            pageSize,
-          }),
-        });
-        text = await res.text();
-        if (res.status === 429) {
-          const ra = res.headers.get("retry-after");
-          const sec = ra ? Number.parseInt(ra, 10) : NaN;
-          nextBackoffMs =
-            Number.isFinite(sec) && sec > 0
-              ? Math.min(120_000, sec * 1000)
-              : Math.min(60_000, 2000 * 2 ** attempt);
-          continue;
-        }
-        break;
-      }
-      if (res.status === 429) {
-        throw new IntegrationError(
-          "cursor",
-          `POST /teams/filtered-usage-events → 429: rate limit (exhausted ${RATE_LIMIT_MAX_ATTEMPTS} retries): ${text.slice(0, 400)}`,
-        );
-      }
-      if (!res.ok) {
-        throw new IntegrationError(
-          "cursor",
-          `POST /teams/filtered-usage-events → ${res.status}: ${text.slice(0, 600)}`,
-        );
-      }
-      let body: FilteredUsagePage;
-      try {
-        body = JSON.parse(text) as FilteredUsagePage;
-      } catch {
-        throw new IntegrationError("cursor", "filtered-usage-events: invalid JSON body");
-      }
-      const events = body.usageEvents ?? [];
-      for (const ev of events) {
-        const ms = Number(ev.timestamp);
-        if (!Number.isFinite(ms)) continue;
-        const ymd = calendarYmdFromMillis(ms);
-        const usd = chargedUsd(ev);
-        const prev = out.get(ymd) ?? { spendUsd: 0, eventCount: 0 };
-        prev.spendUsd += usd;
-        prev.eventCount += 1;
-        out.set(ymd, prev);
-      }
-      const hasNext = body.pagination?.hasNextPage === true;
-      if (!hasNext) break;
-      page += 1;
-    }
-    chunkStart = chunkEnd + 1;
+  for (const ev of events) {
+    const ms = Number(ev.timestamp);
+    if (!Number.isFinite(ms)) continue;
+    const ymd = calendarYmdFromMillis(ms);
+    const usd = cursorChargedFieldToUsd(ev.chargedCents);
+    const prev = out.get(ymd) ?? { spendUsd: 0, eventCount: 0 };
+    prev.spendUsd += usd;
+    prev.eventCount += 1;
+    out.set(ymd, prev);
   }
   return out;
 }

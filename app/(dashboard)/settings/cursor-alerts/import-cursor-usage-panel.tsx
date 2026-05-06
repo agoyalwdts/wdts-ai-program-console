@@ -7,22 +7,24 @@ import { AlertCircle, CheckCircle2, Loader2, Upload } from "lucide-react";
 
 type ApiOk =
   | {
-      ok: true;
-      dryRun: boolean;
-      rowsParsed: number;
-      rowsSkipped?: number;
-      parseErrors?: string[];
-      alertsWouldCreate?: number;
-      alertsInserted?: number;
-      candidatesEvaluated?: number;
-      sample?: Array<{
-        userEmail: string;
-        model: string;
-        costUsd: number;
-        ruleCode: string;
-        title: string;
-      }>;
-    }
+    ok: true;
+    dryRun: boolean;
+    rowsParsed?: number;
+    rowsSkipped?: number;
+    parseErrors?: string[];
+    alertsWouldCreate?: number;
+    alertsInserted?: number;
+    candidatesEvaluated?: number;
+    eventsFetched?: number;
+    rowsMapped?: number;
+    sample?: Array<{
+      userEmail: string;
+      model: string;
+      costUsd: number;
+      ruleCode: string;
+      title: string;
+    }>;
+  }
   | { ok: false; error?: string };
 
 export function ImportCursorUsagePanel() {
@@ -30,6 +32,9 @@ export function ImportCursorUsagePanel() {
   const [dragOver, setDragOver] = React.useState(false);
   const [busy, setBusy] = React.useState<"idle" | "dry" | "apply">("idle");
   const [result, setResult] = React.useState<ApiOk | null>(null);
+  const [lookbackDays, setLookbackDays] = React.useState(7);
+  const [apiBusy, setApiBusy] = React.useState<"idle" | "dry" | "apply">("idle");
+  const [apiResult, setApiResult] = React.useState<ApiOk | null>(null);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
   function pickFile(f: File | null) {
@@ -54,6 +59,27 @@ export function ImportCursorUsagePanel() {
       setResult({ ok: false, error: (e as Error).message });
     } finally {
       setBusy("idle");
+    }
+  }
+
+  async function submitApi(dryRun: boolean) {
+    setApiBusy(dryRun ? "dry" : "apply");
+    setApiResult(null);
+    try {
+      const url = dryRun
+        ? "/api/imports/cursor-prudence-api?dryRun=1"
+        : "/api/imports/cursor-prudence-api";
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lookbackDays }),
+      });
+      const json = (await res.json()) as ApiOk;
+      setApiResult(json);
+    } catch (e) {
+      setApiResult({ ok: false, error: (e as Error).message });
+    } finally {
+      setApiBusy("idle");
     }
   }
 
@@ -192,6 +218,118 @@ export function ImportCursorUsagePanel() {
           ) : null}
         </div>
       ) : null}
+
+      <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4 space-y-3">
+        <div className="text-sm font-medium text-slate-900">Sync from Cursor Admin API</div>
+        <p className="text-xs text-slate-600 leading-relaxed">
+          Pulls granular usage events (token fields + charged amount) from{" "}
+          <code className="font-mono text-[11px]">POST /teams/filtered-usage-events</code>. Needs{" "}
+          <code className="font-mono text-[11px]">INTEGRATION_CURSOR=real</code> and{" "}
+          <code className="font-mono text-[11px]">CURSOR_TEAM_ADMIN_API_KEY</code> (or{" "}
+          <code className="font-mono text-[11px]">CURSOR_ADMIN_TOKEN</code>). Respects Cursor rate
+          limits; default window is the last N days (max 30).
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-slate-700">
+            <span>Lookback</span>
+            <select
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+              value={lookbackDays}
+              onChange={(e) => setLookbackDays(Number(e.target.value))}
+            >
+              {[7, 14, 30].map((d) => (
+                <option key={d} value={d}>
+                  {d} days
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={apiBusy !== "idle"}
+            onClick={() => submitApi(true)}
+          >
+            {apiBusy === "dry" ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Scanning…
+              </>
+            ) : (
+              "API dry run"
+            )}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={apiBusy !== "idle"}
+            onClick={() => submitApi(false)}
+          >
+            {apiBusy === "apply" ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Syncing…
+              </>
+            ) : (
+              "Sync from API"
+            )}
+          </Button>
+        </div>
+
+        {apiResult && !apiResult.ok ? (
+          <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900 flex gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div>{apiResult.error ?? "Request failed"}</div>
+          </div>
+        ) : null}
+
+        {apiResult && apiResult.ok ? (
+          <div className="rounded-md border border-slate-200 bg-white p-4 text-sm space-y-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <span className="font-medium text-slate-900">
+                {apiResult.dryRun ? "API dry run complete" : "API sync complete"}
+              </span>
+              {apiResult.dryRun ? (
+                <Badge variant="secondary">no writes</Badge>
+              ) : (
+                <Badge variant="success">saved</Badge>
+              )}
+            </div>
+            <ul className="text-slate-700 space-y-1 list-disc pl-5">
+              {apiResult.eventsFetched != null ? (
+                <li>Events fetched: {apiResult.eventsFetched.toLocaleString()}</li>
+              ) : null}
+              {apiResult.rowsMapped != null ? (
+                <li>Mapped rows (email + model): {apiResult.rowsMapped.toLocaleString()}</li>
+              ) : null}
+              {apiResult.dryRun && apiResult.alertsWouldCreate != null ? (
+                <li>Would create alerts: {apiResult.alertsWouldCreate}</li>
+              ) : null}
+              {!apiResult.dryRun && apiResult.alertsInserted != null ? (
+                <li>New alert rows: {apiResult.alertsInserted}</li>
+              ) : null}
+              {!apiResult.dryRun && apiResult.candidatesEvaluated != null ? (
+                <li>Rule hits (incl. duplicates skipped): {apiResult.candidatesEvaluated}</li>
+              ) : null}
+            </ul>
+            {apiResult.sample && apiResult.sample.length > 0 ? (
+              <details className="text-xs">
+                <summary className="cursor-pointer text-slate-600">Sample ({apiResult.sample.length})</summary>
+                <ul className="mt-2 space-y-1 font-mono text-[11px]">
+                  {apiResult.sample.map((s, i) => (
+                    <li key={i}>
+                      {s.userEmail} · {s.model.slice(0, 40)}
+                      … · ${s.costUsd.toFixed(2)} · {s.ruleCode}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

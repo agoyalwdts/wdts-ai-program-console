@@ -548,6 +548,7 @@ matches the Deel webhook pattern.
   | File | Purpose |
   |------|---------|
   | `.github/workflows/cron-reconcile-azuread.yml` | `POST /api/cron/reconcile-azuread` |
+  | `.github/workflows/cron-cursor-prudence.yml` | `POST /api/cron/cursor-prudence` (filtered-usage-events → prudence alerts) |
   | `.github/workflows/cron-vendor-spend-sync.yml` | `POST /api/cron/sync-cursor-spend`, `sync-openai-spend`, `sync-codex-enterprise-spend` |
   | `.github/workflows/cron-usage-mirror-health.yml` | `POST /api/cron/usage-mirror-health` |
 

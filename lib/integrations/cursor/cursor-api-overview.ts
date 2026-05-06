@@ -11,6 +11,11 @@ import { getIntegrationMode, type IntegrationEnv } from "../env";
 import { cursorTeamGetJson } from "./cursor-team-http";
 import { resolveCursorTeamAdminApiKey } from "./team-admin-usage";
 import type { Fetch } from "../_http";
+import {
+  fetchAllAiCodeCommitsForWindow,
+  rollupAiCodeCommits,
+  type AiCodeRollup,
+} from "./ai-code-rollup";
 
 export type CursorApiSlice =
   | { status: "ok"; data: unknown }
@@ -70,17 +75,17 @@ export const CURSOR_OVERVIEW_PANELS: CursorOverviewPanel[] = [
     path: "/analytics/team/mcp",
   },
   {
+    key: "analyticsLeaderboard",
+    label: "Usage leaderboard",
+    apiFamily: "Analytics API",
+    path: "/analytics/team/leaderboard",
+    query: { page: "1", pageSize: "10" },
+  },
+  {
     key: "adminMembers",
     label: "Team members",
     apiFamily: "Admin API",
     path: "/teams/members",
-  },
-  {
-    key: "aiCodeCommits",
-    label: "AI code commits (sample page)",
-    apiFamily: "AI Code Tracking API",
-    path: "/analytics/ai-code/commits",
-    query: { page: "1", pageSize: "20" },
   },
   {
     key: "cloudMe",
@@ -111,11 +116,18 @@ async function mapErr(fn: () => Promise<unknown>): Promise<CursorApiSlice> {
   }
 }
 
+export type AiCodeRollupSlice =
+  | { status: "ok"; rollup: AiCodeRollup }
+  | { status: "error"; message: string }
+  | { status: "skipped"; reason: string };
+
 export type CursorApiOverview = {
   integrationMode: "real" | "synthetic";
   apiKeyConfigured: boolean;
   window: { startDate: string; endDate: string };
   slices: Record<string, CursorApiSlice>;
+  /** Paginated AI Code Tracking commits, rolled up for charts/tables (Enterprise). */
+  aiCodeRollup: AiCodeRollupSlice;
 };
 
 export type LoadCursorApiOverviewOptions = {
@@ -139,6 +151,11 @@ export async function loadCursorApiOverview(
     reason,
   });
 
+  const skippedRollup = (reason: string): AiCodeRollupSlice => ({
+    status: "skipped",
+    reason,
+  });
+
   if (mode !== "real") {
     const slices = Object.fromEntries(
       CURSOR_OVERVIEW_PANELS.map((p) => [
@@ -151,6 +168,7 @@ export async function loadCursorApiOverview(
       apiKeyConfigured: Boolean(apiKey),
       window,
       slices,
+      aiCodeRollup: skippedRollup("INTEGRATION_CURSOR is not `real`."),
     };
   }
 
@@ -166,6 +184,9 @@ export async function loadCursorApiOverview(
       apiKeyConfigured: false,
       window,
       slices,
+      aiCodeRollup: skippedRollup(
+        "No Team Admin API key (set CURSOR_TEAM_ADMIN_API_KEY or CURSOR_ADMIN_TOKEN).",
+      ),
     };
   }
 
@@ -196,10 +217,30 @@ export async function loadCursorApiOverview(
     }),
   );
 
+  let aiCodeRollup: AiCodeRollupSlice;
+  try {
+    const items = await fetchAllAiCodeCommitsForWindow({
+      apiKey,
+      startDate: window.startDate,
+      endDate: window.endDate,
+      fetchImpl,
+    });
+    aiCodeRollup = { status: "ok", rollup: rollupAiCodeCommits(items) };
+  } catch (e) {
+    const msg =
+      e instanceof IntegrationError
+        ? e.message
+        : e instanceof Error
+          ? e.message
+          : String(e);
+    aiCodeRollup = { status: "error", message: msg };
+  }
+
   return {
     integrationMode: "real",
     apiKeyConfigured: true,
     window,
     slices: Object.fromEntries(entries),
+    aiCodeRollup,
   };
 }

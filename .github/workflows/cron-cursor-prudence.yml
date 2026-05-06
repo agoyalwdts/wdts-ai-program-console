@@ -1,0 +1,59 @@
+# Nightly Cursor usage prudence — POST /api/cron/cursor-prudence with HMAC-signed {}.
+# Pulls Admin API filtered-usage-events inside the app (Team Admin key on App Service).
+#
+# Prerequisites (same as cron-reconcile-azuread.yml):
+#   - Repository secret CRON_SHARED_SECRET matches App Service CRON_SHARED_SECRET.
+#   - INTEGRATION_CURSOR=real + CURSOR_TEAM_ADMIN_API_KEY (or CURSOR_ADMIN_TOKEN) on App Service.
+#
+# See docs/deploy/azure.md § "Cron triggers".
+
+name: Cron — Cursor prudence (API)
+
+on:
+  schedule:
+    # 04:19 UTC — between AzureAD reconcile (03:37) and vendor spend sync (04:41).
+    - cron: "19 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cron-cursor-prudence
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prudence:
+    name: POST /api/cron/cursor-prudence
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      CRON_URL: https://wdts-ai-program-console.azurewebsites.net/api/cron/cursor-prudence
+
+    steps:
+      - name: Verify secret is configured
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          if [ -z "$CRON_SHARED_SECRET" ]; then
+            echo "::error::Repository secret CRON_SHARED_SECRET is not set. See docs/deploy/azure.md § Cron triggers."
+            exit 1
+          fi
+
+      - name: Run Cursor prudence sync (apply, default lookback)
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          BODY='{}'
+          SIG=$(printf '%s' "$BODY" \
+            | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" \
+            | awk '{print $2}')
+          echo "## Cursor prudence cron response" >> "$GITHUB_STEP_SUMMARY"
+          curl -fsS -X POST \
+            -H "x-cron-signature: sha256=${SIG}" \
+            -H "content-type: application/json" \
+            --data "$BODY" \
+            "$CRON_URL" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "OK — prudence cron returned HTTP 200." >> "$GITHUB_STEP_SUMMARY"

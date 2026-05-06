@@ -22,8 +22,8 @@
  *                                     line per policy). Per-product cap-sums can still
  *                                     overcommit in the ladder; F1 shows this envelope.
  *   - Claude.ai (30 seats)          — ~$25K/yr placeholder, contract finalising.
- *   - M365 Copilot (314 today)      — ~$90K/yr placeholder, EA-discounted,
- *                                     footprint under §4.6.6 rationalisation.
+ *   - M365 Copilot (440 seats)      — EA prepaid annual commit (per-license
+ *                                     × entitled count), not usage-metered.
  */
 
 export type ProductKey = "CURSOR" | "CHATGPT" | "CODEX" | "CLAUDE_AI" | "M365_COPILOT";
@@ -57,6 +57,19 @@ export const OPENAI_POOLED_CREDITS_PER_USER_MONTH = 500;
 export const OPENAI_POOLED_CREDITS_MONTH =
   OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * OPENAI_POOLED_CREDITS_PER_USER_MONTH;
 
+/** M365 Copilot: entitled (paid) seat count — annual commit = × {@link M365_COPILOT_USD_PER_LICENSE_YEAR}. */
+export const M365_COPILOT_LICENSES_ENTITLED = 440;
+
+/** Per-seat annual contract line (USD); full commit is paid regardless of usage. */
+export const M365_COPILOT_USD_PER_LICENSE_YEAR = 285.476;
+
+/** Total annual Microsoft 365 Copilot commit (440 × per-license year). */
+export const M365_COPILOT_ANNUAL_COMMIT_USD =
+  M365_COPILOT_LICENSES_ENTITLED * M365_COPILOT_USD_PER_LICENSE_YEAR;
+
+/** Level monthly budget for F1 Copilot tile (= annual ÷ 12). */
+export const M365_COPILOT_MONTHLY_COMMIT_USD = M365_COPILOT_ANNUAL_COMMIT_USD / 12;
+
 /** Typical additional monthly credits beyond pooled entitlement (planning average). */
 export const OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH = 200_000;
 
@@ -77,13 +90,14 @@ export const COMBINED_CHATGPT_CODEX_CAP_MONTH =
  *  - CHATGPT and CODEX share a pooled credit envelope. For per-product cards we
  *    use a neutral 50/50 planning split to avoid overfitting unknown line-item
  *    allocation while preserving a stable budget ratio for fallback allocations.
- *  - CLAUDE_AI and M365_COPILOT are the §0 placeholder envelopes ÷ 12. */
+ *  - CLAUDE_AI is the §0 placeholder envelope ÷ 12.
+ *  - M365_COPILOT is the EA prepaid annual commit ÷ 12 ({@link M365_COPILOT_LICENSES_ENTITLED} × {@link M365_COPILOT_USD_PER_LICENSE_YEAR}). */
 export const MONTHLY_BUDGET_USD: Record<ProductKey, number> = {
   CURSOR: 41_667, // $500K / 12 (credit envelope, §4.6.1 — binding constraint is $, not seats)
   CHATGPT: COMBINED_CHATGPT_CODEX_CAP_MONTH / 2,
   CODEX: COMBINED_CHATGPT_CODEX_CAP_MONTH / 2,
   CLAUDE_AI: 2_083, // ~$25K / 12 placeholder (§4.6.5)
-  M365_COPILOT: 7_500, // ~$90K / 12 placeholder (§4.6.6, under review)
+  M365_COPILOT: M365_COPILOT_MONTHLY_COMMIT_USD,
 };
 
 export const ANNUAL_BUDGET_USD: Record<ProductKey, number> = {
@@ -91,7 +105,7 @@ export const ANNUAL_BUDGET_USD: Record<ProductKey, number> = {
   CHATGPT: (COMBINED_CHATGPT_CODEX_CAP_MONTH / 2) * 12,
   CODEX: (COMBINED_CHATGPT_CODEX_CAP_MONTH / 2) * 12,
   CLAUDE_AI: 25_000,
-  M365_COPILOT: 90_000,
+  M365_COPILOT: M365_COPILOT_ANNUAL_COMMIT_USD,
 };
 
 /** Rounded illustration for FinOps callouts (e.g. landing health page). */

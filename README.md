@@ -37,11 +37,10 @@ v0.3 lands:
   users into Prisma, wraps each pass in a `Decision` row. Now also
   resolves manager edges via Graph's `$expand=manager`, so
   `User.managerId` populates without an N+1 walk.
-- **Cron triggers** — `POST /api/cron/reconcile-azuread`
-  (HMAC-protected via `CRON_SHARED_SECRET`) lets any external
-  scheduler drive the reconciler — GitHub Actions schedule, Azure
-  Logic Apps, an external uptime checker — without anyone holding a
-  DB credential. See `docs/deploy/azure.md §"Cron triggers"`.
+- **Cron triggers** — HMAC-protected `POST /api/cron/*` (e.g.
+  `reconcile-azuread`, `cursor-prudence`, vendor spend sync) using
+  `CRON_SHARED_SECRET` — GitHub Actions schedule, Logic Apps, etc.
+  See `docs/deploy/azure.md §"Cron triggers"`.
 - **Webhooks** — `/api/webhooks/deel` HMAC-verifies + records advisory
   Decisions.
 - **CI** — GitHub Actions runs `typecheck + lint + Vitest` on every
