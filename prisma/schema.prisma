@@ -102,6 +102,8 @@ enum DecisionType {
   CURSOR_VENDOR_SPEND_SYNC
   /// OpenAI organization/costs API → VendorDailySpend (CHATGPT + CODEX).
   OPENAI_VENDOR_SPEND_SYNC
+  /// Codex Enterprise Analytics API (api.chatgpt.com) → VendorDailySpend (CODEX only).
+  CODEX_ENTERPRISE_ANALYTICS_SYNC
 }
 
 // ---------------------------------------------------------------------------

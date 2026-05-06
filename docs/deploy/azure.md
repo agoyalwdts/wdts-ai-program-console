@@ -173,6 +173,9 @@ None of these values lives anywhere else in production.
 | `POLICYREPO-TOKEN` | `POLICYREPO_TOKEN` | Fine-grained PAT, scoped to `agoyalwdts/wdts-ai-policy`. **Do not issue this until branch protection is on the policy repo** (`AGENTS.md` §13) |
 | `OPENAI-ADMIN-API-KEY` | `OPENAI_ADMIN_API_KEY` | OpenAI org admin keys |
 | `OPENAI-ORG-ID` | `OPENAI_ORG_ID` | OpenAI org settings |
+| `OPENAI-CODEX-ANALYTICS-API-KEY` | `OPENAI_CODEX_ANALYTICS_API_KEY` | Platform API key with `codex.enterprise.analytics.read` (Codex Enterprise Analytics on `api.chatgpt.com`) |
+| `CHATGPT-WORKSPACE-ID` | `CHATGPT_WORKSPACE_ID` | ChatGPT Admin → workspace UUID (alias: `OPENAI_CHATGPT_WORKSPACE_ID`) |
+| `OPENAI-CODEX-ANALYTICS-USD-PER-CREDIT` | `OPENAI_CODEX_ANALYTICS_USD_PER_CREDIT` | Optional; default `1` — multiply API `credits` to USD for F1 |
 | `ANTHROPIC-ADMIN-API-KEY` | `ANTHROPIC_ADMIN_API_KEY` | Anthropic workspace admin keys |
 | `ANTHROPIC-ORG-ID` | `ANTHROPIC_ORG_ID` | Anthropic workspace settings |
 | `ANTHROPIC-WORKSPACE-ID` | `ANTHROPIC_WORKSPACE_ID` | Anthropic workspace settings |
@@ -198,6 +201,7 @@ Non-secret App Settings (set as plain values, not Key Vault refs):
 | `INTEGRATION_AZUREAD` | `real` |
 | `INTEGRATION_CURSOR` | `real` |
 | `INTEGRATION_OPENAI` | `real` |
+| `INTEGRATION_CODEX_ENTERPRISE_ANALYTICS` | `synthetic` until the analytics key + workspace id are live; then **`real`** for F1 CODEX from `api.chatgpt.com` |
 | `INTEGRATION_ANTHROPIC` | `real` |
 | `INTEGRATION_M365GRAPH` | `real` |
 | `INTEGRATION_DEEL` | `real` |
@@ -544,7 +548,7 @@ matches the Deel webhook pattern.
   | File | Purpose |
   |------|---------|
   | `.github/workflows/cron-reconcile-azuread.yml` | `POST /api/cron/reconcile-azuread` |
-  | `.github/workflows/cron-vendor-spend-sync.yml` | `POST /api/cron/sync-cursor-spend` and `sync-openai-spend` |
+  | `.github/workflows/cron-vendor-spend-sync.yml` | `POST /api/cron/sync-cursor-spend`, `sync-openai-spend`, `sync-codex-enterprise-spend` |
   | `.github/workflows/cron-usage-mirror-health.yml` | `POST /api/cron/usage-mirror-health` |
 
 - **Azure Logic Apps / Azure Functions Timer.** Both fine; gives

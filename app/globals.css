@@ -1,4 +1,14 @@
 @import "tailwindcss";
+@import "react-day-picker/style.css";
+
+/* Program Health custom range — align DayPicker tokens with dashboard slate shell */
+.health-f1-day-picker.rdp-root {
+  --rdp-accent-color: #0f172a;
+  --rdp-accent-background-color: #e2e8f0;
+  --rdp-today-color: #334155;
+  --rdp-day-width: 2.75rem;
+  --rdp-day-height: 2.75rem;
+}
 
 :root {
   --background: #f8fafc;

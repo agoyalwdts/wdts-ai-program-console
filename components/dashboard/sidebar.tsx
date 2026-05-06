@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
+  BarChart3,
   Layers,
   LayoutGrid,
   Receipt,
@@ -16,6 +17,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/health", label: "Program Health", icon: Activity, feature: "F1" },
+  { href: "/analytics", label: "Analytics", icon: BarChart3, feature: "—" },
   { href: "/users", label: "Users", icon: Users, feature: "F2" },
   { href: "/managers", label: "Manager Queue", icon: UserCog, feature: "F3" },
   { href: "/cursor-seats", label: "Cursor Seats", icon: LayoutGrid, feature: "F4" },

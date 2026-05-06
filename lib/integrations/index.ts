@@ -48,6 +48,12 @@ export type {
 export { getOpenAIClient, makeRealOpenAIClient } from "./openai";
 export type { OpenAIClient, ChatGptSeat, CodexSeat, CodexSubTier } from "./openai";
 
+export {
+  CODEX_ENTERPRISE_ANALYTICS_VENDOR_KEY,
+  fetchCodexEnterpriseWorkspaceUsageRows,
+  resolveCodexEnterpriseAnalyticsCredentials,
+} from "./codex-enterprise-analytics/fetch-workspace-usage";
+
 export { getAnthropicClient, makeRealAnthropicClient } from "./anthropic";
 export type { AnthropicClient, ClaudeSeat } from "./anthropic";
 

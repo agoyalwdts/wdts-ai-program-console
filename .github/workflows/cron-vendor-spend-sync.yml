@@ -1,4 +1,4 @@
-# Nightly Cursor + OpenAI vendor spend → VendorDailySpend (HMAC cron routes).
+# Nightly Cursor + OpenAI + Codex Enterprise Analytics → VendorDailySpend (HMAC cron).
 # Same secret contract as docs/deploy/azure.md § Cron triggers.
 #
 # Prerequisites:
@@ -41,6 +41,9 @@ jobs:
             lookbackDays: 28
           - label: openai
             path: /api/cron/sync-openai-spend
+            lookbackDays: 120
+          - label: codex_enterprise
+            path: /api/cron/sync-codex-enterprise-spend
             lookbackDays: 120
 
     env:

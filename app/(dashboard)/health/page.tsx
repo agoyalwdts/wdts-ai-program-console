@@ -25,18 +25,21 @@ import { prisma } from "@/lib/prisma";
 import { loadCursorVendorSpendForF1, mergeCursorVendorIntoF1 } from "@/lib/f1-cursor-vendor";
 import { loadOpenAiVendorSpendForF1, mergeOpenAiVendorIntoF1 } from "@/lib/f1-openai-vendor";
 import {
+  loadCodexEnterpriseVendorSpendForF1,
+  mergeCodexEnterpriseVendorIntoF1,
+} from "@/lib/f1-codex-enterprise-analytics";
+import {
   f1PeriodSpendLabel,
-  parseF1Period,
-  planF1Period,
+  resolveF1PlanFromSearchParams,
   type F1Period,
   type F1PeriodPlan,
 } from "@/lib/f1-period";
 
 export const dynamic = "force-dynamic";
 
-type SP = { period?: string };
+type SP = { period?: string; from?: string; to?: string };
 
-async function getF1Data(period: F1Period): Promise<{
+async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   mtdMap: Map<ProductKey, number>;
   days: SpendPoint[];
   top: {
@@ -52,16 +55,13 @@ async function getF1Data(period: F1Period): Promise<{
   period: F1Period;
   cursorSpendSource: "gateway" | "vendor";
   openAiChatgptSpendSource: "gateway" | "vendor";
-  openAiCodexSpendSource: "gateway" | "vendor";
+  codexSpendSource: "gateway" | "openai_org_costs" | "codex_enterprise_analytics";
 }> {
-  const now = new Date();
-  const plan = planF1Period(now, period);
-
   const gateway = getGatewayClient();
   const azuread = getAzureADClient();
   const deel = getDeelClient();
 
-  const [programAgg, dailyAgg, topRaw, identityAll, deelAll, vendorCursor, vendorOpenAi] =
+  const [programAgg, dailyAgg, topRaw, identityAll, deelAll, vendorCursor, vendorOpenAi, vendorCodexEnterprise] =
     await Promise.all([
       gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
       gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
@@ -73,6 +73,10 @@ async function getF1Data(period: F1Period): Promise<{
         periodEnd: plan.periodEnd,
       }),
       loadOpenAiVendorSpendForF1(prisma, {
+        periodStart: plan.periodStart,
+        periodEnd: plan.periodEnd,
+      }),
+      loadCodexEnterpriseVendorSpendForF1(prisma, {
         periodStart: plan.periodStart,
         periodEnd: plan.periodEnd,
       }),
@@ -108,15 +112,25 @@ async function getF1Data(period: F1Period): Promise<{
     codexByChartDay: vendorOpenAi.codex.byChartDay,
     useCodexVendor: vendorOpenAi.codex.usedVendor,
   });
+  mergeCodexEnterpriseVendorIntoF1({
+    mtdMap,
+    days,
+    codexVendorTotal: vendorCodexEnterprise.periodTotalUsd,
+    codexByChartDay: vendorCodexEnterprise.byChartDay,
+    useVendor: vendorCodexEnterprise.usedVendor,
+  });
   const cursorSpendSource: "gateway" | "vendor" = vendorCursor.usedVendor
     ? "vendor"
     : "gateway";
   const openAiChatgptSpendSource: "gateway" | "vendor" = vendorOpenAi.chatgpt.usedVendor
     ? "vendor"
     : "gateway";
-  const openAiCodexSpendSource: "gateway" | "vendor" = vendorOpenAi.codex.usedVendor
-    ? "vendor"
-    : "gateway";
+  const codexSpendSource: "gateway" | "openai_org_costs" | "codex_enterprise_analytics" =
+    vendorCodexEnterprise.usedVendor
+      ? "codex_enterprise_analytics"
+      : vendorOpenAi.codex.usedVendor
+        ? "openai_org_costs"
+        : "gateway";
 
   const identityById = new Map(identityAll.map((u) => [u.azureObjectId, u]));
   const deelByEmail = new Map(deelAll.map((d) => [d.email, d]));
@@ -146,15 +160,16 @@ async function getF1Data(period: F1Period): Promise<{
     period,
     cursorSpendSource,
     openAiChatgptSpendSource,
-    openAiCodexSpendSource,
+    codexSpendSource,
   };
 }
 
 export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   await requireUser();
   const sp = await props.searchParams;
-  const period = parseF1Period(sp.period);
-  const data = await getF1Data(period);
+  const now = new Date();
+  const { plan, period } = resolveF1PlanFromSearchParams(now, sp);
+  const data = await getF1Data(period, plan);
   const m = data.plan.budgetMonthMultiplier;
   const combinedPeriodCap = COMBINED_CHATGPT_CODEX_CAP_MONTH * m;
   const spendLabel = f1PeriodSpendLabel(period);
@@ -296,7 +311,12 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                       OpenAI organization costs API (line-item split)
                     </p>
                   ) : null}
-                  {key === "CODEX" && data.openAiCodexSpendSource === "vendor" ? (
+                  {key === "CODEX" && data.codexSpendSource === "codex_enterprise_analytics" ? (
+                    <p className="text-[11px] text-violet-700 mt-1">
+                      Codex Enterprise Analytics (api.chatgpt.com)
+                    </p>
+                  ) : null}
+                  {key === "CODEX" && data.codexSpendSource === "openai_org_costs" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
                       OpenAI organization costs API (line-item split)
                     </p>
@@ -321,11 +341,16 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               {data.cursorSpendSource === "vendor"
                 ? "Cursor Team Admin sync when VendorDailySpend rows exist."
                 : "that mirror (Settings → sync Cursor spend for vendor totals). "}
-              CHATGPT/CODEX use{" "}
-              {data.openAiChatgptSpendSource === "vendor" ||
-              data.openAiCodexSpendSource === "vendor"
-                ? "OpenAI organization/costs sync for tiles that have vendor rows; others stay on the gateway mirror."
-                : "the gateway mirror unless you run OpenAI vendor sync in Settings."}
+              CHATGPT uses{" "}
+              {data.openAiChatgptSpendSource === "vendor"
+                ? "OpenAI organization/costs when vendor rows exist; otherwise the gateway mirror."
+                : "the gateway mirror unless you run OpenAI vendor sync in Settings."}{" "}
+              CODEX uses{" "}
+              {data.codexSpendSource === "codex_enterprise_analytics"
+                ? "Codex Enterprise Analytics sync when configured (overrides org costs for the CODEX tile)."
+                : data.codexSpendSource === "openai_org_costs"
+                  ? "OpenAI organization/costs when vendor rows exist."
+                  : "the gateway mirror unless you run vendor sync in Settings."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -376,9 +401,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
         <p className="text-xs text-slate-400">
           F1 reads gateway / AzureAD / Deel. With <code className="font-mono">INTEGRATION_CURSOR=real</code>{" "}
           and a recent <code className="font-mono">VendorDailySpend</code> sync, CURSOR matches Cursor
-          Team Admin usage. With <code className="font-mono">INTEGRATION_OPENAI=real</code> and OpenAI
-          costs sync, CHATGPT and CODEX tiles (and chart series) can track OpenAI&apos;s organization
-          costs API instead of only the gateway mirror.
+          Team Admin usage.           With <code className="font-mono">INTEGRATION_OPENAI=real</code> and OpenAI costs sync,
+          CHATGPT can track organization costs. With{" "}
+          <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code> and Codex
+          analytics sync, the CODEX tile can use <code className="font-mono">api.chatgpt.com</code>{" "}
+          workspace usage (overriding org-costs CODEX when both exist).
         </p>
       </div>
     </>

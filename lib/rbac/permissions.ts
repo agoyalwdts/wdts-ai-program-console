@@ -32,13 +32,14 @@ export const PERMISSIONS = {
   DASHBOARD_VIEW_CHARGEBACK: "dashboard.view_chargeback",
   DASHBOARD_VIEW_CODEX_LADDER: "dashboard.view_codex_ladder",
   DASHBOARD_VIEW_MANAGERS: "dashboard.view_managers",
+  DASHBOARD_VIEW_ANALYTICS: "dashboard.view_analytics",
   DASHBOARD_VIEW_SETTINGS: "dashboard.view_settings",
 
   // Operations.
   IMPORTS_EMPLOYEES: "imports.employees",
   /// Ingest Cursor admin team-usage CSV; creates prudence alerts + optional email.
   IMPORTS_CURSOR_USAGE: "imports.cursor_usage",
-  /// Pull vendor admin APIs → VendorDailySpend (F1 CURSOR / ChatGPT / Codex tiles).
+  /// Pull vendor admin APIs → VendorDailySpend (F1 CURSOR / ChatGPT / Codex tiles + Codex Enterprise Analytics).
   VENDOR_SPEND_SYNC: "vendor_spend.sync",
   DECISIONS_EXPORT: "decisions.export",
 
@@ -116,6 +117,13 @@ export const PERMISSION_CATALOG: ReadonlyArray<PermissionMeta> = [
     description: "Direct-report cap utilisation. Managers see their team only.",
   },
   {
+    key: PERMISSIONS.DASHBOARD_VIEW_ANALYTICS,
+    category: "Dashboard",
+    displayName: "View vendor analytics",
+    description:
+      "Cursor Analytics / Admin / AI Code / Cloud Agents API snapshots and synced vendor spend rollups.",
+  },
+  {
     key: PERMISSIONS.DASHBOARD_VIEW_SETTINGS,
     category: "Dashboard",
     displayName: "View settings",
@@ -138,9 +146,9 @@ export const PERMISSION_CATALOG: ReadonlyArray<PermissionMeta> = [
   {
     key: PERMISSIONS.VENDOR_SPEND_SYNC,
     category: "Operations",
-    displayName: "Sync vendor spend (Cursor + OpenAI)",
+    displayName: "Sync vendor spend (Cursor + OpenAI + Codex analytics)",
     description:
-      "Trigger Cursor Team Admin and OpenAI organization costs sync into VendorDailySpend for F1.",
+      "Trigger Cursor Team Admin, OpenAI organization costs, and Codex Enterprise Analytics sync into VendorDailySpend for F1.",
   },
   {
     key: PERMISSIONS.DECISIONS_EXPORT,

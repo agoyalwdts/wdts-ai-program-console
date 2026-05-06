@@ -13,9 +13,11 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { formatUsd } from "@/lib/utils";
 import { COMBINED_CHATGPT_CODEX_CAP_MONTH } from "@/lib/program";
 import {
+  fetchCodexEnterpriseWorkspaceUsageRows,
   getAllIntegrationModes,
   getAzureOpenAIClient,
   realAzureADClient,
+  resolveCodexEnterpriseAnalyticsCredentials,
   type IntegrationName,
 } from "@/lib/integrations";
 import {
@@ -35,6 +37,7 @@ import {
 import Link from "next/link";
 import { SyncCursorVendorSpendButton } from "@/components/dashboard/sync-cursor-vendor-spend-button";
 import { SyncOpenAiVendorSpendButton } from "@/components/dashboard/sync-openai-vendor-spend-button";
+import { SyncCodexEnterpriseSpendButton } from "@/components/dashboard/sync-codex-enterprise-spend-button";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +64,32 @@ async function probeAzureAD(): Promise<ProbeResult> {
           {users.length > 3 ? `, +${users.length - 3} more` : ""}
         </div>
       ) : undefined,
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function probeCodexEnterpriseAnalytics(): Promise<ProbeResult> {
+  const creds = resolveCodexEnterpriseAnalyticsCredentials(process.env);
+  if (!creds) {
+    return {
+      ok: false,
+      error:
+        "OPENAI_CODEX_ANALYTICS_API_KEY and CHATGPT_WORKSPACE_ID (or OPENAI_CHATGPT_WORKSPACE_ID) not set",
+    };
+  }
+  try {
+    const end = Math.floor(Date.now() / 1000);
+    const start = end - 7 * 86_400;
+    const rows = await fetchCodexEnterpriseWorkspaceUsageRows({
+      startTimeSec: start,
+      endTimeSec: end,
+      creds,
+    });
+    return {
+      ok: true,
+      summary: `${rows.length} workspace usage row(s) in the last 7d (UTC window)`,
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -117,6 +146,8 @@ const INTEGRATION_NOTES: Record<IntegrationName, string> = {
     "SCIM: CURSOR_SCIM_BASE_URL + CURSOR_ADMIN_TOKEN. Team Admin usage API: same token or CURSOR_TEAM_ADMIN_API_KEY — Settings sync, POST /api/cron/sync-cursor-spend, or GHA cron-vendor-spend-sync.yml.",
   openai:
     "OpenAI Enterprise admin API key + org id. Vendor spend sync: POST /api/cron/sync-openai-spend or GHA cron-vendor-spend-sync.yml.",
+  codexenterprise:
+    "Bearer key (codex.enterprise.analytics.read) + CHATGPT_WORKSPACE_ID. GET api.chatgpt.com analytics — POST /api/cron/sync-codex-enterprise-spend or GHA cron-vendor-spend-sync.yml.",
   anthropic: "Anthropic admin API key (workspace-seat introspection beta).",
   m365graph: "Same app reg or a separate SP with Reports.Read.All + AuditLog.Read.All.",
   azuread:
@@ -135,9 +166,10 @@ export default async function SettingsPage() {
   await requirePermission(PERMISSIONS.DASHBOARD_VIEW_SETTINGS);
 
   const modes = getAllIntegrationModes();
-  const [aadProbe, aoiProbe, currentUser] = await Promise.all([
+  const [aadProbe, aoiProbe, codexProbe, currentUser] = await Promise.all([
     probeAzureAD(),
     probeAzureOpenAI(),
+    probeCodexEnterpriseAnalytics(),
     getCurrentUser(),
   ]);
 
@@ -223,7 +255,7 @@ export default async function SettingsPage() {
         ) : null}
 
         {canCursorPrudence || canVendorSpendSync ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {canCursorPrudence ? (
               <Card className="border-amber-200">
                 <CardHeader>
@@ -287,6 +319,30 @@ export default async function SettingsPage() {
                 </CardHeader>
                 <CardContent>
                   <SyncOpenAiVendorSpendButton />
+                </CardContent>
+              </Card>
+            ) : null}
+            {canVendorSpendSync ? (
+              <Card className="border-teal-200">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Radio className="h-4 w-4 text-teal-600" />
+                    Codex spend (Enterprise Analytics)
+                  </CardTitle>
+                  <CardDescription>
+                    Calls the{" "}
+                    <code className="font-mono text-xs">api.chatgpt.com</code> Codex workspace usage
+                    endpoint (see Codex Admin OpenAPI) with a Bearer key
+                    (scoped <code className="font-mono text-xs">codex.enterprise.analytics.read</code>
+                    ). Upserts daily CODEX buckets into <code className="font-mono text-xs">VendorDailySpend</code>
+                    . Optional <code className="font-mono text-xs">OPENAI_CODEX_ANALYTICS_USD_PER_CREDIT</code>{" "}
+                    (default 1). Schedule{" "}
+                    <code className="font-mono text-xs">POST /api/cron/sync-codex-enterprise-spend</code>{" "}
+                    or run below.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <SyncCodexEnterpriseSpendButton />
                 </CardContent>
               </Card>
             ) : null}
@@ -359,6 +415,12 @@ export default async function SettingsPage() {
               title="Azure OpenAI"
               endpoint={process.env.AZURE_OPENAI_ENDPOINT ?? "(not configured)"}
               result={aoiProbe}
+            />
+            <ProbeRow
+              icon={<Radio className="h-4 w-4" />}
+              title="Codex Enterprise Analytics"
+              endpoint="api.chatgpt.com/v1/analytics/codex/…"
+              result={codexProbe}
             />
           </CardContent>
         </Card>
