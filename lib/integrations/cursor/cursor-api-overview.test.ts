@@ -4,8 +4,10 @@ import { CURSOR_OVERVIEW_PANELS, loadCursorApiOverview } from "./cursor-api-over
 describe("loadCursorApiOverview", () => {
   it("skips all panels when INTEGRATION_CURSOR is synthetic", async () => {
     const out = await loadCursorApiOverview({
-      INTEGRATION_CURSOR: "synthetic",
-      CURSOR_TEAM_ADMIN_API_KEY: "k",
+      env: {
+        INTEGRATION_CURSOR: "synthetic",
+        CURSOR_TEAM_ADMIN_API_KEY: "k",
+      },
     });
     expect(out.integrationMode).toBe("synthetic");
     expect(out.apiKeyConfigured).toBe(true);
@@ -17,9 +19,11 @@ describe("loadCursorApiOverview", () => {
 
   it("skips when real mode but no API key", async () => {
     const out = await loadCursorApiOverview({
-      INTEGRATION_CURSOR: "real",
-      CURSOR_TEAM_ADMIN_API_KEY: "",
-      CURSOR_ADMIN_TOKEN: "",
+      env: {
+        INTEGRATION_CURSOR: "real",
+        CURSOR_TEAM_ADMIN_API_KEY: "",
+        CURSOR_ADMIN_TOKEN: "",
+      },
     });
     expect(out.integrationMode).toBe("real");
     expect(out.apiKeyConfigured).toBe(false);
@@ -35,13 +39,13 @@ describe("loadCursorApiOverview", () => {
       });
     }) as typeof fetch;
 
-    const out = await loadCursorApiOverview(
-      {
+    const out = await loadCursorApiOverview({
+      env: {
         INTEGRATION_CURSOR: "real",
         CURSOR_TEAM_ADMIN_API_KEY: "crsr_x",
       },
       fetchImpl,
-    );
+    });
 
     expect(out.integrationMode).toBe("real");
     expect(out.apiKeyConfigured).toBe(true);
