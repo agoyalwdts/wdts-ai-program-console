@@ -48,6 +48,11 @@ function formatCredits(n: number): string {
   return `${Math.max(n, 0).toLocaleString("en-US", { maximumFractionDigits: 0 })} credits`;
 }
 
+const OPENAI_CARD_SPLIT = {
+  CHATGPT: 1,
+  CODEX: 3,
+} as const;
+
 async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   mtdMap: Map<ProductKey, number>;
   days: SpendPoint[];
@@ -331,7 +336,13 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
             const budgetPeriod = budgetMonthly * m;
             const isOpenAiProduct = key === "CHATGPT" || key === "CODEX";
             const mtdDisplay = isOpenAiProduct ? mtd / OPENAI_CREDIT_OVERAGE_USD : mtd;
-            const budgetDisplay = isOpenAiProduct ? combinedCreditsCap : budgetPeriod;
+            const openAiCardTotalWeight = OPENAI_CARD_SPLIT.CHATGPT + OPENAI_CARD_SPLIT.CODEX;
+            const openAiPooledCreditsPeriod = OPENAI_POOLED_CREDITS_MONTH * m;
+            const openAiCardBudgetCredits =
+              key === "CHATGPT"
+                ? openAiPooledCreditsPeriod * (OPENAI_CARD_SPLIT.CHATGPT / openAiCardTotalWeight)
+                : openAiPooledCreditsPeriod * (OPENAI_CARD_SPLIT.CODEX / openAiCardTotalWeight);
+            const budgetDisplay = isOpenAiProduct ? openAiCardBudgetCredits : budgetPeriod;
             return (
               <Card key={key}>
                 <CardHeader className="pb-2">
@@ -346,9 +357,14 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   </div>
                   <div className="text-xs text-slate-500">
                     {isOpenAiProduct
-                      ? `of ${formatCredits(budgetDisplay)} shared pool · ${spendLabel}`
+                      ? `of ${formatCredits(budgetDisplay)} pooled credits · ${spendLabel}`
                       : `of ${formatUsd(budgetPeriod)} · ${spendLabel}`}
                   </div>
+                  {key === "CHATGPT" ? (
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Card allocation from pooled credits: ChatGPT:Codex = 1:3
+                    </p>
+                  ) : null}
                   {key === "CURSOR" && data.cursorSpendSource === "vendor" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
                       Cursor Team Admin API (synced daily buckets)
