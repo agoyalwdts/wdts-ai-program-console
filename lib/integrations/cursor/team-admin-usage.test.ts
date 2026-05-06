@@ -34,6 +34,15 @@ describe("cursorChargedFieldToUsd", () => {
   it("treats non-integers as USD (doc sample shape)", () => {
     expect(cursorChargedFieldToUsd(21.36232)).toBeCloseTo(21.36232);
   });
+
+  it("snaps large near-integer cent floats (IEEE noise) to cents, not USD", () => {
+    expect(cursorChargedFieldToUsd(522206.99999999994)).toBeCloseTo(5222.07, 2);
+    expect(cursorChargedFieldToUsd(511257.99999999994)).toBeCloseTo(5112.58, 2);
+  });
+
+  it("does not snap small near-integers that are dollar amounts (e.g. ~$21)", () => {
+    expect(cursorChargedFieldToUsd(21.000000000000004)).toBeCloseTo(21.000000000000004, 8);
+  });
 });
 
 describe("calendarYmdFromMillis", () => {
