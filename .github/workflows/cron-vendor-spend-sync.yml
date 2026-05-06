@@ -19,6 +19,9 @@ on:
   schedule:
     # 04:41 UTC — after AzureAD reconcile (03:37) to spread load.
     - cron: "41 4 * * *"
+    # 16:41 UTC — second pass for fresher Program Health / vendor tiles same calendar day.
+    # More than 2×/day can increase Cursor Team Admin 429 risk (filtered-usage-events paginates).
+    - cron: "41 16 * * *"
   workflow_dispatch:
 
 permissions:

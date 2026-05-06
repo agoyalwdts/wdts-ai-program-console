@@ -40,8 +40,13 @@ describe("cursorChargedFieldToUsd", () => {
     expect(cursorChargedFieldToUsd(511257.99999999994)).toBeCloseTo(5112.58, 2);
   });
 
-  it("does not snap small near-integers that are dollar amounts (e.g. ~$21)", () => {
-    expect(cursorChargedFieldToUsd(21.000000000000004)).toBeCloseTo(21.000000000000004, 8);
+  it("snaps sub-100 near-integer cent floats (IEEE noise) — avoids ~100× inflation per event", () => {
+    expect(cursorChargedFieldToUsd(49.99999999999994)).toBeCloseTo(0.5, 8);
+    expect(cursorChargedFieldToUsd(21.000000000000004)).toBeCloseTo(0.21, 8);
+  });
+
+  it("coerces numeric strings from JSON to cents", () => {
+    expect(cursorChargedFieldToUsd("2136")).toBeCloseTo(21.36, 8);
   });
 });
 

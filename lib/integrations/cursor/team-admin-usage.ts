@@ -43,7 +43,7 @@ export type CursorFilteredUsageEventFull = {
   isChargeable?: boolean;
   isHeadless?: boolean;
   tokenUsage?: CursorTokenUsagePayload;
-  chargedCents?: number;
+  chargedCents?: number | string;
   cursorTokenFee?: number;
   isFreeBugbot?: boolean;
 };
@@ -53,21 +53,24 @@ export type CursorFilteredUsageEventFull = {
  * dollar-shaped floats ({@link https://cursor.com/docs/account/teams/admin-api }).
  * Integer values → ÷100. Other floats that are still USD (e.g. 14.79, 21.36232) stay as-is.
  *
- * Large cent totals sometimes arrive as non-integers due to IEEE noise (e.g. 522206.99999999994).
- * Those sit almost exactly on an integer ≥ 100 — treat as cents so MTD sums match the dashboard.
+ * Large and **small** cent amounts can arrive as non-integers due to IEEE noise (e.g.
+ * 522206.99999999994 or 49.99999999999994). Without snapping, values below 100 were misread as USD
+ * (~$50 for a 50¢ charge), inflating MTD ~100×. Snap any near-integer ≥ 1 cent to cents; doc-style
+ * dollar floats (14.79, 21.36232) stay off-integer (beyond float noise) and pass through as USD.
+ *
+ * JSON may send numeric strings — coerce with {@link Number}.
  */
 const CHARGED_CENTS_INTEGER_EPS = 1e-4;
-const CHARGED_CENTS_MIN_CENT_MAGNITUDE = 100;
 
-export function cursorChargedFieldToUsd(chargedCents: number | undefined): number {
-  if (chargedCents == null || !Number.isFinite(chargedCents)) return 0;
-  const n = chargedCents;
+export function cursorChargedFieldToUsd(
+  chargedCents: number | string | undefined | null,
+): number {
+  if (chargedCents == null) return 0;
+  const n = typeof chargedCents === "number" ? chargedCents : Number(chargedCents);
+  if (!Number.isFinite(n)) return 0;
   if (Number.isInteger(n)) return n / 100;
   const nearest = Math.round(n);
-  if (
-    nearest >= CHARGED_CENTS_MIN_CENT_MAGNITUDE &&
-    Math.abs(n - nearest) <= CHARGED_CENTS_INTEGER_EPS
-  ) {
+  if (nearest >= 1 && Math.abs(n - nearest) <= CHARGED_CENTS_INTEGER_EPS) {
     return nearest / 100;
   }
   return n;
