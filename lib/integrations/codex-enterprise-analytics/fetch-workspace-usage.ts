@@ -91,7 +91,7 @@ export async function fetchCodexEnterpriseWorkspaceUsageRows(args: {
   return out;
 }
 
-/** USD per credit from env; defaults to contract overage rate (0.04). */
+/** USD per credit from env; defaults to {@link OPENAI_CREDIT_OVERAGE_USD} (contract overage). */
 export function resolveUsdPerCredit(
   env: Record<string, string | undefined> = process.env,
 ): number {

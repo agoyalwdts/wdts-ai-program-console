@@ -16,11 +16,12 @@
  *                                     NOT a seat count. The 120-seat shape below
  *                                     is the WDTS allocation plan that fits
  *                                     ~$496.8K inside the $500K envelope.
- *   - ChatGPT + Codex (combined)    — **$157K/mo** program envelope on F1
- *                                     ({@link OPENAI_CHATGPT_CODEX_ENTITLED_SEATS} ×
- *                                     {@link OPENAI_POOLED_CREDITS_PER_USER_MONTH} planning
- *                                     line per policy). Per-product cap-sums can still
- *                                     overcommit in the ladder; F1 shows this envelope.
+ *   - ChatGPT + Codex (combined)    — **314** entitled seats, **500** pooled credits per seat per month
+ *                                     (= {@link OPENAI_POOLED_CREDITS_MONTH} monthly), **$35** per seat per month
+ *                                     license baseline ({@link OPENAI_POOLED_BASELINE_USD_MONTH} monthly),
+ *                                     plus ~{@link OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH} overage credits per month
+ *                                     at {@link OPENAI_CREDIT_OVERAGE_USD} per credit. Planning envelope
+ *                                     {@link OPENAI_COMBINED_MONTHLY_PLANNING_USD} monthly (~$300K per year).
  *   - Claude.ai (30 seats)          — ~$25K/yr placeholder, contract finalising.
  *   - M365 Copilot (440 seats)      — EA prepaid annual commit (per-license
  *                                     × entitled count), not usage-metered.
@@ -53,9 +54,16 @@ export const OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED = 304;
  *  pooled at the organization. */
 export const OPENAI_POOLED_CREDITS_PER_USER_MONTH = 500;
 
+/** Monthly license line per entitled seat (pool included in subscription). */
+export const OPENAI_LICENSE_USD_PER_SEAT_MONTH = 35;
+
 /** Pooled monthly credits across entitled seats. */
 export const OPENAI_POOLED_CREDITS_MONTH =
   OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * OPENAI_POOLED_CREDITS_PER_USER_MONTH;
+
+/** Fixed monthly USD for the pooled credit entitlement (314 × $35). */
+export const OPENAI_POOLED_BASELINE_USD_MONTH =
+  OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * OPENAI_LICENSE_USD_PER_SEAT_MONTH;
 
 /** M365 Copilot: entitled (paid) seat count — annual commit = × {@link M365_COPILOT_USD_PER_LICENSE_YEAR}. */
 export const M365_COPILOT_LICENSES_ENTITLED = 440;
@@ -73,46 +81,87 @@ export const M365_COPILOT_MONTHLY_COMMIT_USD = M365_COPILOT_ANNUAL_COMMIT_USD / 
 /** Typical additional monthly credits beyond pooled entitlement (planning average). */
 export const OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH = 200_000;
 
-/** Planning envelope in credits/month (pooled + average overage). */
+/** Planning envelope in credits/month (pooled + typical overage). */
 export const OPENAI_TARGET_CREDITS_MONTH =
   OPENAI_POOLED_CREDITS_MONTH + OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH;
 
-/** USD charged per credit beyond the pooled monthly allocation. */
-export const OPENAI_CREDIT_OVERAGE_USD = 0.04;
+/** USD per credit for usage above the pooled allocation (marginal / overage). */
+export const OPENAI_CREDIT_OVERAGE_USD = 0.07;
 
-/** Combined ChatGPT+Codex **program envelope** on Program Health (USD/mo). */
-export const COMBINED_CHATGPT_CODEX_CAP_MONTH =
-  OPENAI_TARGET_CREDITS_MONTH * OPENAI_CREDIT_OVERAGE_USD;
+/** Typical monthly overage charge at {@link OPENAI_CREDIT_OVERAGE_USD} (200k × rate). */
+export const OPENAI_PLANNED_OVERAGE_USD_MONTH =
+  OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH * OPENAI_CREDIT_OVERAGE_USD;
+
+/** Combined ChatGPT+Codex monthly planning envelope: license baseline + typical overage. */
+export const OPENAI_COMBINED_MONTHLY_PLANNING_USD =
+  OPENAI_POOLED_BASELINE_USD_MONTH + OPENAI_PLANNED_OVERAGE_USD_MONTH;
+
+/** Annual license baseline (pool). */
+export const OPENAI_ANNUAL_BASELINE_USD = OPENAI_POOLED_BASELINE_USD_MONTH * 12;
+
+/** Annual typical overage (200k credits/mo × 12 × rate). */
+export const OPENAI_ANNUAL_PLANNED_OVERAGE_USD = OPENAI_PLANNED_OVERAGE_USD_MONTH * 12;
+
+/**
+ * Combined monthly USD cap used for F1 ChatGPT/Codex tiles and Settings (baseline + planned overage).
+ * @deprecated Prefer {@link OPENAI_COMBINED_MONTHLY_PLANNING_USD} — kept as alias for imports.
+ */
+export const COMBINED_CHATGPT_CODEX_CAP_MONTH = OPENAI_COMBINED_MONTHLY_PLANNING_USD;
+
+/**
+ * Estimate org-wide ChatGPT+Codex "credit-like" usage for a period from observed USD:
+ * below baseline spend → scale within pool; above baseline → pool + overage credits at marginal rate.
+ */
+export function openAiCombinedCreditsUsedEstimate(args: {
+  periodSpendUsd: number;
+  budgetMonthMultiplier: number;
+}): number {
+  const m = Math.max(0, args.budgetMonthMultiplier);
+  const poolCredits = OPENAI_POOLED_CREDITS_MONTH * m;
+  const baselineUsd = OPENAI_POOLED_BASELINE_USD_MONTH * m;
+  const usd = Math.max(0, args.periodSpendUsd);
+  if (baselineUsd <= 0) return usd / OPENAI_CREDIT_OVERAGE_USD;
+  if (usd <= baselineUsd) return poolCredits * (usd / baselineUsd);
+  return poolCredits + (usd - baselineUsd) / OPENAI_CREDIT_OVERAGE_USD;
+}
 
 /** Per-product monthly budgets the dashboard renders on F1.
  *
  *  - CURSOR is the §0 credit envelope ($500K/yr ÷ 12).
- *  - CHATGPT and CODEX share a pooled credit envelope. For per-product cards we
- *    use a neutral 50/50 planning split to avoid overfitting unknown line-item
- *    allocation while preserving a stable budget ratio for fallback allocations.
+ *  - CHATGPT and CODEX share {@link OPENAI_COMBINED_MONTHLY_PLANNING_USD}; per-product
+ *    USD budgets use ChatGPT:Codex = 1:3. Credit bars use the same ratio on
+ *    {@link OPENAI_TARGET_CREDITS_MONTH}.
  *  - CLAUDE_AI is the §0 placeholder envelope ÷ 12.
  *  - M365_COPILOT is the EA prepaid annual commit ÷ 12 ({@link M365_COPILOT_LICENSES_ENTITLED} × {@link M365_COPILOT_USD_PER_LICENSE_YEAR}). */
+const OPENAI_CARD_WEIGHT_CHATGPT = 1;
+const OPENAI_CARD_WEIGHT_CODEX = 3;
+const OPENAI_CARD_WEIGHT_SUM = OPENAI_CARD_WEIGHT_CHATGPT + OPENAI_CARD_WEIGHT_CODEX;
+
 export const MONTHLY_BUDGET_USD: Record<ProductKey, number> = {
   CURSOR: 41_667, // $500K / 12 (credit envelope, §4.6.1 — binding constraint is $, not seats)
-  CHATGPT: COMBINED_CHATGPT_CODEX_CAP_MONTH / 2,
-  CODEX: COMBINED_CHATGPT_CODEX_CAP_MONTH / 2,
+  CHATGPT:
+    OPENAI_COMBINED_MONTHLY_PLANNING_USD *
+    (OPENAI_CARD_WEIGHT_CHATGPT / OPENAI_CARD_WEIGHT_SUM),
+  CODEX:
+    OPENAI_COMBINED_MONTHLY_PLANNING_USD *
+    (OPENAI_CARD_WEIGHT_CODEX / OPENAI_CARD_WEIGHT_SUM),
   CLAUDE_AI: 2_083, // ~$25K / 12 placeholder (§4.6.5)
   M365_COPILOT: M365_COPILOT_MONTHLY_COMMIT_USD,
 };
 
 export const ANNUAL_BUDGET_USD: Record<ProductKey, number> = {
   CURSOR: 500_000,
-  CHATGPT: (COMBINED_CHATGPT_CODEX_CAP_MONTH / 2) * 12,
-  CODEX: (COMBINED_CHATGPT_CODEX_CAP_MONTH / 2) * 12,
+  CHATGPT: MONTHLY_BUDGET_USD.CHATGPT * 12,
+  CODEX: MONTHLY_BUDGET_USD.CODEX * 12,
   CLAUDE_AI: 25_000,
   M365_COPILOT: M365_COPILOT_ANNUAL_COMMIT_USD,
 };
 
-/** Rounded illustration for FinOps callouts (e.g. landing health page). */
-export const OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH = 350_000;
+/** Illustration anchor = full planning credit envelope (pooled + typical overage). */
+export const OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH = OPENAI_TARGET_CREDITS_MONTH;
 
 export const OPENAI_ILLUSTRATIVE_OVERAGE_CHARGE_USD_MONTH =
-  OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH * OPENAI_CREDIT_OVERAGE_USD;
+  OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH * OPENAI_CREDIT_OVERAGE_USD;
 
 /** Cursor sub-tiers (§4.6.1, four-sub-tier shape introduced in v2.0 and
  *  carried unchanged through v2.3). Discovery is the $50/mo floor of the

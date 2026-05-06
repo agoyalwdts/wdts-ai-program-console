@@ -7,7 +7,6 @@ import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { BudgetBar } from "@/components/charts/budget-bar";
 import { SpendTrendChart, type SpendPoint } from "@/components/charts/spend-trend-chart";
 import {
-  COMBINED_CHATGPT_CODEX_CAP_MONTH,
   OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH,
   OPENAI_POOLED_CREDITS_MONTH,
   OPENAI_TARGET_CREDITS_MONTH,
@@ -16,6 +15,13 @@ import {
   OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED,
   OPENAI_CREDIT_OVERAGE_USD,
   OPENAI_POOLED_CREDITS_PER_USER_MONTH,
+  OPENAI_LICENSE_USD_PER_SEAT_MONTH,
+  OPENAI_POOLED_BASELINE_USD_MONTH,
+  OPENAI_PLANNED_OVERAGE_USD_MONTH,
+  OPENAI_COMBINED_MONTHLY_PLANNING_USD,
+  OPENAI_ANNUAL_BASELINE_USD,
+  OPENAI_ANNUAL_PLANNED_OVERAGE_USD,
+  openAiCombinedCreditsUsedEstimate,
   M365_COPILOT_LICENSES_ENTITLED,
   M365_COPILOT_USD_PER_LICENSE_YEAR,
   M365_COPILOT_ANNUAL_COMMIT_USD,
@@ -216,7 +222,18 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const data = await getF1Data(period, plan);
   const m = data.plan.budgetMonthMultiplier;
   const combinedCreditsCap = OPENAI_TARGET_CREDITS_MONTH * m;
-  const combinedCreditsMtd = data.combinedChatGptCodexMtd / OPENAI_CREDIT_OVERAGE_USD;
+  const combinedUsd = data.combinedChatGptCodexMtd;
+  const combinedCreditsMtd = openAiCombinedCreditsUsedEstimate({
+    periodSpendUsd: combinedUsd,
+    budgetMonthMultiplier: m,
+  });
+  const openAiChatgptUsd = data.mtdMap.get("CHATGPT") ?? 0;
+  const openAiChatgptCreditsMtd =
+    combinedUsd <= 0 ? 0 : combinedCreditsMtd * (openAiChatgptUsd / combinedUsd);
+  /** Remainder so ChatGPT + Codex credit bars sum to the combined card (no float drift). */
+  const openAiCodexCreditsMtd = combinedUsd <= 0 ? 0 : combinedCreditsMtd - openAiChatgptCreditsMtd;
+  const openAiBaselineUsdPeriod = OPENAI_POOLED_BASELINE_USD_MONTH * m;
+  const openAiOverageUsdPeriod = Math.max(0, combinedUsd - openAiBaselineUsdPeriod);
   const spendLabel = f1PeriodSpendLabel(period);
 
   return (
@@ -250,16 +267,20 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               <span className="font-medium text-slate-800">
                 {OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED.toLocaleString()} licenses allotted
               </span>
-              . The credit pool is sized for the entitled count:{" "}
+              . Pooled credits:{" "}
               <span className="font-medium text-slate-800">
-                {OPENAI_POOLED_CREDITS_PER_USER_MONTH.toLocaleString()} credits per entitled user per
-                month
-              </span>
-              , pooled org-wide. Usage beyond the pool bills at{" "}
+                {OPENAI_POOLED_CREDITS_PER_USER_MONTH.toLocaleString()} credits per seat per month
+              </span>{" "}
+              (= {formatCredits(OPENAI_POOLED_CREDITS_MONTH)}/mo org-wide). License line:{" "}
+              <span className="font-medium text-slate-800">
+                {formatUsd(OPENAI_LICENSE_USD_PER_SEAT_MONTH, { decimals: 0 })} per seat per month
+              </span>{" "}
+              ({formatUsd(OPENAI_POOLED_BASELINE_USD_MONTH)}/mo for {OPENAI_CHATGPT_CODEX_ENTITLED_SEATS}{" "}
+              seats). Overage credits bill at{" "}
               <span className="font-medium text-slate-800">
                 {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })} per credit
-              </span>{" "}
-              under the WDTS agreement.
+              </span>
+              .
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -273,22 +294,27 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               </p>
             </div>
             <div className="rounded-lg border border-amber-300/80 bg-white/80 px-4 py-3 text-sm text-slate-800">
-              <p className="font-medium text-slate-900">Illustrative overage</p>
+              <p className="font-medium text-slate-900">Planning envelope (credits + USD)</p>
               <p className="mt-1 text-slate-700">
-                Typical planning includes{" "}
+                Typical overage:{" "}
                 <span className="font-mono font-medium">
                   {OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH.toLocaleString()}
                 </span>{" "}
-                overage credits above pooled entitlement, which yields{" "}
+                credits/mo × {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })} ={" "}
+                <span className="font-semibold text-slate-900">
+                  {formatUsd(OPENAI_PLANNED_OVERAGE_USD_MONTH)}/mo
+                </span>{" "}
+                (~{formatUsd(OPENAI_ANNUAL_PLANNED_OVERAGE_USD)}/yr). With the pool:{" "}
                 <span className="font-mono font-medium">
                   {OPENAI_TARGET_CREDITS_MONTH.toLocaleString()}
                 </span>{" "}
-                total credits/month planning envelope. At{" "}
-                {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit is about{" "}
+                credits/mo planning ceiling and{" "}
                 <span className="font-semibold text-slate-900">
-                  {formatUsd(COMBINED_CHATGPT_CODEX_CAP_MONTH)}
+                  {formatUsd(OPENAI_COMBINED_MONTHLY_PLANNING_USD)}/mo
                 </span>{" "}
-                / month.
+                total ({formatUsd(OPENAI_POOLED_BASELINE_USD_MONTH)} baseline +{" "}
+                {formatUsd(OPENAI_PLANNED_OVERAGE_USD_MONTH)} typical overage). Annual baseline:{" "}
+                <span className="font-semibold">{formatUsd(OPENAI_ANNUAL_BASELINE_USD)}</span>.
               </p>
             </div>
           </CardContent>
@@ -321,36 +347,63 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           <CardHeader>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <CardTitle>ChatGPT + Codex combined cap</CardTitle>
+                <CardTitle>ChatGPT + Codex — credits vs planning</CardTitle>
                 <CardDescription>
-                  {formatCredits(OPENAI_TARGET_CREDITS_MONTH)}/month planning envelope ({formatCredits(
-                    OPENAI_POOLED_CREDITS_MONTH,
-                  )} pooled + {formatCredits(OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH)} average overage).
-                  USD equivalent at {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit:{" "}
-                  {formatUsd(COMBINED_CHATGPT_CODEX_CAP_MONTH)}/month.
+                  Credit bar: {formatCredits(OPENAI_POOLED_CREDITS_MONTH)} pooled +{" "}
+                  {formatCredits(OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH)} typical overage ={" "}
+                  {formatCredits(OPENAI_TARGET_CREDITS_MONTH)}/month ceiling. Usage credits are
+                  estimated from observed spend (in-pool spend scales within the pool; above{" "}
+                  {formatUsd(OPENAI_POOLED_BASELINE_USD_MONTH)} adds credits at{" "}
+                  {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit).
                 </CardDescription>
               </div>
-              <div className="text-right">
-                <div className="text-2xl font-semibold">
+              <div className="text-right shrink-0">
+                <div className="text-2xl font-semibold tabular-nums">
                   {formatCredits(combinedCreditsMtd)}
                 </div>
                 <div className="text-xs text-slate-500">
                   of {formatCredits(combinedCreditsCap)} · {spendLabel}
                 </div>
-                <div className="text-[11px] text-slate-500">
-                  (~{formatUsd(data.combinedChatGptCodexMtd, { decimals: 0 })} at{" "}
-                  {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit)
-                </div>
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <BudgetBar
               spend={combinedCreditsMtd}
               budget={combinedCreditsCap}
               unit="credits"
               warnAt={0.9}
             />
+            <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-800 space-y-2">
+              <p className="font-medium text-slate-900">USD view ({spendLabel.toLowerCase()})</p>
+              <ul className="space-y-1 text-slate-700 list-disc pl-5">
+                <li>
+                  License baseline (prorated):{" "}
+                  <span className="font-mono font-medium text-slate-900">
+                    {formatUsd(openAiBaselineUsdPeriod, { decimals: 0 })}
+                  </span>{" "}
+                  ({OPENAI_CHATGPT_CODEX_ENTITLED_SEATS} × {formatUsd(OPENAI_LICENSE_USD_PER_SEAT_MONTH, { decimals: 0 })}
+                  /mo × period)
+                </li>
+                <li>
+                  Spend above baseline (overage at {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit):{" "}
+                  <span className="font-mono font-medium text-slate-900">
+                    {formatUsd(openAiOverageUsdPeriod, { decimals: 0 })}
+                  </span>
+                </li>
+                <li>
+                  <span className="font-medium text-slate-900">Observed total</span> (gateway / vendor):{" "}
+                  <span className="font-mono font-semibold text-slate-900">
+                    {formatUsd(combinedUsd, { decimals: 0 })}
+                  </span>
+                </li>
+              </ul>
+              <p className="text-xs text-slate-500 pt-1 border-t border-slate-200">
+                Annual planning: {formatUsd(OPENAI_ANNUAL_BASELINE_USD)} baseline + ~{" "}
+                {formatUsd(OPENAI_ANNUAL_PLANNED_OVERAGE_USD)} typical overage ≈{" "}
+                {formatUsd(OPENAI_ANNUAL_BASELINE_USD + OPENAI_ANNUAL_PLANNED_OVERAGE_USD)} combined.
+              </p>
+            </div>
           </CardContent>
         </Card>
 
@@ -361,13 +414,17 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
             const budgetMonthly = MONTHLY_BUDGET_USD[key as ProductKey];
             const budgetPeriod = budgetMonthly * m;
             const isOpenAiProduct = key === "CHATGPT" || key === "CODEX";
-            const mtdDisplay = isOpenAiProduct ? mtd / OPENAI_CREDIT_OVERAGE_USD : mtd;
+            const mtdDisplay = isOpenAiProduct
+              ? key === "CHATGPT"
+                ? openAiChatgptCreditsMtd
+                : openAiCodexCreditsMtd
+              : mtd;
             const openAiCardTotalWeight = OPENAI_CARD_SPLIT.CHATGPT + OPENAI_CARD_SPLIT.CODEX;
-            const openAiPooledCreditsPeriod = OPENAI_POOLED_CREDITS_MONTH * m;
+            const openAiPlanningCreditsPeriod = OPENAI_TARGET_CREDITS_MONTH * m;
             const openAiCardBudgetCredits =
               key === "CHATGPT"
-                ? openAiPooledCreditsPeriod * (OPENAI_CARD_SPLIT.CHATGPT / openAiCardTotalWeight)
-                : openAiPooledCreditsPeriod * (OPENAI_CARD_SPLIT.CODEX / openAiCardTotalWeight);
+                ? openAiPlanningCreditsPeriod * (OPENAI_CARD_SPLIT.CHATGPT / openAiCardTotalWeight)
+                : openAiPlanningCreditsPeriod * (OPENAI_CARD_SPLIT.CODEX / openAiCardTotalWeight);
             const budgetDisplay = isOpenAiProduct ? openAiCardBudgetCredits : budgetPeriod;
             return (
               <Card key={key}>
@@ -383,12 +440,16 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   </div>
                   <div className="text-xs text-slate-500">
                     {isOpenAiProduct
-                      ? `of ${formatCredits(budgetDisplay)} pooled credits · ${spendLabel}`
+                      ? `of ${formatCredits(budgetDisplay)} planning credits · ${spendLabel}`
                       : `of ${formatUsd(budgetPeriod)} · ${spendLabel}`}
                   </div>
-                  {key === "CHATGPT" ? (
+                  {isOpenAiProduct ? (
                     <p className="text-[11px] text-slate-500 mt-1">
-                      Card allocation from pooled credits: ChatGPT:Codex = 1:3
+                      {key === "CHATGPT"
+                        ? "Planning cap: 1:4 of org credit envelope. "
+                        : "Planning cap: 3:4 of org credit envelope. "}
+                      Used credits = this product&apos;s USD share × combined estimate (pool + overage
+                      model above).
                     </p>
                   ) : null}
                   {key === "CURSOR" && data.cursorSpendSource === "vendor" ? (
