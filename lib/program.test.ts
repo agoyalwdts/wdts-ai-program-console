@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  ANNUAL_BUDGET_USD,
+  OPENAI_COMBINED_MONTHLY_PLANNING_USD,
   OPENAI_CREDIT_OVERAGE_USD,
   OPENAI_POOLED_BASELINE_USD_MONTH,
   OPENAI_POOLED_CREDITS_MONTH,
+  PROGRAM_ANNUAL_PLANNING_USD_TOTAL,
   openAiCombinedCreditsUsedEstimate,
 } from "./program";
 
@@ -52,5 +55,16 @@ describe("openAiCombinedCreditsUsedEstimate", () => {
         budgetMonthMultiplier: m,
       }),
     ).toBeCloseTo(OPENAI_POOLED_CREDITS_MONTH * m, 5);
+  });
+});
+
+describe("PROGRAM_ANNUAL_PLANNING_USD_TOTAL", () => {
+  it("aggregates annual envelopes with OpenAI counted once", () => {
+    expect(PROGRAM_ANNUAL_PLANNING_USD_TOTAL).toBe(
+      ANNUAL_BUDGET_USD.CURSOR +
+        OPENAI_COMBINED_MONTHLY_PLANNING_USD * 12 +
+        ANNUAL_BUDGET_USD.CLAUDE_AI +
+        ANNUAL_BUDGET_USD.M365_COPILOT,
+    );
   });
 });
