@@ -11,10 +11,10 @@ export function BudgetBar({
   warnAt?: number;
   unit?: "usd" | "credits";
 }) {
-  const pct = budget > 0 ? Math.min(spend / budget, 1.25) : 0;
-  const widthPct = Math.min(pct * 100, 100);
-  const overBudget = pct >= 1;
-  const warning = pct >= warnAt && !overBudget;
+  const ratio = budget > 0 ? spend / budget : 0;
+  const widthPct = Math.min(ratio * 100, 100);
+  const overBudget = ratio >= 1;
+  const warning = ratio >= warnAt && !overBudget;
   return (
     <div className="space-y-1.5">
       <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
@@ -27,7 +27,7 @@ export function BudgetBar({
         />
       </div>
       <div className="flex items-center justify-between text-[11px] text-slate-500">
-        <span>{(pct * 100).toFixed(1)}% MTD</span>
+        <span>{(ratio * 100).toFixed(1)}% MTD</span>
         <span>
           remaining{" "}
           {unit === "credits"
