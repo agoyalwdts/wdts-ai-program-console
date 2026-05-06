@@ -60,6 +60,11 @@ function formatCredits(n: number): string {
   return `${Math.max(n, 0).toLocaleString("en-US", { maximumFractionDigits: 0 })} credits`;
 }
 
+/** Planning-style $ line on OpenAI tiles: credits × marginal overage rate ({@link OPENAI_CREDIT_OVERAGE_USD}). */
+function openAiCreditsAtOverageRateUsd(credits: number): number {
+  return Math.max(0, credits) * OPENAI_CREDIT_OVERAGE_USD;
+}
+
 const OPENAI_CARD_SPLIT = {
   CHATGPT: 1,
   CODEX: 3,
@@ -422,7 +427,8 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               Combined monthly envelopes from{" "}
               <code className="font-mono text-xs">lib/program.ts</code>
               : Cursor + ChatGPT/Codex (counted once) + Claude.ai + M365 Copilot. Prorated by the
-              selected period; individual tiles below use the same lines.
+              selected period; individual tiles below use the same lines. Actual spend uses the same
+              sources as the product tiles (Copilot at EA monthly commit).
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
@@ -468,15 +474,31 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               </li>
             </ul>
           </CardContent>
-          <CardContent className="pt-0 border-t border-slate-200/80">
+          <CardContent className="pt-0 border-t border-slate-200/80 space-y-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Actual vs planning · {spendLabel}
+              </p>
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="text-2xl font-semibold tabular-nums text-slate-900">
+                  {formatUsd(observedProgramPeriodUsd, { decimals: 0 })}
+                </span>
+                <span className="text-sm text-slate-600">
+                  of {formatUsd(programPlanningPeriodUsd, { decimals: 0 })} planning envelope
+                </span>
+              </div>
+            </div>
+            <div className="max-w-md">
+              <BudgetBar
+                spend={observedProgramPeriodUsd}
+                budget={programPlanningPeriodUsd}
+                unit="usd"
+              />
+            </div>
             <p className="text-xs text-slate-600">
               <span className="font-medium text-slate-700">Period outlay (est.)</span> — Cursor,
-              OpenAI, Claude from gateway or vendor; M365 Copilot at EA monthly commit (prepaid, not
-              usage-metered in the mirror).{" "}
-              <span className="font-mono tabular-nums text-slate-900">
-                {formatUsd(observedProgramPeriodUsd, { decimals: 0 })}
-              </span>{" "}
-              · {spendLabel}
+              OpenAI, and Claude from gateway or vendor; M365 Copilot at EA monthly commit (prepaid,
+              not usage-metered in the mirror). Same total as the bar above.
             </p>
           </CardContent>
         </Card>
@@ -515,9 +537,15 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                       ? formatCredits(mtdDisplay)
                       : formatUsd(isPrepaidCopilotTile ? budgetPeriod : mtd)}
                   </div>
+                  {isOpenAiProduct ? (
+                    <p className="text-sm font-medium text-slate-800 mt-1 tabular-nums">
+                      ≈ {formatUsd(openAiCreditsAtOverageRateUsd(mtdDisplay), { decimals: 2 })} at{" "}
+                      {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })} per credit
+                    </p>
+                  ) : null}
                   <div className="text-xs text-slate-500">
                     {isOpenAiProduct
-                      ? `of ${formatCredits(budgetDisplay)} planning credits · ${spendLabel}`
+                      ? `of ${formatCredits(budgetDisplay)} planning credits (≈ ${formatUsd(openAiCreditsAtOverageRateUsd(budgetDisplay), { decimals: 0 })} at ${formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit) · ${spendLabel}`
                       : isPrepaidCopilotTile
                         ? `Committed (prepaid) · ${spendLabel}`
                         : `of ${formatUsd(budgetPeriod)} · ${spendLabel}`}
@@ -584,11 +612,21 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                       </div>
                     </div>
                   ) : (
-                    <BudgetBar
-                      spend={mtdDisplay}
-                      budget={budgetDisplay}
-                      unit={isOpenAiProduct ? "credits" : "usd"}
-                    />
+                    <>
+                      <BudgetBar
+                        spend={mtdDisplay}
+                        budget={budgetDisplay}
+                        unit={isOpenAiProduct ? "credits" : "usd"}
+                      />
+                      {isOpenAiProduct ? (
+                        <p className="text-[11px] text-slate-600 mt-2 tabular-nums">
+                          ≈ {formatUsd(openAiCreditsAtOverageRateUsd(mtdDisplay), { decimals: 0 })} of{" "}
+                          {formatUsd(openAiCreditsAtOverageRateUsd(budgetDisplay), { decimals: 0 })}{" "}
+                          at {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })} per credit (same
+                          credits as the bar)
+                        </p>
+                      ) : null}
+                    </>
                   )}
                 </CardContent>
               </Card>
