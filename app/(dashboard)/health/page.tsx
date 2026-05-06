@@ -16,6 +16,10 @@ import {
   OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED,
   OPENAI_CREDIT_OVERAGE_USD,
   OPENAI_POOLED_CREDITS_PER_USER_MONTH,
+  M365_COPILOT_LICENSES_ENTITLED,
+  M365_COPILOT_USD_PER_LICENSE_YEAR,
+  M365_COPILOT_ANNUAL_COMMIT_USD,
+  M365_COPILOT_MONTHLY_COMMIT_USD,
   PRODUCTS,
   type ProductKey,
 } from "@/lib/program";
@@ -290,6 +294,28 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           </CardContent>
         </Card>
 
+        <Card className="border-slate-200">
+          <CardHeader>
+            <CardTitle>M365 Copilot (contract)</CardTitle>
+            <CardDescription>
+              EA prepaid commitment:{" "}
+              <span className="font-medium text-slate-800">
+                {M365_COPILOT_LICENSES_ENTITLED.toLocaleString()} licenses
+              </span>{" "}
+              at{" "}
+              <span className="font-medium text-slate-800">
+                {formatUsd(M365_COPILOT_USD_PER_LICENSE_YEAR, { decimals: 2 })} per license per year
+              </span>
+              . The full annual amount is owed regardless of usage (not API- or credit-metered like
+              Cursor or OpenAI pooled credits). Program Health uses a level monthly line of{" "}
+              <span className="font-medium text-slate-800">
+                {formatUsd(M365_COPILOT_MONTHLY_COMMIT_USD)}/mo
+              </span>{" "}
+              (= {formatUsd(M365_COPILOT_ANNUAL_COMMIT_USD)}/yr).
+            </CardDescription>
+          </CardHeader>
+        </Card>
+
         {/* Combined cap callout */}
         <Card>
           <CardHeader>
@@ -393,6 +419,14 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   {key === "CODEX" && data.codexSpendSource === "manual_export" ? (
                     <p className="text-[11px] text-amber-800 mt-1">
                       Codex daily JSON export (workspace totals, or sessions aggregate)
+                    </p>
+                  ) : null}
+                  {key === "M365_COPILOT" ? (
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Prepaid seats ({M365_COPILOT_LICENSES_ENTITLED} ×{" "}
+                      {formatUsd(M365_COPILOT_USD_PER_LICENSE_YEAR, { decimals: 2 })}/yr); bar
+                      compares gateway-reported activity to a level monthly commit, not marginal
+                      per-call cost.
                     </p>
                   ) : null}
                 </CardHeader>

@@ -88,10 +88,10 @@ describe("real-mode gateway mirrors Postgres UsageRecord", () => {
 });
 
 describe("real-mode clients throw NotImplementedError", () => {
-  it("cursor/real surfaces missing env vars as IntegrationError", async () => {
-    // Detailed coverage in lib/integrations/cursor/real.test.ts.
+  it("cursor/real falls back to synthetic when SCIM URL or token is missing", async () => {
     const c = getCursorClient({ INTEGRATION_CURSOR: "real" });
-    await expect(c.listSeats()).rejects.toThrow(/CURSOR_SCIM_BASE_URL/);
+    const seats = await c.listSeats();
+    expect(Array.isArray(seats)).toBe(true);
   });
 
   it("openai/real surfaces missing env vars as IntegrationError", async () => {

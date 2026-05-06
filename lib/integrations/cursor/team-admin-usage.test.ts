@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   calendarYmdFromMillis,
+  cursorChargedFieldToUsd,
   fetchCursorFilteredUsageByUtcDay,
   resolveCursorTeamAdminApiKey,
 } from "./team-admin-usage";
@@ -21,6 +22,17 @@ describe("resolveCursorTeamAdminApiKey", () => {
         CURSOR_ADMIN_TOKEN: "tok",
       }),
     ).toBe("tok");
+  });
+});
+
+describe("cursorChargedFieldToUsd", () => {
+  it("treats integers as cents", () => {
+    expect(cursorChargedFieldToUsd(100)).toBe(1);
+    expect(cursorChargedFieldToUsd(2136)).toBeCloseTo(21.36);
+  });
+
+  it("treats non-integers as USD (doc sample shape)", () => {
+    expect(cursorChargedFieldToUsd(21.36232)).toBeCloseTo(21.36232);
   });
 });
 

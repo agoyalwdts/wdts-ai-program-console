@@ -12,12 +12,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import {
-  parseCursorUsageCsv,
-  evaluatePrudence,
-  prudenceDedupeKey,
-} from "@/lib/cursor-usage";
-import { sendCursorPrudenceDigest } from "@/lib/notify/cursor-prudence-email";
+import { parseCursorUsageCsv, buildPrudenceCandidates } from "@/lib/cursor-usage";
+import { persistCursorPrudenceIngest } from "@/lib/cursor-usage/persist-prudence-ingest";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 export const dynamic = "force-dynamic";
@@ -103,44 +99,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  type Candidate = {
-    rowOccurredAt: Date;
-    userEmail: string;
-    model: string;
-    maxMode: string;
-    inputCacheWrite: number;
-    inputNoCache: number;
-    cacheRead: number;
-    outputTokens: number;
-    totalTokens: number;
-    costUsd: number;
-    ruleCode: string;
-    title: string;
-    rationale: string;
-    dedupeKey: string;
-  };
-
-  const candidates: Candidate[] = [];
-  for (const row of parsed.rows) {
-    const ev = evaluatePrudence(row);
-    if (!ev) continue;
-    candidates.push({
-      rowOccurredAt: row.occurredAt,
-      userEmail: row.userEmail,
-      model: row.model,
-      maxMode: row.maxMode ? "Yes" : "No",
-      inputCacheWrite: row.inputCacheWrite,
-      inputNoCache: row.inputNoCache,
-      cacheRead: row.cacheRead,
-      outputTokens: row.outputTokens,
-      totalTokens: row.totalTokens,
-      costUsd: row.costUsd,
-      ruleCode: ev.ruleCode,
-      title: ev.title,
-      rationale: ev.rationale,
-      dedupeKey: prudenceDedupeKey(row, ev.ruleCode),
-    });
-  }
+  const candidates = buildPrudenceCandidates(parsed.rows);
 
   if (dryRun) {
     return NextResponse.json({
@@ -150,105 +109,24 @@ export async function POST(req: NextRequest) {
       rowsSkipped: parsed.rowsSkipped,
       parseErrors: parsed.parseErrors,
       alertsWouldCreate: candidates.length,
-      sample: candidates.slice(0, 15),
-    });
-  }
-
-  if (candidates.length === 0) {
-    await prisma.decision.create({
-      data: {
-        type: "CURSOR_USAGE_PRUDENCE_INGEST",
-        beforeState: JSON.stringify({ rows: parsed.rows.length }),
-        afterState: JSON.stringify({ alertsInserted: 0 }),
-        actorEmail: user.email,
-        justification: `Cursor usage CSV${sourceFilename ? `: ${sourceFilename}` : ""} — no rows matched prudence rules`,
-      },
-    });
-    return NextResponse.json({
-      ok: true,
-      dryRun: false,
-      rowsParsed: parsed.rows.length,
-      rowsSkipped: parsed.rowsSkipped,
-      parseErrors: parsed.parseErrors,
-      alertsInserted: 0,
-    });
-  }
-
-  const jobStart = new Date();
-  const data = candidates.map((c) => ({
-    rowOccurredAt: c.rowOccurredAt,
-    userEmail: c.userEmail,
-    model: c.model,
-    maxMode: c.maxMode,
-    inputCacheWrite: c.inputCacheWrite,
-    inputNoCache: c.inputNoCache,
-    cacheRead: c.cacheRead,
-    outputTokens: c.outputTokens,
-    totalTokens: c.totalTokens,
-    costUsd: c.costUsd,
-    ruleCode: c.ruleCode,
-    title: c.title,
-    rationale: c.rationale,
-    dedupeKey: c.dedupeKey,
-    sourceFilename,
-  }));
-
-  const ins = await prisma.cursorUsagePrudenceAlert.createMany({
-    data,
-    skipDuplicates: true,
-  });
-
-  const dedupeKeys = [...new Set(candidates.map((c) => c.dedupeKey))];
-  const fresh = await prisma.cursorUsagePrudenceAlert.findMany({
-    where: {
-      dedupeKey: { in: dedupeKeys },
-      createdAt: { gte: jobStart },
-      emailNotifiedAt: null,
-    },
-    select: {
-      id: true,
-      userEmail: true,
-      model: true,
-      costUsd: true,
-      ruleCode: true,
-      title: true,
-    },
-  });
-
-  if (fresh.length > 0) {
-    const mail = await sendCursorPrudenceDigest({
-      dashboardBaseUrl: dashboardOrigin(),
-      subject: `[WDTS AI Console] ${fresh.length} Cursor usage prudence alert(s)`,
-      lines: fresh.map((a) => ({
-        userEmail: a.userEmail,
-        model: a.model,
-        costUsd: a.costUsd,
-        ruleCode: a.ruleCode,
-        title: a.title,
+      sample: candidates.slice(0, 15).map((c) => ({
+        userEmail: c.userEmail,
+        model: c.model,
+        costUsd: c.costUsd,
+        ruleCode: c.ruleCode,
+        title: c.title,
       })),
     });
-    if (mail.ok && !mail.skipped) {
-      await prisma.cursorUsagePrudenceAlert.updateMany({
-        where: { id: { in: fresh.map((f) => f.id) } },
-        data: { emailNotifiedAt: new Date() },
-      });
-    }
   }
 
-  await prisma.decision.create({
-    data: {
-      type: "CURSOR_USAGE_PRUDENCE_INGEST",
-      beforeState: JSON.stringify({
-        rowsParsed: parsed.rows.length,
-        filename: sourceFilename,
-      }),
-      afterState: JSON.stringify({
-        alertsInserted: ins.count,
-        candidatesEvaluated: candidates.length,
-      }),
-      actorEmail: user.email,
-      justification: `Cursor team-usage prudence ingest${sourceFilename ? `: ${sourceFilename}` : ""} · ${ins.count} new alert row(s) (${candidates.length} candidate(s))`,
-    },
+  const persisted = await persistCursorPrudenceIngest({
+    prisma,
+    candidates,
+    rowsEvaluated: parsed.rows.length,
+    actorEmail: user.email,
+    sourceFilename,
+    justificationSummary: `Cursor team-usage prudence CSV${sourceFilename ? `: ${sourceFilename}` : ""}`,
+    dashboardBaseUrl: dashboardOrigin(),
   });
 
   return NextResponse.json({
@@ -257,7 +135,7 @@ export async function POST(req: NextRequest) {
     rowsParsed: parsed.rows.length,
     rowsSkipped: parsed.rowsSkipped,
     parseErrors: parsed.parseErrors,
-    alertsInserted: ins.count,
-    candidatesEvaluated: candidates.length,
+    alertsInserted: persisted.alertsInserted,
+    candidatesEvaluated: persisted.candidatesEvaluated,
   });
 }

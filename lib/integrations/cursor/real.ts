@@ -51,12 +51,13 @@ type Env = {
 };
 
 function readEnv(env: Record<string, string | undefined> = process.env): Env {
-  const baseUrl = env.CURSOR_SCIM_BASE_URL;
-  const token = env.CURSOR_ADMIN_TOKEN;
+  const baseUrl = env.CURSOR_SCIM_BASE_URL?.trim();
+  const token =
+    env.CURSOR_ADMIN_TOKEN?.trim() || env.CURSOR_TEAM_ADMIN_API_KEY?.trim();
   if (!baseUrl || !token) {
     throw new IntegrationError(
       "cursor",
-      "CURSOR_SCIM_BASE_URL and CURSOR_ADMIN_TOKEN must be set when INTEGRATION_CURSOR=real.",
+      "CURSOR_SCIM_BASE_URL and (CURSOR_ADMIN_TOKEN or CURSOR_TEAM_ADMIN_API_KEY) must be set when INTEGRATION_CURSOR=real.",
     );
   }
   return { baseUrl: baseUrl.replace(/\/$/, ""), token };

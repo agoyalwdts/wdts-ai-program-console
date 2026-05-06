@@ -175,6 +175,28 @@ describe("makeRealCursorClient.listSeats", () => {
     await expect(c.listSeats()).rejects.toThrow(IntegrationError);
   });
 
+  it("accepts CURSOR_TEAM_ADMIN_API_KEY when CURSOR_ADMIN_TOKEN is unset", async () => {
+    const { fetchImpl, calls } = makeMockFetch(() => ({
+      status: 200,
+      body: {
+        schemas: [],
+        totalResults: 1,
+        itemsPerPage: 100,
+        startIndex: 1,
+        Resources: [{ id: "u-1", userName: "a@w.com", active: true }],
+      },
+    }));
+    const seats = await makeRealCursorClient({
+      fetchImpl,
+      env: {
+        CURSOR_SCIM_BASE_URL: ENV.CURSOR_SCIM_BASE_URL,
+        CURSOR_TEAM_ADMIN_API_KEY: "team-admin-key",
+      },
+    }).listSeats();
+    expect(seats).toHaveLength(1);
+    expect(calls[0].headers["authorization"]).toBe("Bearer team-admin-key");
+  });
+
   it("strips trailing slash from CURSOR_SCIM_BASE_URL", async () => {
     const { fetchImpl, calls } = makeMockFetch(() => ({
       status: 200,

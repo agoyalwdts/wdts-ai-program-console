@@ -15,6 +15,7 @@ describe("loadCursorApiOverview", () => {
       const s = out.slices[p.key];
       expect(s?.status).toBe("skipped");
     }
+    expect(out.aiCodeRollup.status).toBe("skipped");
   });
 
   it("skips when real mode but no API key", async () => {
@@ -28,6 +29,7 @@ describe("loadCursorApiOverview", () => {
     expect(out.integrationMode).toBe("real");
     expect(out.apiKeyConfigured).toBe(false);
     expect(out.slices.analyticsDau?.status).toBe("skipped");
+    expect(out.aiCodeRollup.status).toBe("skipped");
   });
 
   it("fetches each panel when real + key (mocked)", async () => {
@@ -49,9 +51,13 @@ describe("loadCursorApiOverview", () => {
 
     expect(out.integrationMode).toBe("real");
     expect(out.apiKeyConfigured).toBe(true);
-    expect(fetchImpl).toHaveBeenCalledTimes(CURSOR_OVERVIEW_PANELS.length);
+    expect(fetchImpl).toHaveBeenCalledTimes(CURSOR_OVERVIEW_PANELS.length + 1);
     for (const p of CURSOR_OVERVIEW_PANELS) {
       expect(out.slices[p.key]?.status).toBe("ok");
+    }
+    expect(out.aiCodeRollup.status).toBe("ok");
+    if (out.aiCodeRollup.status === "ok") {
+      expect(out.aiCodeRollup.rollup.totals.commitCount).toBe(0);
     }
   });
 });

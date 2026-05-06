@@ -12,6 +12,7 @@ import { CURSOR_SEATS, CURSOR_TIERS, CURSOR_TOTAL_SEATS } from "@/lib/program";
 import { cn, formatUsd, initials } from "@/lib/utils";
 import { getCursorClient } from "@/lib/integrations";
 import type { CursorSeat as ApiCursorSeat, CursorSubTier } from "@/lib/integrations";
+import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,7 @@ async function getSeatBoard() {
 }
 
 export default async function CursorSeatsPage() {
+  await requireUser();
   const data = await getSeatBoard();
 
   const filled = data.all.filter((s) => s.kind === "filled").length;

@@ -56,7 +56,7 @@ export default async function CursorAlertsSettingsPage() {
     <>
       <Topbar
         title="Cursor usage prudence"
-        subtitle="Upload team-usage CSV exports; flag expensive models vs workload. FinOps review."
+        subtitle="CSV upload or Admin API sync — same heuristics for expensive model usage. FinOps review."
       />
       <div className="p-6 space-y-6 max-w-6xl">
         <Card className="border-amber-200">
@@ -66,13 +66,17 @@ export default async function CursorAlertsSettingsPage() {
               How this works
             </CardTitle>
             <CardDescription>
-              Export team usage from the Cursor admin console. This page does not call
-              Cursor APIs — you upload the CSV. Heuristics flag rows such as Max mode +
-              stacked premium model names (opus + max + thinking) with high cache read and
-              relatively small output, or thinking-xhigh tiers with material spend. Set{" "}
+              You can upload the team-usage CSV from the Cursor admin console, or use{" "}
+              <strong>Sync from API</strong> below (POST{" "}
+              <code className="font-mono text-xs">/teams/filtered-usage-events</code>) when{" "}
+              <code className="font-mono text-xs">INTEGRATION_CURSOR=real</code> and a Team
+              Admin API key are set. The same rules flag Max mode + stacked premium models with
+              high cache read vs output, or thinking-xhigh spend. For automation, schedule an
+              HMAC-signed POST to{" "}
+              <code className="font-mono text-xs">/api/cron/cursor-prudence</code>. Set{" "}
               <code className="font-mono text-xs">RESEND_API_KEY</code> and{" "}
-              <code className="font-mono text-xs">CURSOR_ALERT_EMAIL_TO</code> in the
-              environment to email FinOps when new rows are inserted.
+              <code className="font-mono text-xs">CURSOR_ALERT_EMAIL_TO</code> to email FinOps
+              when new alert rows are inserted.
             </CardDescription>
           </CardHeader>
         </Card>
