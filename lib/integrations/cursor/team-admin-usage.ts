@@ -49,13 +49,28 @@ export type CursorFilteredUsageEventFull = {
 };
 
 /**
- * Cursor documents `chargedCents` as cents; JSON examples sometimes use non-integer
- * dollar floats. Integer values are treated as cents (÷100); non-integers as USD.
+ * Cursor documents `chargedCents` as cents, but JSON examples use non-integer
+ * dollar-shaped floats ({@link https://cursor.com/docs/account/teams/admin-api }).
+ * Integer values → ÷100. Other floats that are still USD (e.g. 14.79, 21.36232) stay as-is.
+ *
+ * Large cent totals sometimes arrive as non-integers due to IEEE noise (e.g. 522206.99999999994).
+ * Those sit almost exactly on an integer ≥ 100 — treat as cents so MTD sums match the dashboard.
  */
+const CHARGED_CENTS_INTEGER_EPS = 1e-4;
+const CHARGED_CENTS_MIN_CENT_MAGNITUDE = 100;
+
 export function cursorChargedFieldToUsd(chargedCents: number | undefined): number {
   if (chargedCents == null || !Number.isFinite(chargedCents)) return 0;
-  if (Number.isInteger(chargedCents)) return chargedCents / 100;
-  return chargedCents;
+  const n = chargedCents;
+  if (Number.isInteger(n)) return n / 100;
+  const nearest = Math.round(n);
+  if (
+    nearest >= CHARGED_CENTS_MIN_CENT_MAGNITUDE &&
+    Math.abs(n - nearest) <= CHARGED_CENTS_INTEGER_EPS
+  ) {
+    return nearest / 100;
+  }
+  return n;
 }
 
 type FilteredUsagePage = {
