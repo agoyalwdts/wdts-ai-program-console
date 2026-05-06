@@ -157,6 +157,20 @@ export const ANNUAL_BUDGET_USD: Record<ProductKey, number> = {
   M365_COPILOT: M365_COPILOT_ANNUAL_COMMIT_USD,
 };
 
+/** Sum of F1 monthly planning envelopes: Cursor + ChatGPT/Codex (once) + Claude + M365 Copilot. */
+export const PROGRAM_MONTHLY_PLANNING_USD_TOTAL =
+  MONTHLY_BUDGET_USD.CURSOR +
+  OPENAI_COMBINED_MONTHLY_PLANNING_USD +
+  MONTHLY_BUDGET_USD.CLAUDE_AI +
+  MONTHLY_BUDGET_USD.M365_COPILOT;
+
+/** Annual planning total for the same four pillars (matches {@link ANNUAL_BUDGET_USD} aggregation). */
+export const PROGRAM_ANNUAL_PLANNING_USD_TOTAL =
+  ANNUAL_BUDGET_USD.CURSOR +
+  OPENAI_COMBINED_MONTHLY_PLANNING_USD * 12 +
+  ANNUAL_BUDGET_USD.CLAUDE_AI +
+  ANNUAL_BUDGET_USD.M365_COPILOT;
+
 /** Illustration anchor = full planning credit envelope (pooled + typical overage). */
 export const OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH = OPENAI_TARGET_CREDITS_MONTH;
 

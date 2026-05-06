@@ -22,6 +22,8 @@ import {
   OPENAI_ANNUAL_BASELINE_USD,
   OPENAI_ANNUAL_PLANNED_OVERAGE_USD,
   openAiCombinedCreditsUsedEstimate,
+  PROGRAM_MONTHLY_PLANNING_USD_TOTAL,
+  PROGRAM_ANNUAL_PLANNING_USD_TOTAL,
   M365_COPILOT_LICENSES_ENTITLED,
   M365_COPILOT_USD_PER_LICENSE_YEAR,
   M365_COPILOT_ANNUAL_COMMIT_USD,
@@ -235,6 +237,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const openAiBaselineUsdPeriod = OPENAI_POOLED_BASELINE_USD_MONTH * m;
   const openAiOverageUsdPeriod = Math.max(0, combinedUsd - openAiBaselineUsdPeriod);
   const spendLabel = f1PeriodSpendLabel(period);
+  const programPlanningPeriodUsd = PROGRAM_MONTHLY_PLANNING_USD_TOTAL * m;
+  const observedProgramPeriodUsd = PRODUCTS.reduce(
+    (acc, { key }) => acc + (data.mtdMap.get(key) ?? 0),
+    0,
+  );
 
   return (
     <>
@@ -404,6 +411,71 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                 {formatUsd(OPENAI_ANNUAL_BASELINE_USD + OPENAI_ANNUAL_PLANNED_OVERAGE_USD)} combined.
               </p>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-300 bg-gradient-to-br from-slate-50 to-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle>Total AI program cost (planning)</CardTitle>
+            <CardDescription>
+              Combined monthly envelopes from{" "}
+              <code className="font-mono text-xs">lib/program.ts</code>
+              : Cursor + ChatGPT/Codex (counted once) + Claude.ai + M365 Copilot. Prorated by the
+              selected period; individual tiles below use the same lines.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Planning total · {data.plan.rangeDescription}
+              </p>
+              <p className="text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
+                {formatUsd(programPlanningPeriodUsd, { decimals: 0 })}
+              </p>
+              <p className="text-sm text-slate-600">
+                Annual run-rate:{" "}
+                <span className="font-medium text-slate-800 tabular-nums">
+                  {formatUsd(PROGRAM_ANNUAL_PLANNING_USD_TOTAL, { decimals: 0 })}
+                </span>
+                /yr
+              </p>
+            </div>
+            <ul className="text-sm text-slate-700 space-y-1.5 min-w-[min(100%,16rem)] sm:text-right">
+              <li className="flex justify-between gap-8 sm:justify-end sm:gap-10">
+                <span className="text-slate-600">Cursor</span>
+                <span className="font-mono tabular-nums font-medium text-slate-900">
+                  {formatUsd(MONTHLY_BUDGET_USD.CURSOR * m, { decimals: 0 })}
+                </span>
+              </li>
+              <li className="flex justify-between gap-8 sm:justify-end sm:gap-10">
+                <span className="text-slate-600">ChatGPT + Codex</span>
+                <span className="font-mono tabular-nums font-medium text-slate-900">
+                  {formatUsd(OPENAI_COMBINED_MONTHLY_PLANNING_USD * m, { decimals: 0 })}
+                </span>
+              </li>
+              <li className="flex justify-between gap-8 sm:justify-end sm:gap-10">
+                <span className="text-slate-600">Claude.ai</span>
+                <span className="font-mono tabular-nums font-medium text-slate-900">
+                  {formatUsd(MONTHLY_BUDGET_USD.CLAUDE_AI * m, { decimals: 0 })}
+                </span>
+              </li>
+              <li className="flex justify-between gap-8 sm:justify-end sm:gap-10">
+                <span className="text-slate-600">M365 Copilot</span>
+                <span className="font-mono tabular-nums font-medium text-slate-900">
+                  {formatUsd(MONTHLY_BUDGET_USD.M365_COPILOT * m, { decimals: 0 })}
+                </span>
+              </li>
+            </ul>
+          </CardContent>
+          <CardContent className="pt-0 border-t border-slate-200/80">
+            <p className="text-xs text-slate-600">
+              <span className="font-medium text-slate-700">Observed spend</span> this period (all
+              products, gateway / vendor):{" "}
+              <span className="font-mono tabular-nums text-slate-900">
+                {formatUsd(observedProgramPeriodUsd, { decimals: 0 })}
+              </span>{" "}
+              · {spendLabel}
+            </p>
           </CardContent>
         </Card>
 
