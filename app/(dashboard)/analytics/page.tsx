@@ -14,7 +14,11 @@ import { getIntegrationMode } from "@/lib/integrations/env";
 import { loadLatestProgramVendorExportSnapshots } from "@/lib/analytics/manual-vendor-snapshots";
 import { AnalyticsManualVendorCharts } from "@/components/dashboard/analytics-manual-vendor-charts";
 import { analyticsWindowForF1Plan } from "@/lib/cursor-analytics-window";
-import { resolveF1PlanFromSearchParams, type F1SearchParams } from "@/lib/f1-period";
+import {
+  formatLocalYmd,
+  resolveF1PlanFromSearchParams,
+  type F1SearchParams,
+} from "@/lib/f1-period";
 
 export const dynamic = "force-dynamic";
 
@@ -100,7 +104,13 @@ export default async function AnalyticsPage(props: { searchParams: Promise<F1Sea
           is for orchestrating agents, not a separate metrics surface — it is not wired here.
         </p>
 
-        <AnalyticsManualVendorCharts snapshots={manualVendorSnapshots} />
+        <AnalyticsManualVendorCharts
+          snapshots={manualVendorSnapshots}
+          clipRangeYmd={{
+            start: formatLocalYmd(plan.periodStart),
+            end: formatLocalYmd(plan.periodEnd),
+          }}
+        />
 
         <Card>
           <CardHeader>

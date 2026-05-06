@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { inclusiveDayCountYmd } from "@/lib/imports/program-vendor-export/dates";
 import {
   ResponsiveContainer,
   LineChart,
@@ -14,6 +15,44 @@ import {
   Legend,
 } from "recharts";
 import type { ManualVendorSnapshotDTO } from "@/lib/analytics/manual-vendor-snapshots";
+import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
+
+export type AnalyticsClipYmd = { start: string; end: string };
+
+function normaliseYmd(raw: string): string | null {
+  const d = raw.trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+}
+
+function ymdInClip(ymd: string, clip: AnalyticsClipYmd): boolean {
+  const d = normaliseYmd(ymd);
+  if (!d) return false;
+  return d >= clip.start && d <= clip.end;
+}
+
+function clipOverlapFactor(
+  clip: AnalyticsClipYmd,
+  exportStart: string | null,
+  exportEnd: string | null,
+): number {
+  if (!exportStart || !exportEnd) return 1;
+  const os = clip.start > exportStart ? clip.start : exportStart;
+  const oe = clip.end < exportEnd ? clip.end : exportEnd;
+  if (os > oe) return 0;
+  const overlap = inclusiveDayCountYmd(os, oe);
+  const expDays = inclusiveDayCountYmd(exportStart, exportEnd);
+  if (expDays <= 0) return 0;
+  return overlap / expDays;
+}
+
+function PeriodClipHint({ clip }: { clip: AnalyticsClipYmd }) {
+  return (
+    <p className="text-xs text-slate-600 mb-2 border-l-2 border-sky-400 pl-2">
+      Points limited to Program Health window{" "}
+      <span className="font-mono">{clip.start}</span> → <span className="font-mono">{clip.end}</span>.
+    </p>
+  );
+}
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { formatUsd } from "@/lib/utils";
@@ -25,14 +64,22 @@ function findSnapshot(
   return snapshots.find((s) => s.kind === kind);
 }
 
-function CodexWorkspaceChart({ payload }: { payload: unknown }) {
+function CodexWorkspaceChart({ payload, clip }: { payload: unknown; clip?: AnalyticsClipYmd }) {
   const p = payload as { days?: { date: string; credits: number; users: number; turns: number }[] };
-  const data = (p.days ?? []).map((d) => ({
-    date: d.date.slice(5),
-    credits: d.credits,
-    users: d.users,
-  }));
-  if (data.length === 0) return <p className="text-sm text-slate-500">No series in payload.</p>;
+  const data = (p.days ?? [])
+    .filter((d) => (clip ? ymdInClip(d.date, clip) : true))
+    .map((d) => ({
+      date: d.date.slice(5),
+      credits: d.credits,
+      users: d.users,
+    }));
+  if (data.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        {clip ? "No series points fall inside the selected period." : "No series in payload."}
+      </p>
+    );
+  }
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -52,12 +99,19 @@ function CodexWorkspaceChart({ payload }: { payload: unknown }) {
   );
 }
 
-function CodexSessionsChart({ payload }: { payload: unknown }) {
+function CodexSessionsChart({ payload, clip }: { payload: unknown; clip?: AnalyticsClipYmd }) {
   const p = payload as { creditsByDate?: Record<string, number> };
   const data = Object.entries(p.creditsByDate ?? {})
+    .filter(([date]) => (clip ? ymdInClip(date, clip) : true))
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, credits]) => ({ date: date.slice(5), credits }));
-  if (data.length === 0) return <p className="text-sm text-slate-500">No aggregated days.</p>;
+  if (data.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        {clip ? "No session days inside the selected period." : "No aggregated days."}
+      </p>
+    );
+  }
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -75,14 +129,22 @@ function CodexSessionsChart({ payload }: { payload: unknown }) {
   );
 }
 
-function CodexCodeReviewChart({ payload }: { payload: unknown }) {
+function CodexCodeReviewChart({ payload, clip }: { payload: unknown; clip?: AnalyticsClipYmd }) {
   const p = payload as { days?: { date: string; n_reviews: number; n_comments: number }[] };
-  const data = (p.days ?? []).map((d) => ({
+  const data = (p.days ?? [])
+    .filter((d) => (clip ? ymdInClip(d.date, clip) : true))
+    .map((d) => ({
     date: d.date.slice(5),
     reviews: d.n_reviews,
     comments: d.n_comments,
   }));
-  if (data.length === 0) return <p className="text-sm text-slate-500">No rows.</p>;
+  if (data.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        {clip ? "No code-review days inside the selected period." : "No rows."}
+      </p>
+    );
+  }
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -100,7 +162,7 @@ function CodexCodeReviewChart({ payload }: { payload: unknown }) {
   );
 }
 
-function CursorTeamChart({ payload }: { payload: unknown }) {
+function CursorTeamChart({ payload, clip }: { payload: unknown; clip?: AnalyticsClipYmd }) {
   const p = payload as {
     dateColumn?: string;
     headers?: string[];
@@ -120,6 +182,7 @@ function CursorTeamChart({ payload }: { payload: unknown }) {
     .map((r) => {
       const day = (r[dateCol] ?? "").trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+      if (clip && !ymdInClip(day, clip)) return null;
       return {
         date: day.slice(5),
         dau: dauCol ? Number((r[dauCol] ?? "").replace(/,/g, "")) || 0 : 0,
@@ -127,7 +190,13 @@ function CursorTeamChart({ payload }: { payload: unknown }) {
       };
     })
     .filter((x): x is NonNullable<typeof x> => x != null);
-  if (data.length === 0) return <p className="text-sm text-slate-500">No dated rows.</p>;
+  if (data.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        {clip ? "No Cursor team CSV rows inside the selected period." : "No dated rows."}
+      </p>
+    );
+  }
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -149,11 +218,35 @@ function CursorTeamChart({ payload }: { payload: unknown }) {
   );
 }
 
-function ChatgptUsersTable({ payload }: { payload: unknown }) {
+function ChatgptUsersTable({
+  payload,
+  clip,
+  exportPeriodStart,
+  exportPeriodEnd,
+}: {
+  payload: unknown;
+  clip?: AnalyticsClipYmd;
+  exportPeriodStart: string | null;
+  exportPeriodEnd: string | null;
+}) {
   const p = payload as {
     users?: { email: string; name: string; credits_used: number; messages: number }[];
   };
-  const users = [...(p.users ?? [])].sort((a, b) => b.credits_used - a.credits_used).slice(0, 20);
+  const factor = clip ? clipOverlapFactor(clip, exportPeriodStart, exportPeriodEnd) : 1;
+  if (clip && factor <= 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        ChatGPT users export does not overlap the selected period ({clip.start}–{clip.end}).
+      </p>
+    );
+  }
+  const users = [...(p.users ?? [])]
+    .map((u) => ({
+      ...u,
+      credits_used: u.credits_used * factor,
+    }))
+    .sort((a, b) => b.credits_used - a.credits_used)
+    .slice(0, 20);
   if (users.length === 0) return <p className="text-sm text-slate-500">No users in snapshot.</p>;
   return (
     <Table>
@@ -161,7 +254,7 @@ function ChatgptUsersTable({ payload }: { payload: unknown }) {
         <TR>
           <TH>User</TH>
           <TH>Email</TH>
-          <TH className="text-right">Credits</TH>
+          <TH className="text-right">Est. spend</TH>
           <TH className="text-right">Messages</TH>
         </TR>
       </THead>
@@ -170,7 +263,9 @@ function ChatgptUsersTable({ payload }: { payload: unknown }) {
           <TR key={u.email}>
             <TD className="max-w-[140px] truncate">{u.name || "—"}</TD>
             <TD className="font-mono text-xs">{u.email}</TD>
-            <TD className="text-right tabular-nums">{formatUsd(u.credits_used, { decimals: 2 })}</TD>
+            <TD className="text-right tabular-nums">
+              {formatUsd(u.credits_used * OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}
+            </TD>
             <TD className="text-right tabular-nums">{u.messages}</TD>
           </TR>
         ))}
@@ -223,8 +318,10 @@ function GenericCsvPreview({
 
 export function AnalyticsManualVendorCharts({
   snapshots,
+  clipRangeYmd,
 }: {
   snapshots: ManualVendorSnapshotDTO[];
+  clipRangeYmd: AnalyticsClipYmd;
 }) {
   if (snapshots.length === 0) {
     return (
@@ -279,8 +376,10 @@ export function AnalyticsManualVendorCharts({
           <Link href="/settings/imports" className="underline underline-offset-2 text-slate-800">
             Settings → Data imports
           </Link>
-          . Re-upload anytime to refresh.
+          . Re-upload anytime to refresh. Time-series charts are clipped to the selected Program
+          Health period above.
         </p>
+        <PeriodClipHint clip={clipRangeYmd} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -292,7 +391,7 @@ export function AnalyticsManualVendorCharts({
           <CardContent>
             {meta(workspace)}
             {workspace ? (
-              <CodexWorkspaceChart payload={workspace.payload} />
+              <CodexWorkspaceChart payload={workspace.payload} clip={clipRangeYmd} />
             ) : (
               <p className="text-sm text-slate-500">No workspace JSON imported.</p>
             )}
@@ -307,7 +406,7 @@ export function AnalyticsManualVendorCharts({
           <CardContent>
             {meta(sessions)}
             {sessions ? (
-              <CodexSessionsChart payload={sessions.payload} />
+              <CodexSessionsChart payload={sessions.payload} clip={clipRangeYmd} />
             ) : (
               <p className="text-sm text-slate-500">No sessions JSON imported.</p>
             )}
@@ -321,7 +420,7 @@ export function AnalyticsManualVendorCharts({
           <CardContent>
             {meta(codeReview)}
             {codeReview ? (
-              <CodexCodeReviewChart payload={codeReview.payload} />
+              <CodexCodeReviewChart payload={codeReview.payload} clip={clipRangeYmd} />
             ) : (
               <p className="text-sm text-slate-500">No code review JSON imported.</p>
             )}
@@ -336,7 +435,12 @@ export function AnalyticsManualVendorCharts({
           <CardContent>
             {meta(chatgptUsers)}
             {chatgptUsers ? (
-              <ChatgptUsersTable payload={chatgptUsers.payload} />
+              <ChatgptUsersTable
+                payload={chatgptUsers.payload}
+                clip={clipRangeYmd}
+                exportPeriodStart={chatgptUsers.periodStart}
+                exportPeriodEnd={chatgptUsers.periodEnd}
+              />
             ) : (
               <p className="text-sm text-slate-500">No users CSV imported.</p>
             )}
@@ -383,7 +487,9 @@ export function AnalyticsManualVendorCharts({
           </CardHeader>
           <CardContent>
             {meta(cursorTeam)}
-            {cursorTeam ? <CursorTeamChart payload={cursorTeam.payload} /> : null}
+            {cursorTeam ? (
+              <CursorTeamChart payload={cursorTeam.payload} clip={clipRangeYmd} />
+            ) : null}
             {!cursorTeam ? <p className="text-sm text-slate-500">No Cursor team CSV.</p> : null}
           </CardContent>
         </Card>

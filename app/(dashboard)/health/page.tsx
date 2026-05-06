@@ -51,6 +51,7 @@ import {
   type F1Period,
   type F1PeriodPlan,
 } from "@/lib/f1-period";
+import { mergeTopSpendersWithVendorAttribution } from "@/lib/f1-top-spenders-vendor";
 
 export const dynamic = "force-dynamic";
 
@@ -182,7 +183,13 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   if (vendorCodexEnterprise.usedVendor) codexSpendSource = "codex_enterprise_analytics";
 
   const deelByEmail = new Map(deelAll.map((d) => [d.email, d]));
-  const topUserIds = topRaw.map((r) => r.userId);
+  const topMerged = await mergeTopSpendersWithVendorAttribution(prisma, {
+    planPeriodStart: plan.periodStart,
+    planPeriodEnd: plan.periodEnd,
+    gatewayTop: topRaw,
+    limit: 10,
+  });
+  const topUserIds = topMerged.map((r) => r.userId);
   const topUsers =
     topUserIds.length === 0
       ? []
@@ -191,7 +198,7 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
           select: { id: true, displayName: true, email: true, roleTag: true, region: true },
         });
   const userById = new Map(topUsers.map((u) => [u.id, u]));
-  const top = topRaw
+  const top = topMerged
     .map((r) => {
       const u = userById.get(r.userId);
       if (!u) return null;
@@ -637,7 +644,12 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
         <Card>
           <CardHeader>
             <CardTitle>Top 10 spenders ({spendLabel.toLowerCase()})</CardTitle>
-            <CardDescription>Across all products combined.</CardDescription>
+            <CardDescription>
+              Gateway mirror (<code className="font-mono text-xs">UsageRecord</code>) plus
+              prorated ChatGPT Business users CSV when an import overlaps this period (see Settings →
+              Data imports). OpenAI org / Cursor vendor syncs are program-level only — they do not
+              yet allocate USD per user on this board.
+            </CardDescription>
           </CardHeader>
           <CardContent className="px-0 pb-0">
             <Table>
@@ -674,13 +686,14 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
         </Card>
 
         <p className="text-xs text-slate-400">
-          F1 reads gateway / AzureAD / Deel. With <code className="font-mono">INTEGRATION_CURSOR=real</code>{" "}
+          F1 reads gateway / Deel. With <code className="font-mono">INTEGRATION_CURSOR=real</code>{" "}
           and a recent <code className="font-mono">VendorDailySpend</code> sync, CURSOR matches Cursor
-          Team Admin usage.           With <code className="font-mono">INTEGRATION_OPENAI=real</code> and OpenAI costs sync,
-          CHATGPT can track organization costs. With{" "}
+          Team Admin usage. With <code className="font-mono">INTEGRATION_OPENAI=real</code> and OpenAI
+          costs sync, CHATGPT can track organization costs. With{" "}
           <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code> and Codex
           analytics sync, the CODEX tile can use <code className="font-mono">api.chatgpt.com</code>{" "}
-          workspace usage (overriding org-costs CODEX when both exist).
+          workspace usage (overriding org-costs CODEX when both exist). Top spenders also add
+          prorated ChatGPT Business users CSV credits when that import overlaps the selected period.
         </p>
       </div>
     </>
