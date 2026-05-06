@@ -8,12 +8,13 @@ import { BudgetBar } from "@/components/charts/budget-bar";
 import { SpendTrendChart, type SpendPoint } from "@/components/charts/spend-trend-chart";
 import {
   COMBINED_CHATGPT_CODEX_CAP_MONTH,
+  OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH,
+  OPENAI_POOLED_CREDITS_MONTH,
+  OPENAI_TARGET_CREDITS_MONTH,
   MONTHLY_BUDGET_USD,
   OPENAI_CHATGPT_CODEX_ENTITLED_SEATS,
   OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED,
   OPENAI_CREDIT_OVERAGE_USD,
-  OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH,
-  OPENAI_ILLUSTRATIVE_OVERAGE_CHARGE_USD_MONTH,
   OPENAI_POOLED_CREDITS_PER_USER_MONTH,
   PRODUCTS,
   type ProductKey,
@@ -42,6 +43,10 @@ import {
 export const dynamic = "force-dynamic";
 
 type SP = { period?: string; from?: string; to?: string };
+
+function formatCredits(n: number): string {
+  return `${Math.max(n, 0).toLocaleString("en-US", { maximumFractionDigits: 0 })} credits`;
+}
 
 async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   mtdMap: Map<ProductKey, number>;
@@ -201,7 +206,8 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const { plan, period } = resolveF1PlanFromSearchParams(now, sp);
   const data = await getF1Data(period, plan);
   const m = data.plan.budgetMonthMultiplier;
-  const combinedPeriodCap = COMBINED_CHATGPT_CODEX_CAP_MONTH * m;
+  const combinedCreditsCap = OPENAI_TARGET_CREDITS_MONTH * m;
+  const combinedCreditsMtd = data.combinedChatGptCodexMtd / OPENAI_CREDIT_OVERAGE_USD;
   const spendLabel = f1PeriodSpendLabel(period);
 
   return (
@@ -253,25 +259,27 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               <p className="mt-1 font-mono text-slate-800">
                 {OPENAI_CHATGPT_CODEX_ENTITLED_SEATS.toLocaleString()} ×{" "}
                 {OPENAI_POOLED_CREDITS_PER_USER_MONTH.toLocaleString()} ={" "}
-                {(OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * OPENAI_POOLED_CREDITS_PER_USER_MONTH).toLocaleString()}{" "}
+                {OPENAI_POOLED_CREDITS_MONTH.toLocaleString()}{" "}
                 credits / month (before overage)
               </p>
             </div>
             <div className="rounded-lg border border-amber-300/80 bg-white/80 px-4 py-3 text-sm text-slate-800">
               <p className="font-medium text-slate-900">Illustrative overage</p>
               <p className="mt-1 text-slate-700">
-                If the org runs{" "}
+                Typical planning includes{" "}
                 <span className="font-mono font-medium">
-                  {OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH.toLocaleString()}
+                  {OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH.toLocaleString()}
                 </span>{" "}
-                credits over the pooled allowance in a month, overage at{" "}
+                overage credits above pooled entitlement, which yields{" "}
+                <span className="font-mono font-medium">
+                  {OPENAI_TARGET_CREDITS_MONTH.toLocaleString()}
+                </span>{" "}
+                total credits/month planning envelope. At{" "}
                 {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit is about{" "}
                 <span className="font-semibold text-slate-900">
-                  {formatUsd(OPENAI_ILLUSTRATIVE_OVERAGE_CHARGE_USD_MONTH)}
+                  {formatUsd(COMBINED_CHATGPT_CODEX_CAP_MONTH)}
                 </span>{" "}
-                for that month (
-                {OPENAI_ILLUSTRATIVE_CREDITS_OVER_MONTH.toLocaleString()} ×{" "}
-                {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}).
+                / month.
               </p>
             </div>
           </CardContent>
@@ -284,27 +292,32 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               <div>
                 <CardTitle>ChatGPT + Codex combined cap</CardTitle>
                 <CardDescription>
-                  {formatUsd(COMBINED_CHATGPT_CODEX_CAP_MONTH)}/month program operating envelope
-                  ({OPENAI_CHATGPT_CODEX_ENTITLED_SEATS.toLocaleString()} entitled ×{" "}
-                  {formatUsd(OPENAI_POOLED_CREDITS_PER_USER_MONTH, { decimals: 0 })} planning line,
-                  policy). User-level caps can overcommit; aggregate spend is managed to this
-                  envelope alongside the OpenAI credit pool and overage rate above.
+                  {formatCredits(OPENAI_TARGET_CREDITS_MONTH)}/month planning envelope ({formatCredits(
+                    OPENAI_POOLED_CREDITS_MONTH,
+                  )} pooled + {formatCredits(OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH)} average overage).
+                  USD equivalent at {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit:{" "}
+                  {formatUsd(COMBINED_CHATGPT_CODEX_CAP_MONTH)}/month.
                 </CardDescription>
               </div>
               <div className="text-right">
                 <div className="text-2xl font-semibold">
-                  {formatUsd(data.combinedChatGptCodexMtd)}
+                  {formatCredits(combinedCreditsMtd)}
                 </div>
                 <div className="text-xs text-slate-500">
-                  of {formatUsd(combinedPeriodCap)} · {spendLabel}
+                  of {formatCredits(combinedCreditsCap)} · {spendLabel}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  (~{formatUsd(data.combinedChatGptCodexMtd, { decimals: 0 })} at{" "}
+                  {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit)
                 </div>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             <BudgetBar
-              spend={data.combinedChatGptCodexMtd}
-              budget={combinedPeriodCap}
+              spend={combinedCreditsMtd}
+              budget={combinedCreditsCap}
+              unit="credits"
               warnAt={0.9}
             />
           </CardContent>
@@ -316,6 +329,9 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
             const mtd = data.mtdMap.get(key) ?? 0;
             const budgetMonthly = MONTHLY_BUDGET_USD[key as ProductKey];
             const budgetPeriod = budgetMonthly * m;
+            const isOpenAiProduct = key === "CHATGPT" || key === "CODEX";
+            const mtdDisplay = isOpenAiProduct ? mtd / OPENAI_CREDIT_OVERAGE_USD : mtd;
+            const budgetDisplay = isOpenAiProduct ? combinedCreditsCap : budgetPeriod;
             return (
               <Card key={key}>
                 <CardHeader className="pb-2">
@@ -326,10 +342,12 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                     <Badge variant="outline">{key}</Badge>
                   </div>
                   <div className="text-2xl font-semibold text-slate-900 mt-1">
-                    {formatUsd(mtd)}
+                    {isOpenAiProduct ? formatCredits(mtdDisplay) : formatUsd(mtd)}
                   </div>
                   <div className="text-xs text-slate-500">
-                    of {formatUsd(budgetPeriod)} · {spendLabel}
+                    {isOpenAiProduct
+                      ? `of ${formatCredits(budgetDisplay)} shared pool · ${spendLabel}`
+                      : `of ${formatUsd(budgetPeriod)} · ${spendLabel}`}
                   </div>
                   {key === "CURSOR" && data.cursorSpendSource === "vendor" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
@@ -363,7 +381,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   ) : null}
                 </CardHeader>
                 <CardContent>
-                  <BudgetBar spend={mtd} budget={budgetPeriod} />
+                  <BudgetBar
+                    spend={mtdDisplay}
+                    budget={budgetDisplay}
+                    unit={isOpenAiProduct ? "credits" : "usd"}
+                  />
                 </CardContent>
               </Card>
             );

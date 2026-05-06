@@ -8,6 +8,7 @@
 import { jsonGet, type Fetch } from "../_http";
 import { IntegrationError } from "../errors";
 import type { CodexUsagePage, CodexUsageRow } from "./types";
+import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
 
 export const CODEX_ENTERPRISE_ANALYTICS_VENDOR_KEY =
   "OPENAI_CODEX_ENTERPRISE_ANALYTICS" as const;
@@ -90,12 +91,12 @@ export async function fetchCodexEnterpriseWorkspaceUsageRows(args: {
   return out;
 }
 
-/** USD per credit from env; default 1 (treat credits as USD-equivalent). */
+/** USD per credit from env; defaults to contract overage rate (0.04). */
 export function resolveUsdPerCredit(
   env: Record<string, string | undefined> = process.env,
 ): number {
   const raw = env.OPENAI_CODEX_ANALYTICS_USD_PER_CREDIT?.trim();
-  if (!raw) return 1;
+  if (!raw) return OPENAI_CREDIT_OVERAGE_USD;
   const n = Number.parseFloat(raw);
   if (!Number.isFinite(n) || n < 0) {
     throw new IntegrationError(

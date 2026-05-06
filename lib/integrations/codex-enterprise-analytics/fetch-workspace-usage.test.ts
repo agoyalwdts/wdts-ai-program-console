@@ -25,8 +25,8 @@ describe("resolveCodexEnterpriseAnalyticsCredentials", () => {
 });
 
 describe("resolveUsdPerCredit", () => {
-  it("defaults to 1", () => {
-    expect(resolveUsdPerCredit({})).toBe(1);
+  it("defaults to contract credit rate", () => {
+    expect(resolveUsdPerCredit({})).toBe(0.04);
   });
 });
 

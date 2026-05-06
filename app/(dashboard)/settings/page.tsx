@@ -362,7 +362,7 @@ export default async function SettingsPage() {
                     (scoped <code className="font-mono text-xs">codex.enterprise.analytics.read</code>
                     ). Upserts daily CODEX buckets into <code className="font-mono text-xs">VendorDailySpend</code>
                     . Optional <code className="font-mono text-xs">OPENAI_CODEX_ANALYTICS_USD_PER_CREDIT</code>{" "}
-                    (default 1). Schedule{" "}
+                    (default 0.04). Schedule{" "}
                     <code className="font-mono text-xs">POST /api/cron/sync-codex-enterprise-spend</code>{" "}
                     or run below.
                   </CardDescription>

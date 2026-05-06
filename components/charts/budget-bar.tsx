@@ -4,10 +4,12 @@ export function BudgetBar({
   spend,
   budget,
   warnAt = 0.8,
+  unit = "usd",
 }: {
   spend: number;
   budget: number;
   warnAt?: number;
+  unit?: "usd" | "credits";
 }) {
   const pct = budget > 0 ? Math.min(spend / budget, 1.25) : 0;
   const widthPct = Math.min(pct * 100, 100);
@@ -27,11 +29,16 @@ export function BudgetBar({
       <div className="flex items-center justify-between text-[11px] text-slate-500">
         <span>{(pct * 100).toFixed(1)}% MTD</span>
         <span>
-          remaining {Math.max(budget - spend, 0).toLocaleString("en-US", {
-            style: "currency",
-            currency: "USD",
-            maximumFractionDigits: 0,
-          })}
+          remaining{" "}
+          {unit === "credits"
+            ? `${Math.max(budget - spend, 0).toLocaleString("en-US", {
+                maximumFractionDigits: 0,
+              })} credits`
+            : Math.max(budget - spend, 0).toLocaleString("en-US", {
+                style: "currency",
+                currency: "USD",
+                maximumFractionDigits: 0,
+              })}
         </span>
       </div>
     </div>
