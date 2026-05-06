@@ -59,8 +59,15 @@ export type CursorFilteredUsageEventFull = {
  * dollar floats (14.79, 21.36232) stay off-integer (beyond float noise) and pass through as USD.
  *
  * JSON may send numeric strings — coerce with {@link Number}.
+ *
+ * **Large cent integers** sometimes arrive with **>1e-4** deviation from a whole cent
+ * (e.g. `522206.49` from serialization). Those used to fall through as USD and inflate MTD ~100×.
+ * If the value is huge and within **$1** of a whole cent count, treat as cents.
  */
 const CHARGED_CENTS_INTEGER_EPS = 1e-4;
+/** Non-integers at or above this (cent-scale before ÷100) may use the loose “near whole” rule. */
+const CHARGED_CENTS_JUMBO_NEAREST = 100_000;
+const CHARGED_CENTS_JUMBO_MAX_DIST_FROM_WHOLE = 1;
 
 export function cursorChargedFieldToUsd(
   chargedCents: number | string | undefined | null,
@@ -70,7 +77,14 @@ export function cursorChargedFieldToUsd(
   if (!Number.isFinite(n)) return 0;
   if (Number.isInteger(n)) return n / 100;
   const nearest = Math.round(n);
-  if (nearest >= 1 && Math.abs(n - nearest) <= CHARGED_CENTS_INTEGER_EPS) {
+  const dist = Math.abs(n - nearest);
+  if (nearest >= 1 && dist <= CHARGED_CENTS_INTEGER_EPS) {
+    return nearest / 100;
+  }
+  if (
+    nearest >= CHARGED_CENTS_JUMBO_NEAREST &&
+    dist < CHARGED_CENTS_JUMBO_MAX_DIST_FROM_WHOLE
+  ) {
     return nearest / 100;
   }
   return n;
