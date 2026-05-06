@@ -40,6 +40,11 @@ describe("cursorChargedFieldToUsd", () => {
     expect(cursorChargedFieldToUsd(511257.99999999994)).toBeCloseTo(5112.58, 2);
   });
 
+  it("snaps jumbo cent floats with >1e-4 deviation (serialization) to cents", () => {
+    expect(cursorChargedFieldToUsd(522206.49)).toBeCloseTo(5222.06, 2);
+    expect(cursorChargedFieldToUsd(517026.33)).toBeCloseTo(5170.26, 2);
+  });
+
   it("snaps sub-100 near-integer cent floats (IEEE noise) — avoids ~100× inflation per event", () => {
     expect(cursorChargedFieldToUsd(49.99999999999994)).toBeCloseTo(0.5, 8);
     expect(cursorChargedFieldToUsd(21.000000000000004)).toBeCloseTo(0.21, 8);
