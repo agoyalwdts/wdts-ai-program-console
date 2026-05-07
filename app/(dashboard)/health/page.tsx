@@ -52,6 +52,12 @@ import {
   type F1PeriodPlan,
 } from "@/lib/f1-period";
 import { mergeTopSpendersWithVendorAttribution } from "@/lib/f1-top-spenders-vendor";
+import {
+  enrichLeaderboardRows,
+  mirrorTopSpendersByProducts,
+  type F1LeaderboardRow,
+} from "@/lib/f1-health-leaderboards";
+import { Product } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -69,14 +75,8 @@ const OPENAI_CARD_SPLIT = {
 async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   mtdMap: Map<ProductKey, number>;
   days: SpendPoint[];
-  top: {
-    id: string;
-    displayName: string;
-    email: string;
-    roleTag: string;
-    region: string;
-    total: number;
-  }[];
+  topCursor: F1LeaderboardRow[];
+  topChatGptCodex: F1LeaderboardRow[];
   combinedChatGptCodexMtd: number;
   plan: F1PeriodPlan;
   period: F1Period;
@@ -94,7 +94,6 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   const [
     programAgg,
     dailyAgg,
-    topRaw,
     deelAll,
     vendorCursor,
     vendorManualExport,
@@ -103,7 +102,6 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   ] = await Promise.all([
     gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
     gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
-    gateway.topSpenders({ periodStart: plan.periodStart, periodEnd: plan.periodEnd, limit: 10 }),
     deel.listEmployees(),
     loadCursorVendorSpendForF1(prisma, {
       periodStart: plan.periodStart,
@@ -183,41 +181,41 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   if (vendorCodexEnterprise.usedVendor) codexSpendSource = "codex_enterprise_analytics";
 
   const deelByEmail = new Map(deelAll.map((d) => [d.email, d]));
-  const topMerged = await mergeTopSpendersWithVendorAttribution(prisma, {
+
+  const [cursorMirror, openAiMirror] = await Promise.all([
+    mirrorTopSpendersByProducts(prisma, {
+      products: [Product.CURSOR],
+      periodStart: plan.periodStart,
+      periodEnd: plan.periodEnd,
+      candidateLimit: 40,
+    }),
+    mirrorTopSpendersByProducts(prisma, {
+      products: [Product.CHATGPT, Product.CODEX],
+      periodStart: plan.periodStart,
+      periodEnd: plan.periodEnd,
+      candidateLimit: 80,
+    }),
+  ]);
+
+  const topCursor = await enrichLeaderboardRows(
+    prisma,
+    cursorMirror.slice(0, 10),
+    deelByEmail,
+  );
+
+  const openAiMerged = await mergeTopSpendersWithVendorAttribution(prisma, {
     planPeriodStart: plan.periodStart,
     planPeriodEnd: plan.periodEnd,
-    gatewayTop: topRaw,
+    gatewayTop: openAiMirror,
     limit: 10,
   });
-  const topUserIds = topMerged.map((r) => r.userId);
-  const topUsers =
-    topUserIds.length === 0
-      ? []
-      : await prisma.user.findMany({
-          where: { id: { in: topUserIds } },
-          select: { id: true, displayName: true, email: true, roleTag: true, region: true },
-        });
-  const userById = new Map(topUsers.map((u) => [u.id, u]));
-  const top = topMerged
-    .map((r) => {
-      const u = userById.get(r.userId);
-      if (!u) return null;
-      const hr = deelByEmail.get(u.email);
-      return {
-        id: r.userId,
-        displayName: u.displayName,
-        email: u.email,
-        roleTag: hr?.roleTag ?? u.roleTag ?? "—",
-        region: hr?.region ?? u.region ?? "—",
-        total: r.totalUsd,
-      };
-    })
-    .filter((r): r is NonNullable<typeof r> => r != null);
+  const topChatGptCodex = await enrichLeaderboardRows(prisma, openAiMerged, deelByEmail);
 
   return {
     mtdMap,
     days,
-    top,
+    topCursor,
+    topChatGptCodex,
     combinedChatGptCodexMtd:
       (mtdMap.get("CHATGPT") ?? 0) + (mtdMap.get("CODEX") ?? 0),
     plan,
@@ -226,6 +224,48 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
     openAiChatgptSpendSource,
     codexSpendSource,
   };
+}
+
+function LeaderboardTable({
+  rows,
+  emptyLabel,
+}: {
+  rows: F1LeaderboardRow[];
+  emptyLabel: string;
+}) {
+  if (rows.length === 0) {
+    return <div className="px-5 py-8 text-sm text-slate-500">{emptyLabel}</div>;
+  }
+  return (
+    <Table>
+      <THead>
+        <TR>
+          <TH className="px-5">User</TH>
+          <TH>Email</TH>
+          <TH>Role tag</TH>
+          <TH>Region</TH>
+          <TH className="text-right pr-5">Period spend</TH>
+        </TR>
+      </THead>
+      <TBody>
+        {rows.map((u) => (
+          <TR key={u.id}>
+            <TD className="pl-5 font-medium text-slate-900">{u.displayName}</TD>
+            <TD className="text-slate-600">{u.email}</TD>
+            <TD>
+              <Badge variant="secondary">{u.roleTag}</Badge>
+            </TD>
+            <TD>
+              <Badge variant={u.region === "apac-mo" ? "warning" : "outline"}>{u.region}</Badge>
+            </TD>
+            <TD className="text-right pr-5 font-mono text-slate-900">
+              {formatUsd(u.total, { decimals: 2 })}
+            </TD>
+          </TR>
+        ))}
+      </TBody>
+    </Table>
+  );
 }
 
 export default async function HealthPage(props: { searchParams: Promise<SP> }) {
@@ -640,50 +680,41 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           </CardContent>
         </Card>
 
-        {/* Top 10 spenders */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Top 10 spenders ({spendLabel.toLowerCase()})</CardTitle>
-            <CardDescription>
-              Gateway mirror (<code className="font-mono text-xs">UsageRecord</code>) plus
-              prorated ChatGPT Business users CSV when an import overlaps this period (see Settings →
-              Data imports). OpenAI org / Cursor vendor syncs are program-level only — they do not
-              yet allocate USD per user on this board.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="px-0 pb-0">
-            <Table>
-              <THead>
-                <TR>
-                  <TH className="px-5">User</TH>
-                  <TH>Email</TH>
-                  <TH>Role tag</TH>
-                  <TH>Region</TH>
-                  <TH className="text-right pr-5">Period spend</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {data.top.map((u) => (
-                  <TR key={u.id}>
-                    <TD className="pl-5 font-medium text-slate-900">{u.displayName}</TD>
-                    <TD className="text-slate-600">{u.email}</TD>
-                    <TD>
-                      <Badge variant="secondary">{u.roleTag}</Badge>
-                    </TD>
-                    <TD>
-                      <Badge variant={u.region === "apac-mo" ? "warning" : "outline"}>
-                        {u.region}
-                      </Badge>
-                    </TD>
-                    <TD className="text-right pr-5 font-mono text-slate-900">
-                      {formatUsd(u.total, { decimals: 2 })}
-                    </TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </CardContent>
-        </Card>
+        {/* Top spenders — split by product family (mirror + ChatGPT CSV where applicable) */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Cursor — top 10 ({spendLabel.toLowerCase()})</CardTitle>
+              <CardDescription>
+                Sum of <code className="font-mono text-xs">UsageRecord</code> where{" "}
+                <code className="font-mono text-xs">product = CURSOR</code> in this period. Cursor Team
+                Admin totals on the tiles are program-wide — they are not broken down per user here
+                until we persist per-user vendor rows.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="px-0 pb-0">
+              <LeaderboardTable rows={data.topCursor} emptyLabel="No Cursor usage in this period." />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>ChatGPT &amp; Codex — top 10 ({spendLabel.toLowerCase()})</CardTitle>
+              <CardDescription>
+                Gateway mirror for <code className="font-mono text-xs">CHATGPT</code> +{" "}
+                <code className="font-mono text-xs">CODEX</code>, plus prorated{" "}
+                <strong>ChatGPT Business users CSV</strong> when an import overlaps (Settings → Data
+                imports). OpenAI org / Codex Enterprise vendor syncs remain program-level only.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="px-0 pb-0">
+              <LeaderboardTable
+                rows={data.topChatGptCodex}
+                emptyLabel="No ChatGPT/Codex usage or import overlap in this period."
+              />
+            </CardContent>
+          </Card>
+        </div>
 
         <p className="text-xs text-slate-400">
           F1 reads gateway / Deel. With <code className="font-mono">INTEGRATION_CURSOR=real</code>{" "}
@@ -692,8 +723,9 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           costs sync, CHATGPT can track organization costs. With{" "}
           <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code> and Codex
           analytics sync, the CODEX tile can use <code className="font-mono">api.chatgpt.com</code>{" "}
-          workspace usage (overriding org-costs CODEX when both exist). Top spenders also add
-          prorated ChatGPT Business users CSV credits when that import overlaps the selected period.
+          workspace usage (overriding org-costs CODEX when both exist). The ChatGPT &amp; Codex
+          leaderboard adds prorated ChatGPT Business users CSV when that import overlaps the selected
+          period.
         </p>
       </div>
     </>
