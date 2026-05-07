@@ -94,7 +94,7 @@ export default async function CodexLadderPage() {
           <StatCard
             label="Total Codex seats"
             value={total}
-            sub="getOpenAIClient().listCodexSeats() → Prisma License (CODEX)"
+            sub="getOpenAIClient().listCodexSeats() — Prisma CODEX licenses; real mode also unions OpenAI org users"
           />
           <StatCard label="Aggregate MTD" value={formatUsd(totalSpend, { decimals: 0 })} sub={`of ${formatUsd(totalCap, { decimals: 0 })} cap`} />
           <StatCard label="Promotion candidates" value={data.promotionCandidates.length} sub="Discovery ≥ 50% cap" tone="emerald" />
@@ -191,9 +191,13 @@ export default async function CodexLadderPage() {
         </Card>
 
         <p className="text-xs text-slate-400">
-          v0.2 — read through <code className="font-mono">getOpenAIClient().listCodexSeats()</code>.
-          Authoritative thresholds and promote/demote actions land in v1.1 once the
-          consecutive-month window is real (scoping §5).
+          v0.2 — <code className="font-mono">getOpenAIClient().listCodexSeats()</code>: synthetic mode uses
+          Prisma <code className="font-mono">License</code> (<code className="font-mono">CODEX</code>) only.
+          With <code className="font-mono">INTEGRATION_OPENAI=real</code>, seats are OpenAI Admin{" "}
+          <code className="font-mono">/v1/organization/users</code> merged with those licenses (email match
+          keeps tier/cap; org-only rows are Standard placeholders until licensed). Authoritative
+          thresholds and promote/demote actions land in v1.1 once the consecutive-month window is real
+          (scoping section 5).
         </p>
       </div>
     </>

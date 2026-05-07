@@ -1,7 +1,9 @@
 export type ParsedCodexSessionsJson = {
   /** credit_total summed by date */
   creditsByDate: Record<string, number>;
-  /** Distinct users seen */
+  /** credit_total summed per user email (lowercased) — for F1 leaderboard merge */
+  users: { email: string; credits_used: number }[];
+  /** Distinct users with any credited row */
   userCount: number;
   /** Total rows in export */
   rowCount: number;
@@ -13,7 +15,7 @@ export function parseCodexSessionsJson(text: string): ParsedCodexSessionsJson {
     throw new Error("Codex sessions JSON: expected { data: array }");
   }
   const creditsByDate: Record<string, number> = {};
-  const emails = new Set<string>();
+  const creditsByEmail = new Map<string, number>();
   let rowCount = 0;
 
   for (const row of raw.data) {
@@ -25,8 +27,11 @@ export function parseCodexSessionsJson(text: string): ParsedCodexSessionsJson {
       typeof o.credit_total === "number" ? o.credit_total : Number(o.credit_total);
     if (!date || Number.isNaN(credit)) continue;
     creditsByDate[date] = (creditsByDate[date] ?? 0) + credit;
-    const email = typeof o.email === "string" ? o.email.trim() : "";
-    if (email) emails.add(email);
+    const emailRaw = typeof o.email === "string" ? o.email.trim() : "";
+    if (emailRaw) {
+      const key = emailRaw.toLowerCase();
+      creditsByEmail.set(key, (creditsByEmail.get(key) ?? 0) + credit);
+    }
   }
 
   const dates = Object.keys(creditsByDate);
@@ -34,5 +39,15 @@ export function parseCodexSessionsJson(text: string): ParsedCodexSessionsJson {
     throw new Error("Codex sessions JSON: no credit_total by date");
   }
 
-  return { creditsByDate, userCount: emails.size, rowCount };
+  const users = [...creditsByEmail.entries()].map(([email, credits_used]) => ({
+    email,
+    credits_used,
+  }));
+
+  return {
+    creditsByDate,
+    users,
+    userCount: creditsByEmail.size,
+    rowCount,
+  };
 }

@@ -1,21 +1,35 @@
 /**
- * Real CursorClient — F4 seat board reads dashboard `License` rows (product
- * CURSOR) plus usage aggregates, matching the synthetic client's shape. SCIM
- * workspace membership is optional and not required for this view; the board
- * reflects program allocation in Postgres (seed / reconcilers / imports), not
- * vendor-reported seat count alone.
- *
- * `listWaitlist()` returns `[]` — the waitlist is dashboard-local; the
- * synthetic client still materialises a stub from Prisma for dev UX.
+ * Real CursorClient — F4 "filled" seats union **SCIM workspace members** with
+ * **Prisma `License` (CURSOR)**. Email match → program tier / MTD / idle from
+ * the mirror; SCIM-only members → STANDARD placeholder so the board reflects
+ * actual workspace size. If SCIM env is unset or SCIM fails, falls back to
+ * Prisma-only (program allocation).
  */
 
+import type { Fetch } from "../_http";
 import type { CursorClient, CursorWaitlistEntry } from "./types";
+import { mergeScimMembersWithPrismaSeats } from "./merge-scim-prisma-seats";
 import { listCursorSeatsFromPrisma } from "./prisma-cursor-seats";
+import { listScimUsers, readScimEnv } from "./scim-list-users";
 
-export function makeRealCursorClient(): CursorClient {
+export function makeRealCursorClient(opts?: {
+  fetchImpl?: Fetch;
+  env?: Record<string, string | undefined>;
+}): CursorClient {
+  const env = opts?.env ?? process.env;
+  const fetchImpl = opts?.fetchImpl;
   return {
     async listSeats() {
-      return listCursorSeatsFromPrisma();
+      const prismaSeats = await listCursorSeatsFromPrisma();
+      const scimEnv = readScimEnv(env);
+      if (!scimEnv) return prismaSeats;
+      try {
+        const scimMembers = await listScimUsers(scimEnv, fetchImpl);
+        return mergeScimMembersWithPrismaSeats(scimMembers, prismaSeats);
+      } catch (err) {
+        console.error("[cursor/real] SCIM listUsers failed; using Prisma seats only", err);
+        return prismaSeats;
+      }
     },
 
     async listWaitlist(): Promise<CursorWaitlistEntry[]> {

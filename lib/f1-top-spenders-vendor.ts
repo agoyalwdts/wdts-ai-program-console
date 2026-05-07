@@ -1,10 +1,11 @@
 /**
- * Merge gateway mirror top spenders with vendor-attributed ChatGPT spend from
- * the latest overlapping CHATGPT_USERS_CSV import (Business users export).
+ * Merge gateway mirror top spenders with vendor-attributed credits from:
+ * - **CHATGPT_USERS_CSV** (Business users export — per email + credits_used)
+ * - **CODEX_SESSIONS_JSON** (Codex sessions export — per email + summed credit_total)
  *
- * OpenAI org costs / Cursor Team Admin / Codex EA sync only materialise
- * program-level VendorDailySpend rows — no per-user dimension — so the only
- * built-in per-user vendor signal today is this CSV snapshot.
+ * Codex **workspace** JSON stays program-level only (no per-user credits in file).
+ * OpenAI org costs / Cursor Team Admin / Codex Enterprise Analytics sync are still
+ * program-level `VendorDailySpend` only — they do not add rows here.
  */
 
 import type { PrismaClient } from "@prisma/client";
@@ -28,9 +29,7 @@ function overlapInclusiveDays(planStart: Date, planEnd: Date, expStart: Date, ex
   return inclusiveDayCountYmd(formatLocalYmd(lo), formatLocalYmd(hi));
 }
 
-type ChatgptPayload = {
-  periodStart?: string;
-  periodEnd?: string;
+type UserCreditsPayload = {
   users?: { email: string; credits_used: number }[];
 };
 
@@ -39,39 +38,14 @@ function normEmail(e: string): string {
   return e.trim().toLowerCase();
 }
 
-/**
- * Returns gateway top spenders merged with prorated ChatGPT CSV credits per
- * user, sorted by total descending, capped at `limit`.
- */
-export async function mergeTopSpendersWithVendorAttribution(
-  prisma: PrismaClient,
-  args: {
-    planPeriodStart: Date;
-    planPeriodEnd: Date;
-    gatewayTop: TopSpender[];
-    limit: number;
-  },
-): Promise<TopSpender[]> {
-  const { planPeriodStart, planPeriodEnd, gatewayTop, limit } = args;
-
-  const combined = new Map<string, { totalUsd: number; requestCount: number }>();
-  for (const row of gatewayTop) {
-    combined.set(row.userId, {
-      totalUsd: row.totalUsd,
-      requestCount: row.requestCount,
-    });
-  }
-
-  const snapshots = await prisma.programVendorExportSnapshot.findMany({
-    where: { kind: "CHATGPT_USERS_CSV" },
-    orderBy: { createdAt: "desc" },
-    take: 15,
-    select: {
-      periodStart: true,
-      periodEnd: true,
-      payload: true,
-    },
-  });
+async function mergeFirstOverlappingUserCreditsSnapshot(args: {
+  prisma: PrismaClient;
+  combined: Map<string, { totalUsd: number; requestCount: number }>;
+  planPeriodStart: Date;
+  planPeriodEnd: Date;
+  snapshots: { periodStart: Date | null; periodEnd: Date | null; payload: unknown }[];
+}): Promise<void> {
+  const { prisma, combined, planPeriodStart, planPeriodEnd, snapshots } = args;
 
   for (const snap of snapshots) {
     if (!snap.periodStart || !snap.periodEnd) continue;
@@ -89,7 +63,7 @@ export async function mergeTopSpendersWithVendorAttribution(
     if (exportDays <= 0) continue;
 
     const factor = overlap / exportDays;
-    const payload = snap.payload as ChatgptPayload;
+    const payload = snap.payload as UserCreditsPayload;
     const users = payload.users ?? [];
     if (users.length === 0) continue;
 
@@ -128,6 +102,66 @@ export async function mergeTopSpendersWithVendorAttribution(
     // Use the newest overlapping snapshot only (exports are full-period totals).
     break;
   }
+}
+
+/**
+ * Returns gateway top spenders merged with prorated ChatGPT CSV + Codex sessions
+ * JSON credits per user, sorted by total descending, capped at `limit`.
+ */
+export async function mergeTopSpendersWithVendorAttribution(
+  prisma: PrismaClient,
+  args: {
+    planPeriodStart: Date;
+    planPeriodEnd: Date;
+    gatewayTop: TopSpender[];
+    limit: number;
+  },
+): Promise<TopSpender[]> {
+  const { planPeriodStart, planPeriodEnd, gatewayTop, limit } = args;
+
+  const combined = new Map<string, { totalUsd: number; requestCount: number }>();
+  for (const row of gatewayTop) {
+    combined.set(row.userId, {
+      totalUsd: row.totalUsd,
+      requestCount: row.requestCount,
+    });
+  }
+
+  const chatgptSnaps = await prisma.programVendorExportSnapshot.findMany({
+    where: { kind: "CHATGPT_USERS_CSV" },
+    orderBy: { createdAt: "desc" },
+    take: 15,
+    select: {
+      periodStart: true,
+      periodEnd: true,
+      payload: true,
+    },
+  });
+  await mergeFirstOverlappingUserCreditsSnapshot({
+    prisma,
+    combined,
+    planPeriodStart,
+    planPeriodEnd,
+    snapshots: chatgptSnaps,
+  });
+
+  const codexSessionSnaps = await prisma.programVendorExportSnapshot.findMany({
+    where: { kind: "CODEX_SESSIONS_JSON" },
+    orderBy: { createdAt: "desc" },
+    take: 15,
+    select: {
+      periodStart: true,
+      periodEnd: true,
+      payload: true,
+    },
+  });
+  await mergeFirstOverlappingUserCreditsSnapshot({
+    prisma,
+    combined,
+    planPeriodStart,
+    planPeriodEnd,
+    snapshots: codexSessionSnaps,
+  });
 
   const merged: TopSpender[] = [...combined.entries()].map(([userId, v]) => ({
     userId,

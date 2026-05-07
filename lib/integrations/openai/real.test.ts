@@ -1,11 +1,25 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { CHATGPT_CAP_USD_MONTH } from "@/lib/program";
 import { IntegrationError } from "../errors";
+import type { CodexSeat } from "./types";
 import { makeRealOpenAIClient } from "./real";
+
 const mockCodexFromPrisma = vi.fn();
+const { mockUserFindMany } = vi.hoisted(() => ({
+  mockUserFindMany: vi.fn(),
+}));
+
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    user: {
+      findMany: (...args: unknown[]) => mockUserFindMany(...args),
+    },
+  },
+}));
 
 vi.mock("./prisma-codex-seats", () => ({
   listCodexSeatsFromPrisma: () => mockCodexFromPrisma(),
+  enrichCodexSeatsFromUsageRecords: async (seats: CodexSeat[]) => seats,
 }));
 
 type Recorded = { url: string; method: string; headers: Record<string, string> };
@@ -39,6 +53,7 @@ const ENV = {
 describe("makeRealOpenAIClient", () => {
   beforeEach(() => {
     mockCodexFromPrisma.mockReset();
+    mockUserFindMany.mockReset();
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
       throw new Error("real fetch invoked — test forgot to inject fetchImpl");
     });
@@ -99,7 +114,7 @@ describe("makeRealOpenAIClient", () => {
     expect(calls[0].headers["openai-organization"]).toBe("org-test");
   });
 
-  it("listCodexSeats reads Prisma CODEX licenses (no Admin API round-trip)", async () => {
+  it("listCodexSeats with empty org roster returns Prisma CODEX licenses only", async () => {
     mockCodexFromPrisma.mockResolvedValue([
       {
         userId: "uuid-1",
@@ -112,10 +127,65 @@ describe("makeRealOpenAIClient", () => {
         idleDays: 3,
       },
     ]);
-    const seats = await makeRealOpenAIClient({ env: ENV }).listCodexSeats();
+    const { fetchImpl } = makeMockFetch(() => ({
+      status: 200,
+      body: { data: [], has_more: false },
+    }));
+    const seats = await makeRealOpenAIClient({ fetchImpl, env: ENV }).listCodexSeats();
     expect(seats).toHaveLength(1);
     expect(seats[0]?.subTier).toBe("STANDARD");
     expect(mockCodexFromPrisma).toHaveBeenCalledTimes(1);
+  });
+
+  it("listCodexSeats unions OpenAI org users with Prisma CODEX licenses", async () => {
+    mockCodexFromPrisma.mockResolvedValue([
+      {
+        userId: "uuid-a",
+        email: "a@w.com",
+        displayName: "A",
+        subTier: "LIGHT",
+        capUsdMonth: 1000,
+        mtdSpendUsd: 1,
+        lastActivityTs: null,
+        idleDays: null,
+      },
+    ]);
+    mockUserFindMany.mockResolvedValue([{ id: "uuid-b", email: "b@w.com" }]);
+    const { fetchImpl } = makeMockFetch(() => ({
+      status: 200,
+      body: {
+        data: [
+          { object: "organization.user", id: "ou_a", email: "a@w.com", name: "A", role: "reader" },
+          { object: "organization.user", id: "ou_b", email: "b@w.com", name: "B", role: "reader" },
+        ],
+        has_more: false,
+      },
+    }));
+    const seats = await makeRealOpenAIClient({ fetchImpl, env: ENV }).listCodexSeats();
+    expect(seats).toHaveLength(2);
+    expect(seats[0]?.subTier).toBe("LIGHT");
+    expect(seats[1]?.email).toBe("b@w.com");
+    expect(seats[1]?.userId).toBe("uuid-b");
+    expect(seats[1]?.subTier).toBe("STANDARD");
+  });
+
+  it("listCodexSeats falls back to Prisma-only when org users API fails", async () => {
+    mockCodexFromPrisma.mockResolvedValue([
+      {
+        userId: "uuid-1",
+        email: "a@w.com",
+        displayName: "A",
+        subTier: "STANDARD",
+        capUsdMonth: 100,
+        mtdSpendUsd: 0,
+        lastActivityTs: null,
+        idleDays: null,
+      },
+    ]);
+    const { fetchImpl } = makeMockFetch(() => ({ status: 503, body: { error: "no" } }));
+    const seats = await makeRealOpenAIClient({ fetchImpl, env: ENV }).listCodexSeats();
+    expect(seats).toHaveLength(1);
+    expect(seats[0]?.userId).toBe("uuid-1");
   });
 
   it("throws IntegrationError when env vars are missing", async () => {
