@@ -680,7 +680,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           </CardContent>
         </Card>
 
-        {/* Top spenders — split by product family (mirror + ChatGPT CSV where applicable) */}
+        {/* Top spenders — split by product family (mirror + vendor CSV/JSON per-user merge where applicable) */}
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
@@ -702,9 +702,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               <CardTitle>ChatGPT &amp; Codex — top 10 ({spendLabel.toLowerCase()})</CardTitle>
               <CardDescription>
                 Gateway mirror for <code className="font-mono text-xs">CHATGPT</code> +{" "}
-                <code className="font-mono text-xs">CODEX</code>, plus prorated{" "}
-                <strong>ChatGPT Business users CSV</strong> when an import overlaps (Settings → Data
-                imports). OpenAI org / Codex Enterprise vendor syncs remain program-level only.
+                <code className="font-mono text-xs">CODEX</code>, plus prorated vendor credits from
+                overlapping <strong>ChatGPT Business users CSV</strong> and{" "}
+                <strong>Codex sessions JSON</strong> (per-email <code className="font-mono text-xs">credit_total</code>
+                ) imports. Codex workspace JSON and OpenAI org / Codex Enterprise syncs stay program-level
+                for tiles, not this per-user blend.
               </CardDescription>
             </CardHeader>
             <CardContent className="px-0 pb-0">
@@ -724,8 +726,8 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code> and Codex
           analytics sync, the CODEX tile can use <code className="font-mono">api.chatgpt.com</code>{" "}
           workspace usage (overriding org-costs CODEX when both exist). The ChatGPT &amp; Codex
-          leaderboard adds prorated ChatGPT Business users CSV when that import overlaps the selected
-          period.
+          leaderboard adds prorated ChatGPT Business users CSV and Codex sessions JSON (when payloads
+          include per-user credits) for imports that overlap the selected period.
         </p>
       </div>
     </>

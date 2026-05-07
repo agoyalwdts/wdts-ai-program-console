@@ -19,9 +19,11 @@
  *     `mtdSpendUsd` set to 0 (per-seat spend is not on this Admin endpoint;
  *     F1 totals for ChatGPT/Codex can use `VendorDailySpend` from the
  *     organization costs sync — see `lib/vendor-spend/sync-openai-vendor-daily.ts`).
- *   - `listCodexSeats()` reads Prisma `License` rows (product CODEX) plus
- *     usage aggregates — same shape as the synthetic client — so F9 matches
- *     dashboard program state (tiers from policy / seed), not org membership alone.
+ *   - `listCodexSeats()` unions OpenAI **org** `/organization/users` with Prisma
+ *     `License` (CODEX) by email — program tier / cap wins when licensed; org-only
+ *     members get a STANDARD placeholder (dashboard `User.id` when email matches
+ *     Prisma, else `openai-org:<id>`). Falls back to Prisma-only if the Admin API
+ *     fails. MTD / idle come from gateway `UsageRecord` after the merge.
  *
  * Refs: scoping §4 integration #5; §4.6.2 Codex tiers; AGENTS.md §3.
  */
@@ -29,7 +31,9 @@
 import { paginate, type Fetch } from "../_http";
 import { IntegrationError } from "../errors";
 import { CHATGPT_CAP_USD_MONTH } from "@/lib/program";
-import { listCodexSeatsFromPrisma } from "./prisma-codex-seats";
+import { prisma } from "@/lib/prisma";
+import { mergeOrgUsersWithPrismaCodexSeats } from "./merge-org-prisma-codex-seats";
+import { enrichCodexSeatsFromUsageRecords, listCodexSeatsFromPrisma } from "./prisma-codex-seats";
 import type { ChatGptSeat, OpenAIClient } from "./types";
 
 const API_BASE = "https://api.openai.com/v1";
@@ -92,6 +96,30 @@ async function listOrgUsers(env: Env, fetchImpl?: Fetch): Promise<OrgUser[]> {
   });
 }
 
+function normEmailForMerge(e: string): string {
+  return e.trim().toLowerCase();
+}
+
+async function loadDashboardUserIdsByNormEmail(emails: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const uniq = [...new Set(emails.map(normEmailForMerge).filter(Boolean))];
+  const chunkSize = 40;
+  for (let i = 0; i < uniq.length; i += chunkSize) {
+    const chunk = uniq.slice(i, i + chunkSize);
+    if (chunk.length === 0) continue;
+    const dbUsers = await prisma.user.findMany({
+      where: {
+        OR: chunk.map((e) => ({ email: { equals: e, mode: "insensitive" as const } })),
+      },
+      select: { id: true, email: true },
+    });
+    for (const u of dbUsers) {
+      map.set(normEmailForMerge(u.email), u.id);
+    }
+  }
+  return map;
+}
+
 /** ChatGPT cap is a flat $/month per scoping §4.6.2. */
 const CHATGPT_DEFAULT_CAP = CHATGPT_CAP_USD_MONTH;
 
@@ -116,9 +144,36 @@ export function makeRealOpenAIClient(opts?: {
     },
 
     async listCodexSeats() {
-      // F9 reads dashboard `License` (CODEX) + gateway usage — same as
-      // synthetic. Org Admin API membership is not a substitute for tier caps.
-      return listCodexSeatsFromPrisma();
+      const prismaSeats = await listCodexSeatsFromPrisma();
+      try {
+        const env = readEnv(opts?.env);
+        const orgUsers = await listOrgUsers(env, opts?.fetchImpl);
+        const orgMembers = orgUsers.map((u) => ({
+          id: u.id,
+          email: u.email,
+          displayName: (u.name && u.name.trim()) || u.email,
+        }));
+        const licensedEmails = new Set(prismaSeats.map((s) => normEmailForMerge(s.email)));
+        const emailsForLookup = orgMembers
+          .map((m) => m.email)
+          .filter((e) => {
+            const k = normEmailForMerge(e);
+            return k.length > 0 && !licensedEmails.has(k);
+          });
+        const dashboardUserIdByNormEmail = await loadDashboardUserIdsByNormEmail(emailsForLookup);
+        const merged = mergeOrgUsersWithPrismaCodexSeats({
+          orgMembers,
+          prismaSeats,
+          dashboardUserIdByNormEmail,
+        });
+        return enrichCodexSeatsFromUsageRecords(merged);
+      } catch (err) {
+        console.error(
+          "[openai/real] listCodexSeats org union failed; using Prisma CODEX licenses only",
+          err,
+        );
+        return prismaSeats;
+      }
     },
   };
 }

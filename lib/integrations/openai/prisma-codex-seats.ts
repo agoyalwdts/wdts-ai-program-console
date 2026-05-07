@@ -79,3 +79,24 @@ export async function listCodexSeatsFromPrisma(): Promise<CodexSeat[]> {
     };
   });
 }
+
+/** Recompute MTD / last activity / idle for any Codex seat list (e.g. after org merge). */
+export async function enrichCodexSeatsFromUsageRecords(seats: CodexSeat[]): Promise<CodexSeat[]> {
+  const { mtdMap, lastSeenMap } = await mtdAndLastActivityByUser();
+  const now = new Date();
+  return seats.map((s) => {
+    const last = lastSeenMap.get(s.userId) ?? null;
+    const idleDays = last
+      ? Math.max(
+          0,
+          Math.floor((now.getTime() - new Date(last).getTime()) / (24 * 60 * 60 * 1000)),
+        )
+      : null;
+    return {
+      ...s,
+      mtdSpendUsd: mtdMap.get(s.userId) ?? 0,
+      lastActivityTs: last,
+      idleDays,
+    };
+  });
+}

@@ -191,6 +191,7 @@ export async function applyProgramVendorExportBundle(
             payload: {
               creditsByDate: parsed.creditsByDate,
               userCount: parsed.userCount,
+              users: parsed.users,
               usedForVendorSpend: !wroteCodexSpendFromWorkspace,
             },
           },
