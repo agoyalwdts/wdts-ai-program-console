@@ -19,7 +19,7 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("./prisma-codex-seats", () => ({
   listCodexSeatsFromPrisma: () => mockCodexFromPrisma(),
-  enrichCodexSeatsFromUsageRecords: async (seats: CodexSeat[]) => seats,
+  enrichCodexSeatsForDisplay: async (seats: CodexSeat[]) => seats,
 }));
 
 type Recorded = { url: string; method: string; headers: Record<string, string> };

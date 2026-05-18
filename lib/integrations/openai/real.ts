@@ -23,7 +23,9 @@
  *     `License` (CODEX) by email — program tier / cap wins when licensed; org-only
  *     members get a STANDARD placeholder (dashboard `User.id` when email matches
  *     Prisma, else `openai-org:<id>`). Falls back to Prisma-only if the Admin API
- *     fails. MTD / idle come from gateway `UsageRecord` after the merge.
+ *     fails. MTD / idle: gateway `UsageRecord` when analytics is off; when
+ *     `INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real`, per-user rows from
+ *     `api.chatgpt.com` override MTD for matched emails (see enrichCodexSeatsForDisplay).
  *
  * Refs: scoping §4 integration #5; §4.6.2 Codex tiers; AGENTS.md §3.
  */
@@ -33,7 +35,7 @@ import { IntegrationError } from "../errors";
 import { CHATGPT_CAP_USD_MONTH } from "@/lib/program";
 import { prisma } from "@/lib/prisma";
 import { mergeOrgUsersWithPrismaCodexSeats } from "./merge-org-prisma-codex-seats";
-import { enrichCodexSeatsFromUsageRecords, listCodexSeatsFromPrisma } from "./prisma-codex-seats";
+import { enrichCodexSeatsForDisplay, listCodexSeatsFromPrisma } from "./prisma-codex-seats";
 import type { ChatGptSeat, OpenAIClient } from "./types";
 
 const API_BASE = "https://api.openai.com/v1";
@@ -166,13 +168,13 @@ export function makeRealOpenAIClient(opts?: {
           prismaSeats,
           dashboardUserIdByNormEmail,
         });
-        return enrichCodexSeatsFromUsageRecords(merged);
+        return enrichCodexSeatsForDisplay(merged);
       } catch (err) {
         console.error(
           "[openai/real] listCodexSeats org union failed; using Prisma CODEX licenses only",
           err,
         );
-        return prismaSeats;
+        return enrichCodexSeatsForDisplay(prismaSeats);
       }
     },
   };

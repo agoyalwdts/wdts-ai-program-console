@@ -34,8 +34,11 @@ export type CursorOverviewPanel = {
   query?: Record<string, string>;
 };
 
-/** Panels we fetch on /analytics (subset of full vendor catalogue). */
-export const CURSOR_OVERVIEW_PANELS: CursorOverviewPanel[] = [
+/**
+ * Core panels for the default /analytics surface.
+ * These are the decision-driving metrics; deeper endpoint diagnostics are optional.
+ */
+export const CURSOR_OVERVIEW_CORE_PANELS: CursorOverviewPanel[] = [
   {
     key: "analyticsDau",
     label: "Daily active users",
@@ -61,6 +64,36 @@ export const CURSOR_OVERVIEW_PANELS: CursorOverviewPanel[] = [
     path: "/analytics/team/tabs",
   },
   {
+    key: "analyticsLeaderboard",
+    label: "Usage leaderboard",
+    apiFamily: "Analytics API",
+    path: "/analytics/team/leaderboard",
+    query: { page: "1", pageSize: "10" },
+  },
+  {
+    key: "analyticsConversationInsights",
+    label: "Conversation insights",
+    apiFamily: "Analytics API",
+    path: "/analytics/team/conversation-insights",
+    query: {
+      include: "intents,complexity,categories,guidanceLevels,workTypes",
+    },
+  },
+];
+
+/**
+ * Additional endpoint probes kept for optional diagnostics mode.
+ * These are intentionally omitted from the default view to reduce API load/noise.
+ */
+export const CURSOR_OVERVIEW_DIAGNOSTIC_PANELS: CursorOverviewPanel[] = [
+  {
+    key: "analyticsByUserModels",
+    label: "Model usage (by user)",
+    apiFamily: "Analytics API",
+    path: "/analytics/by-user/models",
+    query: { page: "1", pageSize: "50" },
+  },
+  {
     key: "analyticsClientVersions",
     label: "Client versions",
     apiFamily: "Analytics API",
@@ -77,29 +110,6 @@ export const CURSOR_OVERVIEW_PANELS: CursorOverviewPanel[] = [
     label: "MCP",
     apiFamily: "Analytics API",
     path: "/analytics/team/mcp",
-  },
-  {
-    key: "analyticsLeaderboard",
-    label: "Usage leaderboard",
-    apiFamily: "Analytics API",
-    path: "/analytics/team/leaderboard",
-    query: { page: "1", pageSize: "10" },
-  },
-  {
-    key: "analyticsConversationInsights",
-    label: "Conversation insights",
-    apiFamily: "Analytics API",
-    path: "/analytics/team/conversation-insights",
-    query: {
-      include: "intents,complexity,categories,guidanceLevels,workTypes",
-    },
-  },
-  {
-    key: "analyticsByUserModels",
-    label: "Model usage (by user)",
-    apiFamily: "Analytics API",
-    path: "/analytics/by-user/models",
-    query: { page: "1", pageSize: "50" },
   },
   {
     key: "adminMembers",
@@ -155,9 +165,11 @@ export type LoadCursorApiOverviewOptions = {
   fetchImpl?: Fetch;
   /** Passed to Analytics + AI Code Tracking paths that accept startDate/endDate. */
   analyticsWindow?: { startDate: string; endDate: string };
+  /** Include lower-priority diagnostic probes (off by default). */
+  includeDiagnostics?: boolean;
 };
 
-/** Slices loaded outside {@link CURSOR_OVERVIEW_PANELS} (Admin POST endpoints). */
+/** Slices loaded outside panel lists (Admin POST endpoints). */
 export const CURSOR_OVERVIEW_ADMIN_SLICE_KEYS = ["adminDailyUsage", "adminTeamSpend"] as const;
 
 function parseUsersFilter(env: IntegrationEnv): string | undefined {
@@ -220,6 +232,10 @@ export async function loadCursorApiOverview(
   const env = opts.env ?? process.env;
   const fetchImpl = opts.fetchImpl;
   const window = opts.analyticsWindow ?? { startDate: "30d", endDate: "today" };
+  const includeDiagnostics = opts.includeDiagnostics ?? false;
+  const panelsToFetch = includeDiagnostics
+    ? [...CURSOR_OVERVIEW_CORE_PANELS, ...CURSOR_OVERVIEW_DIAGNOSTIC_PANELS]
+    : CURSOR_OVERVIEW_CORE_PANELS;
   const apiKey = resolveCursorTeamAdminApiKey(env);
   const cloudAgentsApiKey = resolveCursorCloudAgentsApiKey(env);
   const mode = getIntegrationMode("cursor", env);
@@ -237,7 +253,7 @@ export async function loadCursorApiOverview(
 
   if (mode !== "real") {
     const skipPairs = [
-      ...CURSOR_OVERVIEW_PANELS.map((p) => [p.key, skipped("INTEGRATION_CURSOR is not `real`.")] as const),
+      ...panelsToFetch.map((p) => [p.key, skipped("INTEGRATION_CURSOR is not `real`.")] as const),
       ...CURSOR_OVERVIEW_ADMIN_SLICE_KEYS.map(
         (k) => [k, skipped("INTEGRATION_CURSOR is not `real`.")] as const,
       ),
@@ -254,7 +270,7 @@ export async function loadCursorApiOverview(
 
   if (!apiKey) {
     const skipPairs = [
-      ...CURSOR_OVERVIEW_PANELS.map(
+      ...panelsToFetch.map(
         (p) =>
           [
             p.key,
@@ -287,7 +303,7 @@ export async function loadCursorApiOverview(
   };
 
   const entries = await Promise.all(
-    CURSOR_OVERVIEW_PANELS.map(async (panel) => {
+    panelsToFetch.map(async (panel) => {
       const q: Record<string, string | number | undefined> = {
         ...baseQuery,
         ...panel.query,
@@ -324,23 +340,28 @@ export async function loadCursorApiOverview(
     }),
   );
 
-  const [adminDailySlice, adminSpendSlice] = await Promise.all([
-    mapErr(() =>
-      fetchAdminDailyUsageSnapshot({ apiKey, window, fetchImpl }),
-    ),
-    mapErr(async () => {
-      const { teamMemberSpend, pagesFetched } = await fetchTeamSpendAllPages({
-        apiKey,
-        fetchImpl,
-      });
-      return {
-        teamMemberSpend,
-        pagesFetched,
-        note:
-          "POST /teams/spend — monthlyLimitDollars / hardLimitOverrideDollars vs policy caps (read-only).",
-      };
-    }),
-  ]);
+  const [adminDailySlice, adminSpendSlice] = includeDiagnostics
+    ? await Promise.all([
+        mapErr(() =>
+          fetchAdminDailyUsageSnapshot({ apiKey, window, fetchImpl }),
+        ),
+        mapErr(async () => {
+          const { teamMemberSpend, pagesFetched } = await fetchTeamSpendAllPages({
+            apiKey,
+            fetchImpl,
+          });
+          return {
+            teamMemberSpend,
+            pagesFetched,
+            note:
+              "POST /teams/spend — monthlyLimitDollars / hardLimitOverrideDollars vs policy caps (read-only).",
+          };
+        }),
+      ])
+    : [
+        skipped("Diagnostics mode is off on the default Analytics view."),
+        skipped("Diagnostics mode is off on the default Analytics view."),
+      ];
 
   let aiCodeRollup: AiCodeRollupSlice;
   try {

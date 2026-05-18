@@ -26,6 +26,7 @@ a surface “live”. Not all rows apply to every milestone.
 - [ ] Org **admin** API key + **`OPENAI_ORG_ID`**.
 - [ ] **`INTEGRATION_OPENAI=real`** when validated.
 - [ ] Optional tuning: **`OPENAI_COST_LINE_ITEM_SUBSTRINGS_JSON`** / **`OPENAI_COST_UNMAPPED_SPLIT`** for F1 ChatGPT vs Codex split.
+- [ ] Codex Enterprise Analytics: **`OPENAI_CODEX_ANALYTICS_API_KEY`** (`codex.enterprise.analytics.read`) + **`CHATGPT_WORKSPACE_ID`**; **`INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real`** for F1 CODEX tile and F9 per-seat MTD from `api.chatgpt.com`; cron **`sync-codex-enterprise-spend`** for daily vendor rows.
 
 ## Anthropic / M365 Graph / Azure OpenAI
 

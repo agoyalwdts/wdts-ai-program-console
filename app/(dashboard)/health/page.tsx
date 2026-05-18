@@ -51,6 +51,11 @@ import {
   type F1Period,
   type F1PeriodPlan,
 } from "@/lib/f1-period";
+import {
+  f1GatewayDailySinceForMonthView,
+  f1OpenAiSpendLabel,
+  openAiChatGptCodexPeriodStartForF1,
+} from "@/lib/openai-billing-period";
 import { mergeTopSpendersWithVendorAttribution } from "@/lib/f1-top-spenders-vendor";
 import {
   enrichLeaderboardRows,
@@ -90,9 +95,14 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
 }> {
   const gateway = getGatewayClient();
   const deel = getDeelClient();
+  const now = plan.periodEnd;
+  const openAiPeriodStart = openAiChatGptCodexPeriodStartForF1(now, period, plan.periodStart);
+  const gatewayDailySince =
+    period === "month" ? f1GatewayDailySinceForMonthView(plan.periodStart, now) : plan.periodStart;
 
   const [
     programAgg,
+    openAiProgramAgg,
     dailyAgg,
     deelAll,
     vendorCursor,
@@ -101,22 +111,25 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
     vendorCodexEnterprise,
   ] = await Promise.all([
     gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
-    gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
+    period === "month"
+      ? gateway.aggregateByProgram({ periodStart: openAiPeriodStart, periodEnd: plan.periodEnd })
+      : Promise.resolve([]),
+    gateway.aggregateByProgramDaily({ since: gatewayDailySince, until: plan.periodEnd }),
     deel.listEmployees(),
     loadCursorVendorSpendForF1(prisma, {
       periodStart: plan.periodStart,
       periodEnd: plan.periodEnd,
     }),
     loadManualVendorExportSpendForF1(prisma, {
-      periodStart: plan.periodStart,
+      periodStart: openAiPeriodStart,
       periodEnd: plan.periodEnd,
     }),
     loadOpenAiVendorSpendForF1(prisma, {
-      periodStart: plan.periodStart,
+      periodStart: openAiPeriodStart,
       periodEnd: plan.periodEnd,
     }),
     loadCodexEnterpriseVendorSpendForF1(prisma, {
-      periodStart: plan.periodStart,
+      periodStart: openAiPeriodStart,
       periodEnd: plan.periodEnd,
     }),
   ]);
@@ -124,6 +137,13 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   const mtdMap = new Map<ProductKey, number>(
     programAgg.map((r) => [r.product, r.totalUsd]),
   );
+  if (period === "month") {
+    for (const r of openAiProgramAgg) {
+      if (r.product === "CHATGPT" || r.product === "CODEX") {
+        mtdMap.set(r.product, r.totalUsd);
+      }
+    }
+  }
 
   const days: SpendPoint[] = dailyAgg.map((d) => ({
     day: d.day,
@@ -133,6 +153,18 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
     CLAUDE_AI: d.byProduct.CLAUDE_AI,
     M365_COPILOT: d.byProduct.M365_COPILOT,
   }));
+
+  if (period === "month" && openAiPeriodStart.getTime() > plan.periodStart.getTime()) {
+    const cursor = new Date(plan.periodStart);
+    cursor.setHours(0, 0, 0, 0);
+    for (const row of days) {
+      if (cursor.getTime() < openAiPeriodStart.getTime()) {
+        row.CHATGPT = 0;
+        row.CODEX = 0;
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
 
   mergeCursorVendorIntoF1({
     mtdMap,
@@ -191,7 +223,7 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
     }),
     mirrorTopSpendersByProducts(prisma, {
       products: [Product.CHATGPT, Product.CODEX],
-      periodStart: plan.periodStart,
+      periodStart: openAiPeriodStart,
       periodEnd: plan.periodEnd,
       candidateLimit: 80,
     }),
@@ -204,7 +236,7 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   );
 
   const openAiMerged = await mergeTopSpendersWithVendorAttribution(prisma, {
-    planPeriodStart: plan.periodStart,
+    planPeriodStart: openAiPeriodStart,
     planPeriodEnd: plan.periodEnd,
     gatewayTop: openAiMirror,
     limit: 10,
@@ -289,6 +321,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const openAiBaselineUsdPeriod = OPENAI_POOLED_BASELINE_USD_MONTH * m;
   const openAiOverageUsdPeriod = Math.max(0, combinedUsd - openAiBaselineUsdPeriod);
   const spendLabel = f1PeriodSpendLabel(period);
+  const openAiSpendLabel = f1OpenAiSpendLabel(period, now);
   const programPlanningPeriodUsd = PROGRAM_MONTHLY_PLANNING_USD_TOTAL * m;
   /** Copilot is EA prepaid — economic outlay follows commit, not gateway “usage USD”. */
   const observedProgramPeriodUsd = PRODUCTS.reduce((acc, { key }) => {
@@ -399,7 +432,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                     {formatCredits(combinedCreditsMtd)}
                   </div>
                   <div className="text-xs text-slate-500">
-                    of {formatCredits(combinedCreditsCap)} · {spendLabel}
+                    of {formatCredits(combinedCreditsCap)} · {openAiSpendLabel}
                   </div>
                 </div>
               </div>
@@ -410,7 +443,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                 warnAt={0.9}
               />
               <div className="rounded-lg border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-800 space-y-2">
-                <p className="font-medium text-slate-900">USD view ({spendLabel.toLowerCase()})</p>
+                <p className="font-medium text-slate-900">USD view ({openAiSpendLabel.toLowerCase()})</p>
                 <ul className="space-y-1 text-slate-700 list-disc pl-5">
                   <li>
                     License baseline (prorated):{" "}
@@ -569,7 +602,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   </div>
                   <div className="text-xs text-slate-500">
                     {isOpenAiProduct
-                      ? `of ${formatCredits(budgetDisplay)} planning credits · ${spendLabel}`
+                      ? `of ${formatCredits(budgetDisplay)} planning credits · ${openAiSpendLabel}`
                       : isPrepaidCopilotTile
                         ? `Committed (prepaid) · ${spendLabel}`
                         : `of ${formatUsd(budgetPeriod)} · ${spendLabel}`}
@@ -699,7 +732,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
 
           <Card>
             <CardHeader>
-              <CardTitle>ChatGPT &amp; Codex — top 10 ({spendLabel.toLowerCase()})</CardTitle>
+              <CardTitle>ChatGPT &amp; Codex — top 10 ({openAiSpendLabel.toLowerCase()})</CardTitle>
               <CardDescription>
                 Gateway mirror for <code className="font-mono text-xs">CHATGPT</code> +{" "}
                 <code className="font-mono text-xs">CODEX</code>, plus prorated vendor credits from
@@ -727,7 +760,9 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           analytics sync, the CODEX tile can use <code className="font-mono">api.chatgpt.com</code>{" "}
           workspace usage (overriding org-costs CODEX when both exist). The ChatGPT &amp; Codex
           leaderboard adds prorated ChatGPT Business users CSV and Codex sessions JSON (when payloads
-          include per-user credits) for imports that overlap the selected period.
+          include per-user credits) for imports that overlap the selected period. When F1 period is
+          “This month”, ChatGPT and Codex tiles use the plan billing window (renews on the 16th), not
+          calendar month; Cursor and other products stay calendar-based.
         </p>
       </div>
     </>

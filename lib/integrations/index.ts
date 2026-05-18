@@ -50,6 +50,7 @@ export type { OpenAIClient, ChatGptSeat, CodexSeat, CodexSubTier } from "./opena
 
 export {
   CODEX_ENTERPRISE_ANALYTICS_VENDOR_KEY,
+  fetchCodexEnterprisePerUserUsageRows,
   fetchCodexEnterpriseWorkspaceUsageRows,
   resolveCodexEnterpriseAnalyticsCredentials,
 } from "./codex-enterprise-analytics/fetch-workspace-usage";

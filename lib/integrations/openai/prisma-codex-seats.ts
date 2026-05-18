@@ -4,6 +4,7 @@
  * OpenAI org membership.
  */
 
+import { startOfOpenAiChatGptCodexBillingPeriod } from "@/lib/openai-billing-period";
 import { prisma } from "@/lib/prisma";
 import type { CodexSeat, CodexSubTier } from "./types";
 
@@ -25,14 +26,14 @@ export function licenseSubTierToCodexTier(s: string): CodexSubTier {
 
 async function mtdAndLastActivityByUser() {
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const periodStart = startOfOpenAiChatGptCodexBillingPeriod(now);
 
   const [mtd, last] = await Promise.all([
     prisma.usageRecord.groupBy({
       by: ["userId"],
       where: {
         product: "CODEX",
-        ts: { gte: startOfMonth },
+        ts: { gte: periodStart },
         decision: { in: ["ALLOWED", "PROMPTED"] },
       },
       _sum: { costUsd: true },
@@ -78,6 +79,15 @@ export async function listCodexSeatsFromPrisma(): Promise<CodexSeat[]> {
       idleDays,
     };
   });
+}
+
+/** Gateway mirror MTD, then Codex Enterprise Analytics per-user usage when configured. */
+export async function enrichCodexSeatsForDisplay(seats: CodexSeat[]): Promise<CodexSeat[]> {
+  const fromGateway = await enrichCodexSeatsFromUsageRecords(seats);
+  const { enrichCodexSeatsFromEnterpriseAnalytics } = await import(
+    "../codex-enterprise-analytics/enrich-codex-seats-from-analytics"
+  );
+  return enrichCodexSeatsFromEnterpriseAnalytics(fromGateway);
 }
 
 /** Recompute MTD / last activity / idle for any Codex seat list (e.g. after org merge). */

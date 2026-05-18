@@ -16,6 +16,8 @@ export type CodexUsageRow = {
   start_time: number;
   end_time: number;
   user_id?: string | null;
+  /** Present on per-user rows when the workspace allows email in analytics exports. */
+  email?: string | null;
   totals: CodexUsageTotals;
   clients: Array<{
     client_id?: string;

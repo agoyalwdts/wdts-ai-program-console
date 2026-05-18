@@ -22,11 +22,24 @@ import {
 
 export const dynamic = "force-dynamic";
 
+function analyticsPeriodQueryString(sp: F1SearchParams): string {
+  const q = new URLSearchParams();
+  const period = Array.isArray(sp.period) ? sp.period[0] : sp.period;
+  const from = Array.isArray(sp.from) ? sp.from[0] : sp.from;
+  const to = Array.isArray(sp.to) ? sp.to[0] : sp.to;
+  if (period) q.set("period", period);
+  if (from) q.set("from", from);
+  if (to) q.set("to", to);
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
 export default async function AnalyticsPage(props: { searchParams: Promise<F1SearchParams> }) {
   await requireUser();
   await requirePermission(PERMISSIONS.DASHBOARD_VIEW_ANALYTICS);
 
   const sp = await props.searchParams;
+  const periodQs = analyticsPeriodQueryString(sp);
   const now = new Date();
   const { plan } = resolveF1PlanFromSearchParams(now, sp);
   const analyticsWindow = analyticsWindowForF1Plan(plan);
@@ -64,10 +77,18 @@ export default async function AnalyticsPage(props: { searchParams: Promise<F1Sea
     <div className="flex flex-col min-h-0">
       <Topbar
         title="Analytics"
-        subtitle="Vendor API snapshots and spend materialised in this dashboard"
+        subtitle="Decision-focused analytics with optional diagnostics"
       />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-6 py-2.5">
-        <p className="text-sm text-slate-600">{plan.rangeDescription}</p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-slate-600">{plan.rangeDescription}</p>
+          <Link
+            className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            href={`/analytics/diagnostics${periodQs}`}
+          >
+            Diagnostics
+          </Link>
+        </div>
         <Suspense
           fallback={
             <span className="text-sm text-slate-500" aria-hidden>
@@ -102,6 +123,14 @@ export default async function AnalyticsPage(props: { searchParams: Promise<F1Sea
             TypeScript SDK
           </Link>{" "}
           is for orchestrating agents, not a separate metrics surface — it is not wired here.
+          Drill down into lower-priority endpoint probes on the{" "}
+          <Link
+            className="text-slate-900 underline underline-offset-2"
+            href={`/analytics/diagnostics${periodQs}`}
+          >
+            Diagnostics page
+          </Link>
+          .
         </p>
 
         <AnalyticsManualVendorCharts
@@ -175,11 +204,20 @@ export default async function AnalyticsPage(props: { searchParams: Promise<F1Sea
           <CardHeader>
             <CardTitle className="text-base">APIs not surfaced as separate panels</CardTitle>
             <CardDescription className="text-xs">
-              These are documented on the same host and may be added later (pagination, exports, or
-              write paths stay out of this read-only page).
+              These are documented on the same host. Most are intentionally omitted from default
+              analytics because they are exploratory or operator-debug surfaces rather than routine
+              decision metrics. Use the diagnostics drill-down for endpoint-level detail.
             </CardDescription>
           </CardHeader>
           <CardContent className="text-xs text-slate-600 space-y-2">
+            <p>
+              <Link
+                className="text-slate-900 underline underline-offset-2 font-medium"
+                href={`/analytics/diagnostics${periodQs}`}
+              >
+                Open Analytics diagnostics
+              </Link>
+            </p>
             <ul className="list-disc pl-5 space-y-1">
               <li>
                 <span className="font-medium">Admin API:</span> POST{" "}

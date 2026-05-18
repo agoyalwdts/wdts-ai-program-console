@@ -319,9 +319,13 @@ function GenericCsvPreview({
 export function AnalyticsManualVendorCharts({
   snapshots,
   clipRangeYmd,
+  includeCoreSections = true,
+  includeDiagnosticSections = false,
 }: {
   snapshots: ManualVendorSnapshotDTO[];
   clipRangeYmd: AnalyticsClipYmd;
+  includeCoreSections?: boolean;
+  includeDiagnosticSections?: boolean;
 }) {
   if (snapshots.length === 0) {
     return (
@@ -383,116 +387,126 @@ export function AnalyticsManualVendorCharts({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Codex — workspace credits</CardTitle>
-            <CardDescription>Daily totals from workspace usage JSON.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {meta(workspace)}
-            {workspace ? (
-              <CodexWorkspaceChart payload={workspace.payload} clip={clipRangeYmd} />
-            ) : (
-              <p className="text-sm text-slate-500">No workspace JSON imported.</p>
-            )}
-          </CardContent>
-        </Card>
+        {includeCoreSections ? (
+          <>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Codex — workspace credits</CardTitle>
+                <CardDescription>Daily totals from workspace usage JSON.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {meta(workspace)}
+                {workspace ? (
+                  <CodexWorkspaceChart payload={workspace.payload} clip={clipRangeYmd} />
+                ) : (
+                  <p className="text-sm text-slate-500">No workspace JSON imported.</p>
+                )}
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Codex — sessions credits by day</CardTitle>
-            <CardDescription>Aggregated from per-user session rows.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {meta(sessions)}
-            {sessions ? (
-              <CodexSessionsChart payload={sessions.payload} clip={clipRangeYmd} />
-            ) : (
-              <p className="text-sm text-slate-500">No sessions JSON imported.</p>
-            )}
-          </CardContent>
-        </Card>
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Codex — GitHub code review metrics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {meta(codeReview)}
+                {codeReview ? (
+                  <CodexCodeReviewChart payload={codeReview.payload} clip={clipRangeYmd} />
+                ) : (
+                  <p className="text-sm text-slate-500">No code review JSON imported.</p>
+                )}
+              </CardContent>
+            </Card>
 
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Codex — GitHub code review metrics</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {meta(codeReview)}
-            {codeReview ? (
-              <CodexCodeReviewChart payload={codeReview.payload} clip={clipRangeYmd} />
-            ) : (
-              <p className="text-sm text-slate-500">No code review JSON imported.</p>
-            )}
-          </CardContent>
-        </Card>
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">ChatGPT — top users by credits (import)</CardTitle>
+                <CardDescription>From the Business users CSV.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {meta(chatgptUsers)}
+                {chatgptUsers ? (
+                  <ChatgptUsersTable
+                    payload={chatgptUsers.payload}
+                    clip={clipRangeYmd}
+                    exportPeriodStart={chatgptUsers.periodStart}
+                    exportPeriodEnd={chatgptUsers.periodEnd}
+                  />
+                ) : (
+                  <p className="text-sm text-slate-500">No users CSV imported.</p>
+                )}
+              </CardContent>
+            </Card>
 
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">ChatGPT — top users by credits (import)</CardTitle>
-            <CardDescription>From the Business users CSV.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {meta(chatgptUsers)}
-            {chatgptUsers ? (
-              <ChatgptUsersTable
-                payload={chatgptUsers.payload}
-                clip={clipRangeYmd}
-                exportPeriodStart={chatgptUsers.periodStart}
-                exportPeriodEnd={chatgptUsers.periodEnd}
-              />
-            ) : (
-              <p className="text-sm text-slate-500">No users CSV imported.</p>
-            )}
-          </CardContent>
-        </Card>
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Cursor — team analytics CSV</CardTitle>
+                <CardDescription>
+                  Daily active users and Chat volume when columns are present.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {meta(cursorTeam)}
+                {cursorTeam ? (
+                  <CursorTeamChart payload={cursorTeam.payload} clip={clipRangeYmd} />
+                ) : null}
+                {!cursorTeam ? <p className="text-sm text-slate-500">No Cursor team CSV.</p> : null}
+              </CardContent>
+            </Card>
+          </>
+        ) : null}
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">ChatGPT — GPTs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {meta(gpts)}
-            {gpts ? <GenericCsvPreview payload={gpts.payload} title="GPTs" /> : null}
-            {!gpts ? <p className="text-sm text-slate-500">No GPTs CSV.</p> : null}
-          </CardContent>
-        </Card>
+        {includeDiagnosticSections ? (
+          <>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Codex — sessions credits by day</CardTitle>
+                <CardDescription>Aggregated from per-user session rows.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {meta(sessions)}
+                {sessions ? (
+                  <CodexSessionsChart payload={sessions.payload} clip={clipRangeYmd} />
+                ) : (
+                  <p className="text-sm text-slate-500">No sessions JSON imported.</p>
+                )}
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">ChatGPT — projects</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {meta(projects)}
-            {projects ? <GenericCsvPreview payload={projects.payload} title="Projects" /> : null}
-            {!projects ? <p className="text-sm text-slate-500">No projects CSV.</p> : null}
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">ChatGPT — GPTs</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {meta(gpts)}
+                {gpts ? <GenericCsvPreview payload={gpts.payload} title="GPTs" /> : null}
+                {!gpts ? <p className="text-sm text-slate-500">No GPTs CSV.</p> : null}
+              </CardContent>
+            </Card>
 
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">ChatGPT — impact survey</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {meta(survey)}
-            {survey ? <GenericCsvPreview payload={survey.payload} title="Survey" /> : null}
-            {!survey ? <p className="text-sm text-slate-500">No survey CSV.</p> : null}
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">ChatGPT — projects</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {meta(projects)}
+                {projects ? <GenericCsvPreview payload={projects.payload} title="Projects" /> : null}
+                {!projects ? <p className="text-sm text-slate-500">No projects CSV.</p> : null}
+              </CardContent>
+            </Card>
 
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Cursor — team analytics CSV</CardTitle>
-            <CardDescription>Daily active users and Chat volume when columns are present.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {meta(cursorTeam)}
-            {cursorTeam ? (
-              <CursorTeamChart payload={cursorTeam.payload} clip={clipRangeYmd} />
-            ) : null}
-            {!cursorTeam ? <p className="text-sm text-slate-500">No Cursor team CSV.</p> : null}
-          </CardContent>
-        </Card>
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">ChatGPT — impact survey</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {meta(survey)}
+                {survey ? <GenericCsvPreview payload={survey.payload} title="Survey" /> : null}
+                {!survey ? <p className="text-sm text-slate-500">No survey CSV.</p> : null}
+              </CardContent>
+            </Card>
+          </>
+        ) : null}
       </div>
     </div>
   );

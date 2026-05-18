@@ -14,6 +14,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { prisma } from "@/lib/prisma";
 import { formatUsd, initials } from "@/lib/utils";
 import { PRODUCTS, type ProductKey } from "@/lib/program";
+import { startOfOpenAiChatGptCodexBillingPeriod } from "@/lib/openai-billing-period";
 import {
   getAzureADClient,
   getDeelClient,
@@ -95,7 +96,8 @@ async function getDirectoryPage(q: string, page: number) {
 
 async function getUserDetail(selection: string) {
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const calendarMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const openAiPeriodStart = startOfOpenAiChatGptCodexBillingPeriod(now);
 
   // The local User table is the identity cache; in v0.2 reconcilers populate
   // it from Azure AD + Deel nightly. Reading from it here is fine — it's a
@@ -115,18 +117,29 @@ async function getUserDetail(selection: string) {
   const gateway = getGatewayClient();
   const since = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); // 90 days
   const uid = user.id;
-  const [aggs, recent, deelEmp]: [
+  const [openAiAggs, otherAggs, recent, deelEmp]: [
+    Awaited<ReturnType<typeof gateway.aggregateByUser>>,
     Awaited<ReturnType<typeof gateway.aggregateByUser>>,
     UsageRecord[],
     DeelEmployee | null,
   ] = await Promise.all([
-    gateway.aggregateByUser({ userIds: [uid], periodStart: startOfMonth, periodEnd: now }),
+    gateway.aggregateByUser({ userIds: [uid], periodStart: openAiPeriodStart, periodEnd: now }),
+    gateway.aggregateByUser({ userIds: [uid], periodStart: calendarMonthStart, periodEnd: now }),
     gateway.listUsageRecords({ userId: uid, since, limit: 25 }),
     getDeelClient().getEmployeeByEmail(user.email),
   ]);
 
   const mtdMap = new Map<ProductKey, { sum: number; count: number }>();
-  for (const a of aggs) {
+  for (const a of otherAggs) {
+    if (a.product === "CHATGPT" || a.product === "CODEX") continue;
+    const prev = mtdMap.get(a.product) ?? { sum: 0, count: 0 };
+    mtdMap.set(a.product, {
+      sum: prev.sum + a.totalUsd,
+      count: prev.count + a.requestCount,
+    });
+  }
+  for (const a of openAiAggs) {
+    if (a.product !== "CHATGPT" && a.product !== "CODEX") continue;
     const prev = mtdMap.get(a.product) ?? { sum: 0, count: 0 };
     mtdMap.set(a.product, {
       sum: prev.sum + a.totalUsd,

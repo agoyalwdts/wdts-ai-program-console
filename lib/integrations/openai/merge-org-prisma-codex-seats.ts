@@ -14,7 +14,7 @@ function normEmail(e: string): string {
 /**
  * One seat per OpenAI org member (`/v1/organization/users`). When the same
  * email has a Prisma CODEX `License`, that row wins for tier / cap / MTD
- * (MTD re-applied after merge in `enrichCodexSeatsFromUsageRecords`). Otherwise
+ * (MTD re-applied after merge in `enrichCodexSeatsForDisplay`). Otherwise
  * emit a STANDARD placeholder so F9 "filled" tracks org roster, not only
  * licensed rows.
  */

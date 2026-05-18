@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   CURSOR_OVERVIEW_ADMIN_SLICE_KEYS,
-  CURSOR_OVERVIEW_PANELS,
+  CURSOR_OVERVIEW_CORE_PANELS,
+  CURSOR_OVERVIEW_DIAGNOSTIC_PANELS,
   loadCursorApiOverview,
 } from "./cursor-api-overview";
 
 const ALL_SLICE_KEYS = [
-  ...CURSOR_OVERVIEW_PANELS.map((p) => p.key),
+  ...CURSOR_OVERVIEW_CORE_PANELS.map((p) => p.key),
   ...CURSOR_OVERVIEW_ADMIN_SLICE_KEYS,
 ];
 
@@ -60,6 +61,7 @@ describe("loadCursorApiOverview", () => {
         CURSOR_INTEGRATIONS_API_KEY: "",
       },
       fetchImpl,
+      includeDiagnostics: true,
     });
 
     expect(out.slices.cloudMe?.status).toBe("skipped");
@@ -100,21 +102,73 @@ describe("loadCursorApiOverview", () => {
       env: {
         INTEGRATION_CURSOR: "real",
         CURSOR_TEAM_ADMIN_API_KEY: "crsr_x",
-        /** /v1/* panels 401 with Admin keys only — Integrations key is separate. */
-        CURSOR_CLOUD_AGENTS_API_KEY: "crsr_cloud_integrations",
       },
       fetchImpl,
     });
 
     expect(out.integrationMode).toBe("real");
     expect(out.apiKeyConfigured).toBe(true);
-    expect(vi.mocked(fetchImpl).mock.calls.length).toBe(CURSOR_OVERVIEW_PANELS.length + 3);
+    expect(vi.mocked(fetchImpl).mock.calls.length).toBe(CURSOR_OVERVIEW_CORE_PANELS.length + 1);
     for (const key of ALL_SLICE_KEYS) {
-      expect(out.slices[key]?.status).toBe("ok");
+      const expected = CURSOR_OVERVIEW_ADMIN_SLICE_KEYS.includes(
+        key as (typeof CURSOR_OVERVIEW_ADMIN_SLICE_KEYS)[number],
+      )
+        ? "skipped"
+        : "ok";
+      expect(out.slices[key]?.status).toBe(expected);
     }
     expect(out.aiCodeRollup.status).toBe("ok");
     if (out.aiCodeRollup.status === "ok") {
       expect(out.aiCodeRollup.rollup.totals.commitCount).toBe(0);
+    }
+  });
+
+  it("fetches diagnostic panels only when includeDiagnostics is true", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST" && u.includes("daily-usage-data")) {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (method === "POST" && u.includes("/teams/spend")) {
+        return new Response(
+          JSON.stringify({ teamMemberSpend: [], totalPages: 1 }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (u.includes("/analytics/ai-code/commits")) {
+        return new Response(JSON.stringify({ items: [], totalCount: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, url: u, method }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const out = await loadCursorApiOverview({
+      env: {
+        INTEGRATION_CURSOR: "real",
+        CURSOR_TEAM_ADMIN_API_KEY: "crsr_x",
+        CURSOR_CLOUD_AGENTS_API_KEY: "crsr_cloud_integrations",
+      },
+      fetchImpl,
+      includeDiagnostics: true,
+    });
+
+    const expectedCalls =
+      CURSOR_OVERVIEW_CORE_PANELS.length + CURSOR_OVERVIEW_DIAGNOSTIC_PANELS.length + 3;
+    expect(vi.mocked(fetchImpl).mock.calls.length).toBe(expectedCalls);
+    for (const p of CURSOR_OVERVIEW_DIAGNOSTIC_PANELS) {
+      expect(out.slices[p.key]?.status).toBe("ok");
+    }
+    for (const key of CURSOR_OVERVIEW_ADMIN_SLICE_KEYS) {
+      expect(out.slices[key]?.status).toBe("ok");
     }
   });
 });

@@ -16,14 +16,19 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
-import { CURSOR_OVERVIEW_PANELS } from "@/lib/integrations/cursor/cursor-api-overview";
+import {
+  CURSOR_OVERVIEW_CORE_PANELS,
+  CURSOR_OVERVIEW_DIAGNOSTIC_PANELS,
+} from "@/lib/integrations/cursor/cursor-api-overview";
 import type { CursorApiOverview, CursorApiSlice } from "@/lib/integrations/cursor/cursor-api-overview";
 import { formatUsd } from "@/lib/utils";
 
 const PALETTE = ["#10b981", "#0ea5e9", "#8b5cf6", "#f59e0b", "#ec4899", "#64748b"];
 
 /** Panels rendered in the card grid; leaderboard + AI rollup have dedicated sections above. */
-const CURSOR_GRID_PANELS = CURSOR_OVERVIEW_PANELS.filter((p) => p.key !== "analyticsLeaderboard");
+const CURSOR_GRID_PANELS = CURSOR_OVERVIEW_CORE_PANELS.filter(
+  (p) => p.key !== "analyticsLeaderboard",
+);
 
 const SOURCE_COLORS = {
   ide: "#22c55e",
@@ -698,35 +703,77 @@ function CursorAdminApiSection({ overview }: { overview: CursorApiOverview }) {
   );
 }
 
-export function AnalyticsCursorPanels({ overview }: { overview: CursorApiOverview }) {
+export function AnalyticsCursorPanels({
+  overview,
+  includeCorePanels = true,
+  includeDiagnosticPanels = false,
+}: {
+  overview: CursorApiOverview;
+  includeCorePanels?: boolean;
+  includeDiagnosticPanels?: boolean;
+}) {
   return (
     <div className="space-y-4">
-      <CursorAiCodeEnterpriseSection overview={overview} />
-      <CursorAdminApiSection overview={overview} />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {CURSOR_GRID_PANELS.map((p) => {
-        const slice = overview.slices[p.key];
-        return (
-          <Card key={p.key} className="flex flex-col">
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <CardTitle className="text-base">{p.label}</CardTitle>
-                  <CardDescription className="text-xs mt-1">
-                    {p.apiFamily}
-                    <span className="block font-mono text-[11px] text-slate-500 mt-0.5">{p.path}</span>
-                  </CardDescription>
-                </div>
-                <SliceBadge slice={slice} />
-              </div>
-            </CardHeader>
-            <CardContent className="text-xs text-slate-600 flex-1 flex flex-col gap-2">
-              <PanelBody panelKey={p.key} slice={slice} />
-            </CardContent>
-          </Card>
-        );
-      })}
-      </div>
+      {includeCorePanels ? <CursorAiCodeEnterpriseSection overview={overview} /> : null}
+      {includeCorePanels ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {CURSOR_GRID_PANELS.map((p) => {
+            const slice = overview.slices[p.key];
+            return (
+              <Card key={p.key} className="flex flex-col">
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <CardTitle className="text-base">{p.label}</CardTitle>
+                      <CardDescription className="text-xs mt-1">
+                        {p.apiFamily}
+                        <span className="block font-mono text-[11px] text-slate-500 mt-0.5">
+                          {p.path}
+                        </span>
+                      </CardDescription>
+                    </div>
+                    <SliceBadge slice={slice} />
+                  </div>
+                </CardHeader>
+                <CardContent className="text-xs text-slate-600 flex-1 flex flex-col gap-2">
+                  <PanelBody panelKey={p.key} slice={slice} />
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      ) : null}
+      {includeDiagnosticPanels ? (
+        <div className="space-y-4">
+          <CursorAdminApiSection overview={overview} />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {CURSOR_OVERVIEW_DIAGNOSTIC_PANELS.map((p) => {
+              const slice = overview.slices[p.key];
+              return (
+                <Card key={p.key} className="flex flex-col">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <CardTitle className="text-base">{p.label}</CardTitle>
+                        <CardDescription className="text-xs mt-1">
+                          {p.apiFamily}
+                          <span className="block font-mono text-[11px] text-slate-500 mt-0.5">
+                            {p.path}
+                          </span>
+                        </CardDescription>
+                      </div>
+                      <SliceBadge slice={slice} />
+                    </div>
+                  </CardHeader>
+                  <CardContent className="text-xs text-slate-600 flex-1 flex flex-col gap-2">
+                    <PanelBody panelKey={p.key} slice={slice} />
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

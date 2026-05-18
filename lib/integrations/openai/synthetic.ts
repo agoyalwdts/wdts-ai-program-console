@@ -1,15 +1,16 @@
+import { startOfOpenAiChatGptCodexBillingPeriod } from "@/lib/openai-billing-period";
 import { prisma } from "@/lib/prisma";
 import { listCodexSeatsFromPrisma } from "./prisma-codex-seats";
 import type { ChatGptSeat, OpenAIClient } from "./types";
 
 async function mtdAndLastActivityByUser(product: "CHATGPT" | "CODEX") {
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const periodStart = startOfOpenAiChatGptCodexBillingPeriod(now);
 
   const [mtd, last] = await Promise.all([
     prisma.usageRecord.groupBy({
       by: ["userId"],
-      where: { product, ts: { gte: startOfMonth }, decision: { in: ["ALLOWED", "PROMPTED"] } },
+      where: { product, ts: { gte: periodStart }, decision: { in: ["ALLOWED", "PROMPTED"] } },
       _sum: { costUsd: true },
     }),
     prisma.usageRecord.groupBy({

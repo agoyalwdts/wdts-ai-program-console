@@ -36,18 +36,21 @@ function authHeader(apiKey: string): Record<string, string> {
   };
 }
 
+export type CodexUsageGroup = "workspace" | "user";
+
 /**
- * All workspace-level daily rows in [startTimeSec, endTimeSec) (end exclusive, UTC).
- * Uses group=workspace and cursor pagination.
+ * Paginated usage rows in [startTimeSec, endTimeSec) (end exclusive, UTC).
+ * Omit `group` (or pass `user`) for per-user daily buckets; `workspace` for totals.
  */
-export async function fetchCodexEnterpriseWorkspaceUsageRows(args: {
+export async function fetchCodexEnterpriseUsageRows(args: {
   startTimeSec: number;
   endTimeSec: number;
   creds: CodexEnterpriseAnalyticsEnv;
+  group?: CodexUsageGroup;
   fetchImpl?: Fetch;
   maxPages?: number;
 }): Promise<CodexUsageRow[]> {
-  const { creds, startTimeSec, endTimeSec } = args;
+  const { creds, startTimeSec, endTimeSec, group } = args;
   const f = args.fetchImpl ?? globalThis.fetch.bind(globalThis);
   const maxPages = args.maxPages ?? 50;
 
@@ -60,7 +63,7 @@ export async function fetchCodexEnterpriseWorkspaceUsageRows(args: {
     const q = new URLSearchParams();
     q.set("start_time", String(startTimeSec));
     q.set("end_time", String(endTimeSec));
-    q.set("group", "workspace");
+    if (group === "workspace") q.set("group", "workspace");
     q.set("limit", "1000");
     if (pageCursor) q.set("page", pageCursor);
 
@@ -89,6 +92,28 @@ export async function fetchCodexEnterpriseWorkspaceUsageRows(args: {
   }
 
   return out;
+}
+
+/** Workspace-level daily rows (`group=workspace`). */
+export async function fetchCodexEnterpriseWorkspaceUsageRows(args: {
+  startTimeSec: number;
+  endTimeSec: number;
+  creds: CodexEnterpriseAnalyticsEnv;
+  fetchImpl?: Fetch;
+  maxPages?: number;
+}): Promise<CodexUsageRow[]> {
+  return fetchCodexEnterpriseUsageRows({ ...args, group: "workspace" });
+}
+
+/** Per-user daily rows (default API grouping). */
+export async function fetchCodexEnterprisePerUserUsageRows(args: {
+  startTimeSec: number;
+  endTimeSec: number;
+  creds: CodexEnterpriseAnalyticsEnv;
+  fetchImpl?: Fetch;
+  maxPages?: number;
+}): Promise<CodexUsageRow[]> {
+  return fetchCodexEnterpriseUsageRows({ ...args, group: "user" });
 }
 
 /** USD per credit from env; defaults to {@link OPENAI_CREDIT_OVERAGE_USD} (contract overage). */

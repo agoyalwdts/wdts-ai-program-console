@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  fetchCodexEnterprisePerUserUsageRows,
   fetchCodexEnterpriseWorkspaceUsageRows,
   resolveCodexEnterpriseAnalyticsCredentials,
   resolveUsdPerCredit,
@@ -86,5 +87,31 @@ describe("fetchCodexEnterpriseWorkspaceUsageRows", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]!.totals.credits).toBe(3);
     expect(rows[1]!.totals.credits).toBe(1);
+    const firstUrl = new URL((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string);
+    expect(firstUrl.searchParams.get("group")).toBe("workspace");
+  });
+});
+
+describe("fetchCodexEnterprisePerUserUsageRows", () => {
+  it("does not set group=workspace", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        object: "page",
+        data: [],
+        has_more: false,
+        next_page: null,
+      }),
+    })) as unknown as typeof fetch;
+
+    await fetchCodexEnterprisePerUserUsageRows({
+      startTimeSec: 1,
+      endTimeSec: 2,
+      creds: { apiKey: "k", workspaceId: "ws" },
+      fetchImpl,
+    });
+
+    const url = new URL((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string);
+    expect(url.searchParams.has("group")).toBe(false);
   });
 });

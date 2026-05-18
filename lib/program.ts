@@ -16,7 +16,9 @@
  *                                     NOT a seat count. The 120-seat shape below
  *                                     is the WDTS allocation plan that fits
  *                                     ~$496.8K inside the $500K envelope.
- *   - ChatGPT + Codex (combined)    — **314** entitled seats, **500** pooled credits per seat per month
+ *   - ChatGPT + Codex (combined)    — **314** entitled seats; monthly plan renews on the **16th**
+ *                                     (see {@link OPENAI_CHATGPT_CODEX_BILLING_ANCHOR_DAY} in
+ *                                     `lib/openai-billing-period.ts`). **500** pooled credits per seat per month
  *                                     (= {@link OPENAI_POOLED_CREDITS_MONTH} monthly), **$35** per seat per month
  *                                     license baseline ({@link OPENAI_POOLED_BASELINE_USD_MONTH} monthly),
  *                                     plus ~{@link OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH} overage credits per month
@@ -28,6 +30,9 @@
  */
 
 export type ProductKey = "CURSOR" | "CHATGPT" | "CODEX" | "CLAUDE_AI" | "M365_COPILOT";
+
+/** Re-export for program constants consumers (billing anchor lives in openai-billing-period). */
+export { OPENAI_CHATGPT_CODEX_BILLING_ANCHOR_DAY } from "@/lib/openai-billing-period";
 
 export const PRODUCTS: { key: ProductKey; label: string }[] = [
   { key: "CURSOR", label: "Cursor" },
