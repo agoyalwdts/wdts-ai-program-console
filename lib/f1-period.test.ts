@@ -76,11 +76,21 @@ describe("f1PeriodSpendLabel", () => {
 });
 
 describe("planF1Period", () => {
-  it("month starts on first of month", () => {
-    const now = new Date(2026, 4, 15, 12, 0, 0);
+  it("month uses calendar start with separate OpenAI billing range after the 16th", () => {
+    const now = new Date(2026, 4, 19, 12, 0, 0);
     const p = planF1Period(now, "month");
     expect(p.periodStart.getTime()).toBe(new Date(2026, 4, 1).getTime());
+    expect(p.openAiRangeDescription).toContain("May 16");
+    expect(p.openAiRangeDescription).toContain("May 19");
+    expect(p.rangeDescription).toContain("May 1");
     expect(p.budgetMonthMultiplier).toBe(1);
+  });
+
+  it("month always exposes billing range separately from calendar month start", () => {
+    const now = new Date(2026, 4, 16, 12, 0, 0);
+    const p = planF1Period(now, "month");
+    expect(p.openAiRangeDescription).toContain("May 16");
+    expect(p.rangeDescription).toContain("May 1");
   });
 
   it("quarter uses calendar Q2 for May", () => {

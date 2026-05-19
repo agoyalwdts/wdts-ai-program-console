@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { Topbar } from "@/components/dashboard/topbar";
+import { F1PeriodRangeLine } from "@/components/dashboard/f1-period-range-line";
 import { HealthPeriodSelector } from "@/components/dashboard/health-period-selector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -345,7 +346,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
         subtitle="F1 — Are we on track vs the program-level budgets?"
       />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-6 py-2.5">
-        <p className="text-sm text-slate-600">{data.plan.rangeDescription}</p>
+        <F1PeriodRangeLine plan={data.plan} period={period} />
         <Suspense
           fallback={
             <span className="text-sm text-slate-500" aria-hidden>
@@ -698,7 +699,15 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           <CardHeader>
             <CardTitle>{data.plan.chartTitle}</CardTitle>
             <CardDescription>
-              {data.plan.rangeDescription}. Stacked across all 5 products. Gateway:{" "}
+              {period === "month" && data.plan.openAiRangeDescription ? (
+                <>
+                  ChatGPT & Codex: {data.plan.openAiRangeDescription}. Other products:{" "}
+                  {data.plan.rangeDescription}.{" "}
+                </>
+              ) : (
+                <>{data.plan.rangeDescription}. </>
+              )}
+              Stacked across all 5 products. Gateway:{" "}
               <code className="font-mono">getGatewayClient().aggregateByProgramDaily()</code>
               . CURSOR uses{" "}
               {data.cursorSpendSource === "vendor"

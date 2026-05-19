@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { Topbar } from "@/components/dashboard/topbar";
+import { F1PeriodRangeLine } from "@/components/dashboard/f1-period-range-line";
 import { HealthPeriodSelector } from "@/components/dashboard/health-period-selector";
 import { AnalyticsCursorPanels } from "@/components/dashboard/analytics-cursor-panels";
 import { AnalyticsManualVendorCharts } from "@/components/dashboard/analytics-manual-vendor-charts";
@@ -37,7 +38,7 @@ export default async function AnalyticsDiagnosticsPage(props: { searchParams: Pr
   const sp = await props.searchParams;
   const periodQs = analyticsPeriodQueryString(sp);
   const now = new Date();
-  const { plan } = resolveF1PlanFromSearchParams(now, sp);
+  const { plan, period } = resolveF1PlanFromSearchParams(now, sp);
   const analyticsWindow = analyticsWindowForF1Plan(plan);
 
   const [cursorOverview, manualVendorSnapshots] = await Promise.all([
@@ -53,7 +54,7 @@ export default async function AnalyticsDiagnosticsPage(props: { searchParams: Pr
       />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-6 py-2.5">
         <div className="flex items-center gap-3">
-          <p className="text-sm text-slate-600">{plan.rangeDescription}</p>
+          <F1PeriodRangeLine plan={plan} period={period} />
           <Link
             className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
             href={`/analytics${periodQs}`}

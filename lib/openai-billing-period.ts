@@ -3,6 +3,8 @@
  * 16th (not calendar month). Use these helpers for MTD, caps, and F1 month view.
  */
 
+import { formatF1DateRange } from "@/lib/f1-period";
+
 /** Day-of-month (local) when the ChatGPT/Codex plan period starts. */
 export const OPENAI_CHATGPT_CODEX_BILLING_ANCHOR_DAY = 16;
 
@@ -55,11 +57,7 @@ export function f1OpenAiSpendLabel(period: "month" | "quarter" | "year" | "custo
   return "Custom range";
 }
 
-/** Short label for UI footnotes (e.g. “Apr 16 – today”). */
+/** Billing period start through today (same dates as F1 OpenAI data + Codex API). */
 export function describeOpenAiBillingPeriodToDate(now: Date): string {
-  const start = startOfOpenAiChatGptCodexBillingPeriod(now);
-  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
-  const startStr = start.toLocaleDateString("en-US", opts);
-  const endStr = now.toLocaleDateString("en-US", { ...opts, year: "numeric" });
-  return `${startStr} – ${endStr}`;
+  return formatF1DateRange(startOfOpenAiChatGptCodexBillingPeriod(now), now);
 }

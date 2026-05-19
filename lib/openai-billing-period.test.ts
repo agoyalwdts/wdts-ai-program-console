@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  describeOpenAiBillingPeriodToDate,
   endOfOpenAiChatGptCodexBillingPeriod,
   f1GatewayDailySinceForMonthView,
   openAiBillingPeriodStartSec,
@@ -32,6 +33,15 @@ describe("endOfOpenAiChatGptCodexBillingPeriod", () => {
     expect(end.getTime()).toBe(
       new Date(start.getFullYear(), start.getMonth() + 1, 16, 0, 0, 0, 0).getTime(),
     );
+  });
+});
+
+describe("describeOpenAiBillingPeriodToDate", () => {
+  it("uses full year on both ends", () => {
+    const now = new Date(2026, 4, 19);
+    const s = describeOpenAiBillingPeriodToDate(now);
+    expect(s).toContain("2026");
+    expect(s).toMatch(/May 16.*May 19/);
   });
 });
 

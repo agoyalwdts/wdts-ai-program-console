@@ -2,6 +2,8 @@
  * Program Health (F1) reporting window: calendar month / quarter / year / custom range.
  */
 
+import { startOfOpenAiChatGptCodexBillingPeriod } from "@/lib/openai-billing-period";
+
 export type F1Period = "month" | "quarter" | "year" | "custom";
 
 export const F1_PERIOD_OPTIONS: { value: F1Period; label: string }[] = [
@@ -107,8 +109,20 @@ export type F1PeriodPlan = {
   /** Multiply monthly program budgets by this for the selected window. */
   budgetMonthMultiplier: number;
   chartTitle: string;
+  /** Calendar (or custom) window — Cursor, Claude, M365, gateway default. */
   rangeDescription: string;
+  /**
+   * ChatGPT/Codex billing window when it differs from {@link rangeDescription}
+   * (“This month” uses plan renewal on the 16th).
+   */
+  openAiRangeDescription?: string;
 };
+
+/** Shared date span label for F1 headers and OpenAI product cards. */
+export function formatF1DateRange(start: Date, end: Date): string {
+  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric" };
+  return `${start.toLocaleDateString("en-US", opts)} — ${end.toLocaleDateString("en-US", opts)}`;
+}
 
 function startOfQuarter(d: Date): Date {
   const q = Math.floor(d.getMonth() / 3);
@@ -124,12 +138,17 @@ export function planF1Period(now: Date, period: Exclude<F1Period, "custom">): F1
 
   if (period === "month") {
     const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const billingStart = startOfOpenAiChatGptCodexBillingPeriod(now);
+    const calendarRange = formatF1DateRange(periodStart, periodEnd);
+    const billingRange = formatF1DateRange(billingStart, periodEnd);
     return {
       periodStart,
       periodEnd,
       budgetMonthMultiplier: 1,
       chartTitle: "Daily spend this month",
-      rangeDescription: formatRange(periodStart, periodEnd),
+      rangeDescription: calendarRange,
+      openAiRangeDescription:
+        billingStart.getTime() === periodStart.getTime() ? undefined : billingRange,
     };
   }
 
@@ -155,8 +174,7 @@ export function planF1Period(now: Date, period: Exclude<F1Period, "custom">): F1
 }
 
 function formatRange(start: Date, end: Date): string {
-  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric" };
-  return `${start.toLocaleDateString("en-US", opts)} — ${end.toLocaleDateString("en-US", opts)}`;
+  return formatF1DateRange(start, end);
 }
 
 /** Short label for aggregate spend vs budget in the selected window. */
