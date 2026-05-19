@@ -1,35 +1,113 @@
 /**
- * Merge Codex Enterprise Analytics VendorDailySpend into F1 (CODEX tile + chart).
+ * Codex Enterprise Analytics → F1 (CODEX tile + daily chart).
  *
- * When INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real and rows exist from
- * {@link CODEX_ENTERPRISE_ANALYTICS_VENDOR_KEY}, overrides CODEX totals from
- * gateway and from OpenAI organization/costs (applied after mergeOpenAiVendorIntoF1).
+ * When `INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real`, F1 calls
+ * `api.chatgpt.com` workspace usage on each page load. `VendorDailySpend`
+ * (cron / Settings sync) is only a fallback if the live call fails.
  */
 
 import { Product } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { getIntegrationMode } from "@/lib/integrations/env";
-import { CODEX_ENTERPRISE_ANALYTICS_VENDOR_KEY } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
+import {
+  aggregateWorkspaceUsageSpendByLocalYmd,
+  localYmdFromDate,
+} from "@/lib/integrations/codex-enterprise-analytics/aggregate-workspace-daily";
+import {
+  CODEX_ENTERPRISE_ANALYTICS_VENDOR_KEY,
+  fetchCodexEnterpriseWorkspaceUsageRows,
+  resolveCodexEnterpriseAnalyticsCredentials,
+  resolveUsdPerCredit,
+} from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
+import type { Fetch } from "@/lib/integrations/_http";
 import type { SpendPoint } from "@/components/charts/spend-trend-chart";
 import type { ProductKey } from "@/lib/program";
 import { localYmd } from "@/lib/f1-cursor-vendor";
+
+export type CodexEnterpriseF1Source = "none" | "live" | "sync";
+
+export type CodexEnterpriseF1Spend = {
+  periodTotalUsd: number;
+  byChartDay: Map<string, number>;
+  usedVendor: boolean;
+  source: CodexEnterpriseF1Source;
+};
 
 function chartDayLabel(d: Date): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-export async function loadCodexEnterpriseVendorSpendForF1(
-  prisma: PrismaClient,
-  args: { periodStart: Date; periodEnd: Date },
-): Promise<{
-  periodTotalUsd: number;
-  byChartDay: Map<string, number>;
-  usedVendor: boolean;
-}> {
-  if (getIntegrationMode("codexenterprise") !== "real") {
-    return { periodTotalUsd: 0, byChartDay: new Map(), usedVendor: false };
+function seriesFromSpendByLocalYmd(args: {
+  periodStart: Date;
+  periodEnd: Date;
+  spendByLocalYmd: Map<string, number>;
+}): { periodTotalUsd: number; byChartDay: Map<string, number> } {
+  const startDay = new Date(args.periodStart);
+  startDay.setHours(0, 0, 0, 0);
+  const endDay = new Date(args.periodEnd);
+  endDay.setHours(0, 0, 0, 0);
+
+  let periodTotalUsd = 0;
+  const byChartDay = new Map<string, number>();
+
+  for (let d = new Date(startDay); d.getTime() <= endDay.getTime(); d.setDate(d.getDate() + 1)) {
+    const cur = new Date(d);
+    const ymd = localYmdFromDate(cur);
+    const usd = args.spendByLocalYmd.get(ymd) ?? 0;
+    periodTotalUsd += usd;
+    byChartDay.set(chartDayLabel(cur), usd);
   }
 
+  return { periodTotalUsd, byChartDay };
+}
+
+async function loadCodexEnterpriseLiveSpendForF1(args: {
+  periodStart: Date;
+  periodEnd: Date;
+  env?: Record<string, string | undefined>;
+  fetchImpl?: Fetch;
+}): Promise<CodexEnterpriseF1Spend | null> {
+  const env = args.env ?? process.env;
+  const creds = resolveCodexEnterpriseAnalyticsCredentials(env);
+  if (!creds) return null;
+
+  const startTimeSec = Math.floor(args.periodStart.getTime() / 1000);
+  const endTimeSec = Math.floor(args.periodEnd.getTime() / 1000);
+  if (endTimeSec <= startTimeSec) {
+    return {
+      periodTotalUsd: 0,
+      byChartDay: new Map(),
+      usedVendor: true,
+      source: "live",
+    };
+  }
+
+  const rows = await fetchCodexEnterpriseWorkspaceUsageRows({
+    startTimeSec,
+    endTimeSec,
+    creds,
+    fetchImpl: args.fetchImpl,
+  });
+  const usdPerCredit = resolveUsdPerCredit(env);
+  const spendByLocalYmd = aggregateWorkspaceUsageSpendByLocalYmd(rows, usdPerCredit);
+  const { periodTotalUsd, byChartDay } = seriesFromSpendByLocalYmd({
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+    spendByLocalYmd,
+  });
+
+  return {
+    periodTotalUsd,
+    byChartDay,
+    usedVendor: true,
+    source: "live",
+  };
+}
+
+async function loadCodexEnterpriseSyncedSpendForF1(
+  prisma: PrismaClient,
+  args: { periodStart: Date; periodEnd: Date },
+): Promise<CodexEnterpriseF1Spend> {
   const startDay = new Date(args.periodStart);
   startDay.setHours(0, 0, 0, 0);
   const endDay = new Date(args.periodEnd);
@@ -63,28 +141,51 @@ export async function loadCodexEnterpriseVendorSpendForF1(
   });
 
   if (rows.length === 0) {
-    return { periodTotalUsd: 0, byChartDay: new Map(), usedVendor: false };
+    return { periodTotalUsd: 0, byChartDay: new Map(), usedVendor: false, source: "none" };
   }
 
-  const vendorByLocalYmd = new Map<string, number>();
+  const spendByLocalYmd = new Map<string, number>();
   for (const r of rows) {
     const ymd = localYmd(r.day);
-    vendorByLocalYmd.set(ymd, (vendorByLocalYmd.get(ymd) ?? 0) + r.spendUsd);
+    spendByLocalYmd.set(ymd, (spendByLocalYmd.get(ymd) ?? 0) + r.spendUsd);
   }
 
-  let periodTotalUsd = 0;
-  const byChartDay = new Map<string, number>();
+  const { periodTotalUsd, byChartDay } = seriesFromSpendByLocalYmd({
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+    spendByLocalYmd,
+  });
 
-  for (let d = new Date(startDay); d.getTime() <= endDay.getTime(); d.setDate(d.getDate() + 1)) {
-    const cur = new Date(d);
-    const ymd = localYmd(cur);
-    const usd = vendorByLocalYmd.get(ymd) ?? 0;
-    periodTotalUsd += usd;
-    const label = chartDayLabel(cur);
-    byChartDay.set(label, usd);
+  return { periodTotalUsd, byChartDay, usedVendor: true, source: "sync" };
+}
+
+/** @deprecated Use {@link loadCodexEnterpriseSpendForF1}. */
+export const loadCodexEnterpriseVendorSpendForF1 = loadCodexEnterpriseSpendForF1;
+
+export async function loadCodexEnterpriseSpendForF1(
+  prisma: PrismaClient,
+  args: {
+    periodStart: Date;
+    periodEnd: Date;
+    env?: Record<string, string | undefined>;
+    fetchImpl?: Fetch;
+  },
+): Promise<CodexEnterpriseF1Spend> {
+  if (getIntegrationMode("codexenterprise", args.env) !== "real") {
+    return { periodTotalUsd: 0, byChartDay: new Map(), usedVendor: false, source: "none" };
   }
 
-  return { periodTotalUsd, byChartDay, usedVendor: true };
+  try {
+    const live = await loadCodexEnterpriseLiveSpendForF1(args);
+    if (live) return live;
+  } catch (err) {
+    console.error(
+      "[f1/codex-enterprise] live workspace usage failed; falling back to VendorDailySpend",
+      err,
+    );
+  }
+
+  return loadCodexEnterpriseSyncedSpendForF1(prisma, args);
 }
 
 export function mergeCodexEnterpriseVendorIntoF1(args: {

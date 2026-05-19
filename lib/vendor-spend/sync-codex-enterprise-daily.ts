@@ -6,6 +6,10 @@
 import { Product, type PrismaClient } from "@prisma/client";
 import { DecisionType } from "@prisma/client";
 import {
+  localNoonFromApiUtcYmd,
+  utcYmdFromUnixSec,
+} from "@/lib/integrations/codex-enterprise-analytics/aggregate-workspace-daily";
+import {
   CODEX_ENTERPRISE_ANALYTICS_VENDOR_KEY,
   fetchCodexEnterpriseWorkspaceUsageRows,
   resolveCodexEnterpriseAnalyticsCredentials,
@@ -18,20 +22,6 @@ export type CodexEnterpriseSyncResult = {
   windowStartMs: number;
   windowEndMs: number;
 };
-
-/** Civil calendar date from API (UTC day) stored at local noon — matches F1 / Cursor VendorDailySpend semantics. */
-function prismaDayFromApiUtcYmd(ymd: string): Date {
-  const [y, m, d] = ymd.split("-").map(Number);
-  return new Date(y, m - 1, d, 12, 0, 0, 0);
-}
-
-function utcYmdFromUnixSec(sec: number): string {
-  const d = new Date(sec * 1000);
-  const y = d.getUTCFullYear();
-  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${mo}-${day}`;
-}
 
 export async function syncCodexEnterpriseAnalyticsDaily(
   prisma: PrismaClient,
@@ -82,7 +72,7 @@ export async function syncCodexEnterpriseAnalyticsDaily(
   let daysUpserted = 0;
   for (const [ymd, agg] of byYmd) {
     const spendUsd = agg.credits * usdPerCredit;
-    const day = prismaDayFromApiUtcYmd(ymd);
+    const day = localNoonFromApiUtcYmd(ymd);
     daysUpserted += 1;
     await prisma.vendorDailySpend.upsert({
       where: {

@@ -360,8 +360,9 @@ export default async function SettingsPage() {
                     <code className="font-mono text-xs">api.chatgpt.com</code> Codex workspace usage
                     endpoint (see Codex Admin OpenAPI) with a Bearer key
                     (scoped <code className="font-mono text-xs">codex.enterprise.analytics.read</code>
-                    ). Upserts daily CODEX buckets into <code className="font-mono text-xs">VendorDailySpend</code>
-                    . Optional <code className="font-mono text-xs">OPENAI_CODEX_ANALYTICS_USD_PER_CREDIT</code>{" "}
+                    ). Caches daily CODEX into <code className="font-mono text-xs">VendorDailySpend</code>{" "}
+                    (F1 also calls the API live on each load when <code className="font-mono text-xs">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>
+                    ). Optional <code className="font-mono text-xs">OPENAI_CODEX_ANALYTICS_USD_PER_CREDIT</code>{" "}
                     (default follows <code className="font-mono text-xs">OPENAI_CREDIT_OVERAGE_USD</code> in{" "}
                     <code className="font-mono text-xs">lib/program.ts</code>). Schedule{" "}
                     <code className="font-mono text-xs">POST /api/cron/sync-codex-enterprise-spend</code>{" "}

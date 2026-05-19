@@ -38,7 +38,7 @@ import { prisma } from "@/lib/prisma";
 import { loadCursorVendorSpendForF1, mergeCursorVendorIntoF1 } from "@/lib/f1-cursor-vendor";
 import { loadOpenAiVendorSpendForF1, mergeOpenAiVendorIntoF1 } from "@/lib/f1-openai-vendor";
 import {
-  loadCodexEnterpriseVendorSpendForF1,
+  loadCodexEnterpriseSpendForF1,
   mergeCodexEnterpriseVendorIntoF1,
 } from "@/lib/f1-codex-enterprise-analytics";
 import {
@@ -90,7 +90,8 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   codexSpendSource:
     | "gateway"
     | "openai_org_costs"
-    | "codex_enterprise_analytics"
+    | "codex_enterprise_analytics_live"
+    | "codex_enterprise_analytics_sync"
     | "manual_export";
 }> {
   const gateway = getGatewayClient();
@@ -128,7 +129,7 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
       periodStart: openAiPeriodStart,
       periodEnd: plan.periodEnd,
     }),
-    loadCodexEnterpriseVendorSpendForF1(prisma, {
+    loadCodexEnterpriseSpendForF1(prisma, {
       periodStart: openAiPeriodStart,
       periodEnd: plan.periodEnd,
     }),
@@ -206,11 +207,17 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   let codexSpendSource:
     | "gateway"
     | "openai_org_costs"
-    | "codex_enterprise_analytics"
+    | "codex_enterprise_analytics_live"
+    | "codex_enterprise_analytics_sync"
     | "manual_export" = "gateway";
   if (vendorManualExport.codex.used) codexSpendSource = "manual_export";
   if (vendorOpenAi.codex.usedVendor) codexSpendSource = "openai_org_costs";
-  if (vendorCodexEnterprise.usedVendor) codexSpendSource = "codex_enterprise_analytics";
+  if (vendorCodexEnterprise.usedVendor) {
+    codexSpendSource =
+      vendorCodexEnterprise.source === "live"
+        ? "codex_enterprise_analytics_live"
+        : "codex_enterprise_analytics_sync";
+  }
 
   const deelByEmail = new Map(deelAll.map((d) => [d.email, d]));
 
@@ -631,9 +638,14 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                       ChatGPT Business users CSV (credits spread evenly per export day)
                     </p>
                   ) : null}
-                  {key === "CODEX" && data.codexSpendSource === "codex_enterprise_analytics" ? (
+                  {key === "CODEX" && data.codexSpendSource === "codex_enterprise_analytics_live" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
-                      Codex Enterprise Analytics (api.chatgpt.com)
+                      Codex Enterprise Analytics — live on page load (api.chatgpt.com)
+                    </p>
+                  ) : null}
+                  {key === "CODEX" && data.codexSpendSource === "codex_enterprise_analytics_sync" ? (
+                    <p className="text-[11px] text-violet-700 mt-1">
+                      Codex Enterprise Analytics — cached sync (live API unavailable)
                     </p>
                   ) : null}
                   {key === "CODEX" && data.codexSpendSource === "openai_org_costs" ? (
@@ -699,9 +711,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   ? "uploaded ChatGPT users CSV (Settings → Data imports) when no OpenAI vendor rows override it."
                   : "the gateway mirror unless you run OpenAI vendor sync in Settings."}{" "}
               CODEX uses{" "}
-              {data.codexSpendSource === "codex_enterprise_analytics"
-                ? "Codex Enterprise Analytics sync when configured (overrides org costs for the CODEX tile)."
-                : data.codexSpendSource === "openai_org_costs"
+              {data.codexSpendSource === "codex_enterprise_analytics_live"
+                ? "Codex Enterprise Analytics live from api.chatgpt.com on each Health load (overrides org costs)."
+                : data.codexSpendSource === "codex_enterprise_analytics_sync"
+                  ? "Codex Enterprise Analytics from the last VendorDailySpend sync (live API failed)."
+                  : data.codexSpendSource === "openai_org_costs"
                   ? "OpenAI organization/costs when vendor rows exist."
                   : data.codexSpendSource === "manual_export"
                     ? "uploaded Codex daily JSON (workspace preferred; sessions JSON fills spend if workspace is absent)."
@@ -756,9 +770,9 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           and a recent <code className="font-mono">VendorDailySpend</code> sync, CURSOR matches Cursor
           Team Admin usage. With <code className="font-mono">INTEGRATION_OPENAI=real</code> and OpenAI
           costs sync, CHATGPT can track organization costs. With{" "}
-          <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code> and Codex
-          analytics sync, the CODEX tile can use <code className="font-mono">api.chatgpt.com</code>{" "}
-          workspace usage (overriding org-costs CODEX when both exist). The ChatGPT &amp; Codex
+          <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>, the CODEX
+          tile loads workspace usage live from <code className="font-mono">api.chatgpt.com</code> on
+          each Health view (VendorDailySpend sync is a fallback). The ChatGPT &amp; Codex
           leaderboard adds prorated ChatGPT Business users CSV and Codex sessions JSON (when payloads
           include per-user credits) for imports that overlap the selected period. When F1 period is
           “This month”, ChatGPT and Codex tiles use the plan billing window (renews on the 16th), not
