@@ -233,6 +233,25 @@ Committed JSON under `tests/fixtures/litellm/` is loaded by
 | Remote pull placeholder | `lib/gateway-mirror/vendor-remote-pull.ts` |
 | Public `/api/health` | `app/api/health/route.ts` |
 
+## Model coaching emails (end users)
+
+When usage is mirrored with `model` + token counts, the guardrail monitor
+(`POST /api/cron/guardrail-monitor`) can email **the person who used the model**
+(not only FinOps) for complexity coaching rules such as
+`NON_COMPLEX_HEAVY_MODEL_SELECTED`.
+
+| Variable | Purpose |
+|----------|---------|
+| `USER_MODEL_COACHING_EMAIL` | `1` / `true` — master switch |
+| `USER_MODEL_COACHING_ALLOW_DEV` | Required in dev/sandbox so local cron does not mail real users |
+| `RESEND_API_KEY` | Resend API key (same as operator digests) |
+| `GUARDRAIL_USER_COACHING_RULE_CODES` | Optional comma list; defaults to the three complexity/posture rules |
+| `USER_MODEL_COACHING_BCC` | Optional BCC (defaults to `GUARDRAIL_ALERT_EMAIL_TO`) |
+
+Cursor prudence ingest/cron uses the same switch. Only **`User` rows with
+`disabled=false`** receive mail. `userEmailNotifiedAt` on alert rows prevents
+duplicate coaching for the same deduped finding.
+
 ## Related reading
 
 - `AGENTS.md` — integration table and open blockers.

@@ -75,8 +75,10 @@ export default async function CursorAlertsSettingsPage() {
               HMAC-signed POST to{" "}
               <code className="font-mono text-xs">/api/cron/cursor-prudence</code>. Set{" "}
               <code className="font-mono text-xs">RESEND_API_KEY</code> and{" "}
-              <code className="font-mono text-xs">CURSOR_ALERT_EMAIL_TO</code> to email FinOps
-              when new alert rows are inserted.
+              <code className="font-mono text-xs">CURSOR_ALERT_EMAIL_TO</code> for a FinOps digest.
+              Set <code className="font-mono text-xs">USER_MODEL_COACHING_EMAIL=1</code> to email
+              each active <code className="font-mono text-xs">User</code> directly (one batched
+              message per person per ingest/cron run).
             </CardDescription>
           </CardHeader>
         </Card>

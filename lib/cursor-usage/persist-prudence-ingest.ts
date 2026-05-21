@@ -8,6 +8,7 @@ import type { CursorUsageParsedRow } from "./types";
 import { evaluatePrudence } from "./rules";
 import { prudenceDedupeKey } from "./dedupe";
 import { sendCursorPrudenceDigest } from "@/lib/notify/cursor-prudence-email";
+import { notifyCursorPrudenceAlertUsers } from "@/lib/notify/notify-end-users";
 
 export type PrudenceIngestCandidate = {
   rowOccurredAt: Date;
@@ -117,7 +118,6 @@ export async function persistCursorPrudenceIngest(args: {
     where: {
       dedupeKey: { in: dedupeKeys },
       createdAt: { gte: jobStart },
-      emailNotifiedAt: null,
     },
     select: {
       id: true,
@@ -126,14 +126,18 @@ export async function persistCursorPrudenceIngest(args: {
       costUsd: true,
       ruleCode: true,
       title: true,
+      rationale: true,
+      emailNotifiedAt: true,
+      userEmailNotifiedAt: true,
     },
   });
 
-  if (fresh.length > 0) {
+  const needsAdminDigest = fresh.filter((a) => a.emailNotifiedAt === null);
+  if (needsAdminDigest.length > 0) {
     const mail = await sendCursorPrudenceDigest({
       dashboardBaseUrl,
-      subject: `[WDTS AI Console] ${fresh.length} Cursor usage prudence alert(s)`,
-      lines: fresh.map((a) => ({
+      subject: `[WDTS AI Console] ${needsAdminDigest.length} Cursor usage prudence alert(s)`,
+      lines: needsAdminDigest.map((a) => ({
         userEmail: a.userEmail,
         model: a.model,
         costUsd: a.costUsd,
@@ -143,10 +147,19 @@ export async function persistCursorPrudenceIngest(args: {
     });
     if (mail.ok && !mail.skipped) {
       await prisma.cursorUsagePrudenceAlert.updateMany({
-        where: { id: { in: fresh.map((f) => f.id) } },
+        where: { id: { in: needsAdminDigest.map((f) => f.id) } },
         data: { emailNotifiedAt: new Date() },
       });
     }
+  }
+
+  const needsUserEmail = fresh.filter((a) => a.userEmailNotifiedAt === null);
+  if (needsUserEmail.length > 0) {
+    await notifyCursorPrudenceAlertUsers({
+      prisma,
+      dashboardBaseUrl,
+      alerts: needsUserEmail,
+    });
   }
 
   await prisma.decision.create({

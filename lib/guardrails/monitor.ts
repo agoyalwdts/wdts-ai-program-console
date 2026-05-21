@@ -9,6 +9,7 @@ import {
 } from "./day-one-defaults";
 import { evaluateModelAdvisor, productFromUsageProduct } from "./advisor";
 import { sendGuardrailPolicyDigest } from "@/lib/notify/guardrail-policy-email";
+import { notifyGuardrailAlertUsers } from "@/lib/notify/notify-end-users";
 
 type Candidate = {
   occurredAt: Date;
@@ -34,6 +35,9 @@ export type GuardrailMonitorSummary = {
   inserted: number;
   emailed: number;
   emailError: string | null;
+  userEmailed: number;
+  userEmailAttempted: number;
+  userEmailError: string | null;
 };
 
 function dashboardOrigin(): string {
@@ -345,6 +349,9 @@ export async function runGuardrailMonitor(
       inserted: 0,
       emailed: 0,
       emailError: null,
+      userEmailed: 0,
+      userEmailAttempted: 0,
+      userEmailError: null,
     };
   }
 
@@ -370,6 +377,9 @@ export async function runGuardrailMonitor(
 
   let emailed = 0;
   let emailError: string | null = null;
+  let userEmailed = 0;
+  let userEmailAttempted = 0;
+  let userEmailError: string | null = null;
   const inserted = ins.count;
   if (inserted > 0) {
     const jobStart = new Date(Date.now() - 5 * 60 * 1000);
@@ -377,7 +387,6 @@ export async function runGuardrailMonitor(
       where: {
         dedupeKey: { in: candidates.map((c) => c.dedupeKey) },
         createdAt: { gte: jobStart },
-        emailNotifiedAt: null,
       },
       select: {
         id: true,
@@ -388,13 +397,19 @@ export async function runGuardrailMonitor(
         model: true,
         ruleCode: true,
         title: true,
+        rationale: true,
+        recommendation: true,
+        emailNotifiedAt: true,
+        userEmailNotifiedAt: true,
       },
     });
-    if (fresh.length > 0) {
+
+    const needsAdminDigest = fresh.filter((f) => f.emailNotifiedAt === null);
+    if (needsAdminDigest.length > 0) {
       const mail = await sendGuardrailPolicyDigest({
         dashboardBaseUrl: dashboardOrigin(),
-        subject: `[WDTS] Guardrail policy alerts (${fresh.length})`,
-        lines: fresh.map((f) => ({
+        subject: `[WDTS] Guardrail policy alerts (${needsAdminDigest.length})`,
+        lines: needsAdminDigest.map((f) => ({
           category: f.category,
           severity: f.severity,
           userEmail: f.userEmail,
@@ -405,9 +420,9 @@ export async function runGuardrailMonitor(
         })),
       });
       if (mail.ok && !mail.skipped) {
-        emailed = fresh.length;
+        emailed = needsAdminDigest.length;
         await prisma.guardrailPolicyAlert.updateMany({
-          where: { id: { in: fresh.map((f) => f.id) } },
+          where: { id: { in: needsAdminDigest.map((f) => f.id) } },
           data: { emailNotifiedAt: new Date() },
         });
       } else if (!mail.ok) {
@@ -415,11 +430,34 @@ export async function runGuardrailMonitor(
       }
     }
 
+    const needsUserEmail = fresh.filter((f) => f.userEmailNotifiedAt === null);
+    if (needsUserEmail.length > 0) {
+      const userNotify = await notifyGuardrailAlertUsers({
+        prisma,
+        alerts: needsUserEmail,
+      });
+      userEmailed = userNotify.sent;
+      userEmailAttempted = userNotify.attempted;
+      if (userNotify.errors.length > 0) {
+        userEmailError = userNotify.errors.join("; ");
+      } else if (userNotify.skippedReason && userNotify.sent === 0) {
+        userEmailError = userNotify.skippedReason;
+      }
+    }
+
     await prisma.decision.create({
       data: {
         type: DecisionType.GUARDRAIL_POLICY_ALERT,
         beforeState: JSON.stringify({ scannedUsageRows: usageRows.length, scannedDecisions: decisionRows.length }),
-        afterState: JSON.stringify({ candidates: candidates.length, inserted, emailed, emailError }),
+        afterState: JSON.stringify({
+          candidates: candidates.length,
+          inserted,
+          emailed,
+          emailError,
+          userEmailed,
+          userEmailAttempted,
+          userEmailError,
+        }),
         actorEmail: args?.actorEmail ?? "system:guardrail-monitor",
         justification: `Automated guardrail monitor (${windowHours}h window)` ,
       },
@@ -433,5 +471,8 @@ export async function runGuardrailMonitor(
     inserted,
     emailed,
     emailError,
+    userEmailed,
+    userEmailAttempted,
+    userEmailError,
   };
 }

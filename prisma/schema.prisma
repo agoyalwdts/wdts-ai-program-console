@@ -557,7 +557,10 @@ model CursorUsagePrudenceAlert {
   dedupeKey      String    @unique
   sourceFilename String?
   acknowledgedAt DateTime?
+  /// Operator FinOps digest (`CURSOR_ALERT_EMAIL_TO`).
   emailNotifiedAt DateTime?
+  /// Direct coaching email to `userEmail`.
+  userEmailNotifiedAt DateTime?
 
   @@index([userEmail, rowOccurredAt])
   @@index([acknowledgedAt])
@@ -593,7 +596,10 @@ model GuardrailPolicyAlert {
   context        Json
   dedupeKey      String   @unique
   acknowledgedAt DateTime?
+  /// Operator FinOps digest (`GUARDRAIL_ALERT_EMAIL_TO`).
   emailNotifiedAt DateTime?
+  /// Direct coaching email to `userEmail`.
+  userEmailNotifiedAt DateTime?
 
   @@index([occurredAt])
   @@index([category, severity])
