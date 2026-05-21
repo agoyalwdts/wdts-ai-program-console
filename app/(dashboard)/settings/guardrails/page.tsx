@@ -10,6 +10,8 @@ import {
   DISABLED_MODE_MARKERS,
 } from "@/lib/guardrails/day-one-defaults";
 import { RunGuardrailMonitorButton } from "@/components/dashboard/run-guardrail-monitor-button";
+import { UsageMirrorStatusPanel } from "@/components/dashboard/usage-mirror-status-panel";
+import { getUsageMirrorSnapshot } from "@/lib/gateway-mirror/usage-mirror-snapshot";
 import { GuardrailsAlertsTable } from "./guardrails-alerts-table";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +19,8 @@ export const dynamic = "force-dynamic";
 export default async function GuardrailsSettingsPage() {
   await requirePermission(PERMISSIONS.GUARDRAILS_MONITOR);
 
-  const alerts = await prisma.guardrailPolicyAlert.findMany({
+  const [alerts, usageMirror] = await Promise.all([
+    prisma.guardrailPolicyAlert.findMany({
     orderBy: { occurredAt: "desc" },
     take: 200,
     select: {
@@ -34,7 +37,9 @@ export default async function GuardrailsSettingsPage() {
       recommendation: true,
       acknowledgedAt: true,
     },
-  });
+  }),
+    getUsageMirrorSnapshot(prisma),
+  ]);
 
   const initial = alerts.map((a) => ({
     id: a.id,
@@ -99,6 +104,7 @@ export default async function GuardrailsSettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 px-6 pb-4">
+            <UsageMirrorStatusPanel snapshot={usageMirror} />
             <RunGuardrailMonitorButton />
           </CardContent>
           <CardContent className="px-0 pb-0 pt-0">
