@@ -43,7 +43,7 @@ export async function POST(request: Request): Promise<Response> {
     windowHours:
       typeof parsed.windowHours === "number" && Number.isFinite(parsed.windowHours)
         ? parsed.windowHours
-        : 24,
+        : 2,
   });
 
   return NextResponse.json({ ok: true, summary });
