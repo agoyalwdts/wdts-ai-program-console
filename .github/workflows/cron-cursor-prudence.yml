@@ -1,4 +1,4 @@
-# Nightly Cursor usage prudence — POST /api/cron/cursor-prudence with HMAC-signed {}.
+# Cursor usage prudence — POST /api/cron/cursor-prudence with HMAC-signed {}.
 # Pulls Admin API filtered-usage-events inside the app (Team Admin key on App Service).
 #
 # Prerequisites (same as cron-reconcile-azuread.yml):
@@ -11,8 +11,8 @@ name: Cron — Cursor prudence (API)
 
 on:
   schedule:
-    # 04:19 UTC — between AzureAD reconcile (03:37) and vendor spend sync (04:41).
-    - cron: "19 4 * * *"
+    # Hourly at :35 UTC — staggered from cursor spend sync (:05).
+    - cron: "35 * * * *"
   workflow_dispatch:
 
 concurrency:

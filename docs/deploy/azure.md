@@ -545,12 +545,13 @@ matches the Deel webhook pattern.
   **Committed workflows** (same `CRON_SHARED_SECRET`; edit `DASHBOARD_BASE_URL`
   inside each YAML if the app host changes):
 
-  | File | Purpose |
-  |------|---------|
-  | `.github/workflows/cron-reconcile-azuread.yml` | `POST /api/cron/reconcile-azuread` |
-  | `.github/workflows/cron-cursor-prudence.yml` | `POST /api/cron/cursor-prudence` (filtered-usage-events → prudence alerts) |
-  | `.github/workflows/cron-vendor-spend-sync.yml` | `POST /api/cron/sync-cursor-spend`, `sync-openai-spend`, `sync-codex-enterprise-spend` |
-  | `.github/workflows/cron-usage-mirror-health.yml` | `POST /api/cron/usage-mirror-health` |
+  | File | Schedule (UTC) | Purpose |
+  |------|----------------|---------|
+  | `.github/workflows/cron-reconcile-azuread.yml` | 03:37 daily | `POST /api/cron/reconcile-azuread` |
+  | `.github/workflows/cron-guardrail-monitor.yml` | **:17 every hour** (`windowHours: 2`) | Guardrail + user coaching alerts from `UsageRecord` |
+  | `.github/workflows/cron-cursor-prudence.yml` | **:35 every hour** | `POST /api/cron/cursor-prudence` → prudence alerts + user email |
+  | `.github/workflows/cron-vendor-spend-sync.yml` | **:05 hourly** Cursor (`lookbackDays: 7`); **:25 hourly** Codex Enterprise (`14`); **04:41 + 16:41** OpenAI (`120`) | VendorDailySpend sync |
+  | `.github/workflows/cron-usage-mirror-health.yml` | 05:52 daily | `POST /api/cron/usage-mirror-health` |
 
 - **Azure Logic Apps / Azure Functions Timer.** Both fine; gives
   in-VNet execution if you go that route later.

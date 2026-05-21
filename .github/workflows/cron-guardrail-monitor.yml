@@ -8,7 +8,8 @@ name: Cron — guardrail monitor
 
 on:
   schedule:
-    - cron: "17 */6 * * *"
+    # Hourly at :17 UTC — windowHours in the POST body is 2 (see step below).
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -41,7 +42,7 @@ jobs:
         env:
           CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
         run: |
-          BODY='{"windowHours":24}'
+          BODY='{"windowHours":2}'
           SIG=$(printf '%s' "$BODY" \
             | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" \
             | awk '{print $2}')
