@@ -64,7 +64,7 @@ export function GuardrailsAlertsTable({ initial }: { initial: GuardrailAlertRow[
         {rows.length === 0 ? (
           <TR>
             <TD colSpan={7} className="pl-3 pr-3 py-8 text-center text-slate-500 text-sm">
-              No guardrail alerts in the current window.
+              No guardrail alerts yet. Run the monitor or wait for the hourly cron.
             </TD>
           </TR>
         ) : (

@@ -41,6 +41,11 @@ export default async function GuardrailsSettingsPage() {
     getUsageMirrorSnapshot(prisma),
   ]);
 
+  const tableKey =
+    alerts.length > 0
+      ? `${alerts.length}:${alerts[0]!.id}:${alerts[0]!.occurredAt.toISOString()}`
+      : "empty";
+
   const initial = alerts.map((a) => ({
     id: a.id,
     occurredAt: a.occurredAt.toISOString(),
@@ -110,7 +115,7 @@ export default async function GuardrailsSettingsPage() {
             <RunGuardrailMonitorButton />
           </CardContent>
           <CardContent className="px-0 pb-0 pt-0">
-            <GuardrailsAlertsTable initial={initial} />
+            <GuardrailsAlertsTable key={tableKey} initial={initial} />
           </CardContent>
         </Card>
       </div>
