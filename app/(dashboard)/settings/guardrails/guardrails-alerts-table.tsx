@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { ChevronDown, ChevronRight, Info, Loader2 } from "lucide-react";
 
 export type GuardrailAlertRow = {
@@ -44,18 +44,6 @@ export function GuardrailsAlertsTable({
   const [rowError, setRowError] = React.useState<Record<string, string>>({});
   const [seatRemovalLogged, setSeatRemovalLogged] = React.useState<Record<string, string>>({});
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
-
-  function disabledActionTitle(r: GuardrailAlertRow, kind: "email" | "disable" | "seat") {
-    if (!r.userEmail) return "No user on alert";
-    if (kind !== "seat" && !r.subjectHasUserRow) return "No User row — invite under Settings → Users";
-    if (kind !== "seat" && r.subjectDisabled) {
-      return kind === "email" ? "User disabled on console" : "Already disabled";
-    }
-    if (kind === "disable") return "Blocks dashboard sign-in only";
-    if (kind === "seat" && seatRemovalLogged[r.id]) return "Removal already logged this session";
-    if (kind === "seat") return "Writes Decision — no vendor API call";
-    return undefined;
-  }
 
   async function runAction(
     id: string,
@@ -182,9 +170,32 @@ export function GuardrailsAlertsTable({
     }));
   }
 
-  function isPending(id: string, action: PendingAction) {
-    return pending?.id === id && pending.action === action;
+  function isRowPending(id: string) {
+    return pending?.id === id;
   }
+
+  async function onActionSelect(r: GuardrailAlertRow, value: string) {
+    if (!value) return;
+    switch (value) {
+      case "ack":
+        await ack(r.id);
+        break;
+      case "email":
+        await sendEmail(r);
+        break;
+      case "disable":
+        await disableUser(r);
+        break;
+      case "seat-removal":
+        await requestSeatRemoval(r);
+        break;
+      default:
+        break;
+    }
+  }
+
+  const selectClass =
+    "h-7 max-w-[11rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
     <Table>
@@ -196,7 +207,7 @@ export function GuardrailsAlertsTable({
           <TH>User</TH>
           <TH>Model/Product</TH>
           <TH>Rule</TH>
-          <TH className="pr-3 min-w-[200px]">Actions</TH>
+          <TH className="pr-3 w-[10rem]">Actions</TH>
         </TR>
       </THead>
       <TBody>
@@ -216,9 +227,6 @@ export function GuardrailsAlertsTable({
             const removalId = seatRemovalLogged[r.id];
 
             const expanded = expandedId === r.id;
-            const emailTitle = disabledActionTitle(r, "email");
-            const disableTitle = disabledActionTitle(r, "disable");
-            const seatTitle = disabledActionTitle(r, "seat");
 
             return (
               <React.Fragment key={r.id}>
@@ -280,86 +288,74 @@ export function GuardrailsAlertsTable({
                     </div>
                   </div>
                 </TD>
-                <TD className="pr-3 align-top">
-                  <div className="flex flex-col items-end gap-1.5">
-                    <div className="flex flex-wrap justify-end gap-1">
-                      {r.acknowledgedAt ? (
-                        <Badge variant="secondary" className="text-[10px]">
-                          Ack
-                        </Badge>
+                <TD className="pr-3 align-middle">
+                  <div className="flex flex-col items-end gap-1">
+                    {(r.acknowledgedAt ||
+                      r.userEmailNotifiedAt ||
+                      r.subjectDisabled ||
+                      removalId) && (
+                      <div className="flex flex-wrap justify-end gap-0.5 max-w-[11rem]">
+                        {r.acknowledgedAt ? (
+                          <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                            Ack
+                          </Badge>
+                        ) : null}
+                        {r.userEmailNotifiedAt ? (
+                          <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                            Emailed
+                          </Badge>
+                        ) : null}
+                        {r.subjectDisabled ? (
+                          <Badge variant="warning" className="text-[10px] px-1 py-0">
+                            Console off
+                          </Badge>
+                        ) : null}
+                        {removalId ? (
+                          <Badge variant="secondary" className="text-[10px] px-1 py-0" title={removalId}>
+                            Removal
+                          </Badge>
+                        ) : null}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1">
+                      {isRowPending(r.id) ? (
+                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-slate-500" />
                       ) : null}
-                      {r.userEmailNotifiedAt ? (
-                        <Badge variant="secondary" className="text-[10px]">
-                          Emailed
-                        </Badge>
-                      ) : null}
-                      {r.subjectDisabled ? (
-                        <Badge variant="warning" className="text-[10px]">
-                          Console off
-                        </Badge>
-                      ) : null}
-                      {removalId ? (
-                        <Badge variant="secondary" className="text-[10px]" title={removalId}>
-                          Removal logged
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-col gap-1 w-full max-w-[200px]">
-                      {!r.acknowledgedAt ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs w-full"
-                          disabled={pending !== null}
-                          onClick={() => ack(r.id)}
-                        >
-                          {isPending(r.id, "ack") ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            "Acknowledge"
-                          )}
-                        </Button>
-                      ) : null}
-                      <ActionButton
-                        disabled={!canEmail || pending !== null}
-                        disabledTitle={emailTitle}
-                        onClick={() => sendEmail(r)}
+                      <select
+                        className={cn(selectClass, "w-full")}
+                        defaultValue=""
+                        disabled={pending !== null}
+                        aria-label={`Actions for alert ${r.ruleCode}`}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          e.target.value = "";
+                          void onActionSelect(r, v);
+                        }}
                       >
-                        {isPending(r.id, "email") ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          "Email user"
-                        )}
-                      </ActionButton>
-                      {canManageUsers ? (
-                        <ActionButton
-                          disabled={!canDisable || pending !== null}
-                          disabledTitle={disableTitle}
-                          className="border-amber-300 text-amber-900 hover:bg-amber-50"
-                          onClick={() => disableUser(r)}
+                        <option value="">Choose action…</option>
+                        {!r.acknowledgedAt ? (
+                          <option value="ack">Acknowledge</option>
+                        ) : null}
+                        <option value="email" disabled={!canEmail}>
+                          Email user
+                        </option>
+                        {canManageUsers ? (
+                          <option value="disable" disabled={!canDisable}>
+                            Block console
+                          </option>
+                        ) : null}
+                        <option
+                          value="seat-removal"
+                          disabled={!canSeatRemoval || Boolean(removalId)}
                         >
-                          {isPending(r.id, "disable") ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            "Block console"
-                          )}
-                        </ActionButton>
-                      ) : null}
-                      <ActionButton
-                        disabled={!canSeatRemoval || Boolean(removalId) || pending !== null}
-                        disabledTitle={seatTitle}
-                        onClick={() => requestSeatRemoval(r)}
-                      >
-                        {isPending(r.id, "seat-removal") ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          "Request seat removal"
-                        )}
-                      </ActionButton>
+                          Request seat removal
+                        </option>
+                      </select>
                     </div>
                     {rowError[r.id] ? (
-                      <p className="text-[10px] text-red-600 text-right max-w-[200px]">{rowError[r.id]}</p>
+                      <p className="text-[10px] text-red-600 text-right max-w-[11rem] leading-tight">
+                        {rowError[r.id]}
+                      </p>
                     ) : null}
                   </div>
                 </TD>
@@ -394,36 +390,5 @@ export function GuardrailsAlertsTable({
         )}
       </TBody>
     </Table>
-  );
-}
-
-/** Disabled buttons suppress native `title` tooltips — wrap so hover still explains why. */
-function ActionButton({
-  children,
-  disabled,
-  disabledTitle,
-  className,
-  onClick,
-}: {
-  children: React.ReactNode;
-  disabled: boolean;
-  disabledTitle?: string;
-  className?: string;
-  onClick: () => void;
-}) {
-  const wrapTitle = disabled && disabledTitle ? disabledTitle : undefined;
-  return (
-    <span className="block w-full" title={wrapTitle}>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        className={`h-7 text-xs w-full ${className ?? ""}`}
-        disabled={disabled}
-        onClick={onClick}
-      >
-        {children}
-      </Button>
-    </span>
   );
 }
