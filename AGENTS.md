@@ -232,9 +232,10 @@ lib/integrations/<name>/
 | `gateway`     | `INTEGRATION_GATEWAY`     | F1 / F2 / F3 / F11 / F12 | **`real` = Postgres mirror** of `UsageRecord` (webhook ingest). **Guidelines:** `docs/gateway-and-litellm.md`. Remote pull API still TBD. |
 | `cursor`      | `INTEGRATION_CURSOR`      | F4 / v1.1 reclamation    | **landed** — SCIM 2.0 |
 | `openai`      | `INTEGRATION_OPENAI`      | F1 / F2 / F10            | **landed** — Admin API `/organization/users` |
+| `openaicompliance` | `INTEGRATION_OPENAI_COMPLIANCE` | F2 sign-in footprint | **landed** — Compliance Logs `AUTH_LOG` on `api.chatgpt.com` (separate API key; security review before prod) |
 | `anthropic`   | `INTEGRATION_ANTHROPIC`   | F1 / F2 (Claude)         | **landed** — Workspaces Admin API |
 | `m365graph`   | `INTEGRATION_M365GRAPH`   | F13 (Copilot)            | **landed** — Graph `/users` + `/reports` |
-| `azuread`     | `INTEGRATION_AZUREAD`     | identity sync, NextAuth  | **landed** — Graph `/users` + reconciler script |
+| `azuread`     | `INTEGRATION_AZUREAD`     | identity sync, NextAuth, F2 SSO footprint | **landed** — Graph `/users` + `/auditLogs/signIns` (needs `AuditLog.Read.All`) |
 | `deel`        | `INTEGRATION_DEEL`        | role_tag / manager_id    | **landed** — REST `/people` + HMAC webhook |
 | `policyrepo`  | `INTEGRATION_POLICYREPO`  | v1.1 write path          | **landed** — GitHub Contents API |
 | `azureopenai` | `INTEGRATION_AZUREOPENAI` | future Codex bring-up    | **landed** — control-plane probe |
@@ -450,6 +451,11 @@ canonical list.
 - ✅ **AzureAD client in prod** (`INTEGRATION_AZUREAD=real`, flipped
   2026-04-29). Reuses the same prod app reg + admin-consented
   `User.Read.All` scope as M365 Graph.
+- ⏳ **Entra sign-in logs (F2 footprint).** Code reads
+  `GET /auditLogs/signIns` when `INTEGRATION_AZUREAD=real`. Grant
+  **`AuditLog.Read.All`** admin consent on the prod app reg (same SP as
+  reconciler). Optional `CHATGPT_CODEX_ENTRA_APP_PATTERNS` overrides the
+  default app-name filter (`chatgpt`, `openai`, `codex`, `gpt`).
 - ✅ **AzureAD reconciler — manager hierarchy.** `listUsers()` now
   uses `$expand=manager($select=id,mail,userPrincipalName)` to return
   manager edges in one call, and the reconciler resolves them into
@@ -494,6 +500,10 @@ canonical list.
 
 - ⏳ **Admin API key** issued under organisation settings (distinct from
   regular API keys). Set `OPENAI_ADMIN_API_KEY` + `OPENAI_ORG_ID`.
+- ⏳ **Compliance Logs Platform (F2 footprint).** Issue a separate
+  **`OPENAI_COMPLIANCE_API_KEY`**, security-review the read path, set
+  `INTEGRATION_OPENAI_COMPLIANCE=real` (reuses `CHATGPT_WORKSPACE_ID`).
+  Parses `AUTH_LOG` JSONL from `api.chatgpt.com/v1/compliance/...`.
 
 ### Anthropic (Track 6)
 

@@ -63,10 +63,22 @@ export type { M365GraphClient, CopilotActivity, CopilotLicense } from "./m365gra
 
 export { getAzureADClient } from "./azuread";
 export type { AzureADClient, IdentityUser } from "./azuread";
+export {
+  summarizeEntraAiSignInIpsForEmail,
+  signInMatchesAiApp,
+  DEFAULT_ENTRA_AI_APP_PATTERNS,
+} from "./azuread/sign-in-logs";
+export type { EntraSignInIpSummary } from "./azuread/sign-in-logs";
 // Direct access to the real client for the /settings probe widget. Pages
 // SHOULD continue to use getAzureADClient() so the env flag governs them;
 // this export exists for the explicit probe-the-real-thing case.
 export { realAzureADClient } from "./azuread/real";
+
+export {
+  summarizeComplianceAuthLogIpsForEmail,
+  resolveComplianceCredentials,
+} from "./openai-compliance";
+export type { ComplianceAuthLogIpSummary } from "./openai-compliance";
 
 export {
   getDeelClient,

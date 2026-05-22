@@ -16,6 +16,7 @@ export type IntegrationName =
   | "cursor"
   | "openai"
   | "codexenterprise"
+  | "openaicompliance"
   | "anthropic"
   | "m365graph"
   | "azuread"
@@ -28,6 +29,7 @@ export const INTEGRATION_NAMES: readonly IntegrationName[] = [
   "cursor",
   "openai",
   "codexenterprise",
+  "openaicompliance",
   "anthropic",
   "m365graph",
   "azuread",
@@ -41,6 +43,7 @@ const ENV_KEY: Record<IntegrationName, string> = {
   cursor: "INTEGRATION_CURSOR",
   openai: "INTEGRATION_OPENAI",
   codexenterprise: "INTEGRATION_CODEX_ENTERPRISE_ANALYTICS",
+  openaicompliance: "INTEGRATION_OPENAI_COMPLIANCE",
   anthropic: "INTEGRATION_ANTHROPIC",
   m365graph: "INTEGRATION_M365GRAPH",
   azuread: "INTEGRATION_AZUREAD",

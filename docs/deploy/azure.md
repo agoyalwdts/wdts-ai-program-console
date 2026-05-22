@@ -175,6 +175,7 @@ None of these values lives anywhere else in production.
 | `OPENAI-ORG-ID` | `OPENAI_ORG_ID` | OpenAI org settings |
 | `OPENAI-CODEX-ANALYTICS-API-KEY` | `OPENAI_CODEX_ANALYTICS_API_KEY` | Platform API key with `codex.enterprise.analytics.read` (Codex Enterprise Analytics on `api.chatgpt.com`) |
 | `CHATGPT-WORKSPACE-ID` | `CHATGPT_WORKSPACE_ID` | ChatGPT Admin → workspace UUID (alias: `OPENAI_CHATGPT_WORKSPACE_ID`) |
+| `OPENAI-COMPLIANCE-API-KEY` | `OPENAI_COMPLIANCE_API_KEY` | Compliance Logs Platform key (separate from admin key); F2 AUTH_LOG footprint |
 | `OPENAI-CODEX-ANALYTICS-USD-PER-CREDIT` | `OPENAI_CODEX_ANALYTICS_USD_PER_CREDIT` | Optional; default `1` — multiply API `credits` to USD for F1 |
 | `ANTHROPIC-ADMIN-API-KEY` | `ANTHROPIC_ADMIN_API_KEY` | Anthropic workspace admin keys |
 | `ANTHROPIC-ORG-ID` | `ANTHROPIC_ORG_ID` | Anthropic workspace settings |
@@ -202,6 +203,8 @@ Non-secret App Settings (set as plain values, not Key Vault refs):
 | `INTEGRATION_CURSOR` | `real` |
 | `INTEGRATION_OPENAI` | `real` |
 | `INTEGRATION_CODEX_ENTERPRISE_ANALYTICS` | `synthetic` until the analytics key + workspace id are live; then **`real`** for F1 CODEX from `api.chatgpt.com` |
+| `INTEGRATION_OPENAI_COMPLIANCE` | `synthetic` until Compliance API key is issued and security-reviewed; then **`real`** for F2 AUTH_LOG footprint |
+| `CHATGPT_CODEX_ENTRA_APP_PATTERNS` | Optional comma-separated substrings for Entra sign-in app filter (default: chatgpt,openai,codex,gpt) |
 | `INTEGRATION_ANTHROPIC` | `real` |
 | `INTEGRATION_M365GRAPH` | `real` |
 | `INTEGRATION_DEEL` | `real` |

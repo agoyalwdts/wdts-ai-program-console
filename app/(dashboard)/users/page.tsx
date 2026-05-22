@@ -22,6 +22,10 @@ import {
 } from "@/lib/integrations";
 import type { DeelEmployee, UsageRecord } from "@/lib/integrations";
 import { requireUser } from "@/lib/auth";
+import { summarizeCursorLoginIpsForEmail } from "@/lib/integrations/cursor/audit-logs";
+import { summarizeCodexClientsForEmail } from "@/lib/integrations/codex-enterprise-analytics/distinct-clients-by-email";
+import { summarizeEntraAiSignInIpsForEmail } from "@/lib/integrations/azuread/sign-in-logs";
+import { summarizeComplianceAuthLogIpsForEmail } from "@/lib/integrations/openai-compliance";
 import { Search, ChevronRight, AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -117,16 +121,36 @@ async function getUserDetail(selection: string) {
   const gateway = getGatewayClient();
   const since = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); // 90 days
   const uid = user.id;
-  const [openAiAggs, otherAggs, recent, deelEmp]: [
+  const footprintLookbackDays = 30;
+  const [openAiAggs, otherAggs, recent, deelEmp, cursorFootprint, codexFootprint, entraFootprint, complianceFootprint]: [
     Awaited<ReturnType<typeof gateway.aggregateByUser>>,
     Awaited<ReturnType<typeof gateway.aggregateByUser>>,
     UsageRecord[],
     DeelEmployee | null,
+    Awaited<ReturnType<typeof summarizeCursorLoginIpsForEmail>>,
+    Awaited<ReturnType<typeof summarizeCodexClientsForEmail>>,
+    Awaited<ReturnType<typeof summarizeEntraAiSignInIpsForEmail>>,
+    Awaited<ReturnType<typeof summarizeComplianceAuthLogIpsForEmail>>,
   ] = await Promise.all([
     gateway.aggregateByUser({ userIds: [uid], periodStart: openAiPeriodStart, periodEnd: now }),
     gateway.aggregateByUser({ userIds: [uid], periodStart: calendarMonthStart, periodEnd: now }),
     gateway.listUsageRecords({ userId: uid, since, limit: 25 }),
     getDeelClient().getEmployeeByEmail(user.email),
+    safeFootprint(() =>
+      summarizeCursorLoginIpsForEmail({ email: user.email, lookbackDays: footprintLookbackDays }),
+    ),
+    safeFootprint(() =>
+      summarizeCodexClientsForEmail({ email: user.email, lookbackDays: footprintLookbackDays, now }),
+    ),
+    safeFootprint(() =>
+      summarizeEntraAiSignInIpsForEmail({ email: user.email, lookbackDays: footprintLookbackDays }),
+    ),
+    safeFootprint(() =>
+      summarizeComplianceAuthLogIpsForEmail({
+        email: user.email,
+        lookbackDays: footprintLookbackDays,
+      }),
+    ),
   ]);
 
   const mtdMap = new Map<ProductKey, { sum: number; count: number }>();
@@ -152,7 +176,31 @@ async function getUserDetail(selection: string) {
   const totalMtd = Array.from(mtdMap.values()).reduce((acc, v) => acc + v.sum, 0);
   const projectedEom = dayOfMonth > 0 ? (totalMtd / dayOfMonth) * daysInMonth : totalMtd;
 
-  return { user, deelEmp, mtdMap, recent, totalMtd, projectedEom };
+  return {
+    user,
+    deelEmp,
+    mtdMap,
+    recent,
+    totalMtd,
+    projectedEom,
+    cursorFootprint,
+    codexFootprint,
+    entraFootprint,
+    complianceFootprint,
+  };
+}
+
+async function safeFootprint<T extends { available: boolean; reason?: string }>(
+  fn: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    return {
+      available: false,
+      reason: e instanceof Error ? e.message : "Footprint lookup failed",
+    } as T;
+  }
 }
 
 export default async function UsersPage(props: { searchParams: Promise<SP> }) {
@@ -315,7 +363,18 @@ function UserDetail({
 }: {
   detail: NonNullable<Awaited<ReturnType<typeof getUserDetail>>>;
 }) {
-  const { user, deelEmp, mtdMap, recent, totalMtd, projectedEom } = detail;
+  const {
+    user,
+    deelEmp,
+    mtdMap,
+    recent,
+    totalMtd,
+    projectedEom,
+    cursorFootprint,
+    codexFootprint,
+    entraFootprint,
+    complianceFootprint,
+  } = detail;
   const licensesByProduct = new Map(user.licenses.map((l) => [l.product, l]));
   const isMacau = (deelEmp?.region ?? user.region) === "apac-mo";
   void deelEmp; // role tag already on user; deelEmp is a freshness check.
@@ -359,6 +418,126 @@ function UserDetail({
             </div>
           </CardContent>
         ) : null}
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sign-in footprint (30 days)</CardTitle>
+          <CardDescription>
+            Distinct IPs from Cursor Team Admin audit logs, Microsoft Entra sign-in logs (ChatGPT /
+            Codex / OpenAI SSO), and OpenAI Compliance AUTH_LOG (ChatGPT Enterprise workspace).
+            Codex Analytics shows client surfaces only — not IP addresses.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div>
+            <div className="font-medium text-slate-900">Cursor</div>
+            {cursorFootprint.available ? (
+              <div className="mt-1 text-slate-700">
+                <span className="font-mono text-base font-semibold">
+                  {cursorFootprint.distinctIps.length}
+                </span>{" "}
+                distinct IP{cursorFootprint.distinctIps.length === 1 ? "" : "s"} from{" "}
+                {cursorFootprint.loginEventCount} login event
+                {cursorFootprint.loginEventCount === 1 ? "" : "s"} (Team Admin audit logs).
+                {cursorFootprint.distinctIps.length > 0 ? (
+                  <ul className="mt-2 list-disc pl-5 font-mono text-xs text-slate-600">
+                    {cursorFootprint.distinctIps.map((ip) => (
+                      <li key={ip}>{ip}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">No login IPs recorded in this window.</p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">{cursorFootprint.reason}</p>
+            )}
+          </div>
+          <div>
+            <div className="font-medium text-slate-900">Codex</div>
+            {codexFootprint.available ? (
+              <div className="mt-1 text-slate-700">
+                <span className="font-mono text-base font-semibold">
+                  {codexFootprint.distinctClients.length}
+                </span>{" "}
+                distinct client surface
+                {codexFootprint.distinctClients.length === 1 ? "" : "s"} (not IP addresses).
+                {codexFootprint.distinctClients.length > 0 ? (
+                  <ul className="mt-2 list-disc pl-5 font-mono text-xs text-slate-600">
+                    {codexFootprint.distinctClients.map((c) => (
+                      <li key={c}>{c}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">No Codex client activity in this window.</p>
+                )}
+                <p className="mt-2 text-xs text-slate-500">{codexFootprint.ipNote}</p>
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">{codexFootprint.reason}</p>
+            )}
+          </div>
+          <div>
+            <div className="font-medium text-slate-900">Entra SSO (ChatGPT / Codex / OpenAI)</div>
+            {entraFootprint.available ? (
+              <div className="mt-1 text-slate-700">
+                <span className="font-mono text-base font-semibold">
+                  {entraFootprint.distinctIps.length}
+                </span>{" "}
+                distinct IP{entraFootprint.distinctIps.length === 1 ? "" : "s"} from{" "}
+                {entraFootprint.signInCount} matched sign-in
+                {entraFootprint.signInCount === 1 ? "" : "s"} (Graph auditLogs/signIns).
+                {entraFootprint.matchedApps.length > 0 ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Apps: {entraFootprint.matchedApps.join(", ")}
+                  </p>
+                ) : null}
+                {entraFootprint.distinctIps.length > 0 ? (
+                  <ul className="mt-2 list-disc pl-5 font-mono text-xs text-slate-600">
+                    {entraFootprint.distinctIps.map((ip) => (
+                      <li key={ip}>{ip}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">
+                    No ChatGPT/Codex/OpenAI SSO sign-ins in this window.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">{entraFootprint.reason}</p>
+            )}
+          </div>
+          <div>
+            <div className="font-medium text-slate-900">ChatGPT (Compliance AUTH_LOG)</div>
+            {complianceFootprint.available ? (
+              <div className="mt-1 text-slate-700">
+                <span className="font-mono text-base font-semibold">
+                  {complianceFootprint.distinctIps.length}
+                </span>{" "}
+                distinct IP{complianceFootprint.distinctIps.length === 1 ? "" : "s"} from{" "}
+                {complianceFootprint.authEventCount} auth event
+                {complianceFootprint.authEventCount === 1 ? "" : "s"} (
+                {complianceFootprint.logFilesScanned} log file
+                {complianceFootprint.logFilesScanned === 1 ? "" : "s"} scanned).
+                {complianceFootprint.distinctIps.length > 0 ? (
+                  <ul className="mt-2 list-disc pl-5 font-mono text-xs text-slate-600">
+                    {complianceFootprint.distinctIps.map((ip) => (
+                      <li key={ip}>{ip}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">
+                    No AUTH_LOG events for this user in scanned files.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">{complianceFootprint.reason}</p>
+            )}
+          </div>
+        </CardContent>
       </Card>
 
       <Card>

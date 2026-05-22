@@ -148,10 +148,12 @@ const INTEGRATION_NOTES: Record<IntegrationName, string> = {
     "OpenAI Enterprise admin API key + org id. Vendor spend sync: POST /api/cron/sync-openai-spend or GHA cron-vendor-spend-sync.yml.",
   codexenterprise:
     "Bearer key (codex.enterprise.analytics.read) + CHATGPT_WORKSPACE_ID. GET api.chatgpt.com analytics — POST /api/cron/sync-codex-enterprise-spend or GHA cron-vendor-spend-sync.yml.",
+  openaicompliance:
+    "Separate Compliance API key (OPENAI_COMPLIANCE_API_KEY) + CHATGPT_WORKSPACE_ID. AUTH_LOG JSONL at api.chatgpt.com/v1/compliance — security review before prod; F2 sign-in footprint.",
   anthropic: "Anthropic admin API key (workspace-seat introspection beta).",
   m365graph: "Same app reg or a separate SP with Reports.Read.All + AuditLog.Read.All.",
   azuread:
-    "Real client wired (PR #9). Default still synthetic until the v0.3 reconciler mirrors Graph users into the local User table.",
+    "Real client wired (PR #9). Sign-in logs for ChatGPT/Codex SSO need AuditLog.Read.All on the app reg (F2 footprint). Default still synthetic until reconciler mirrors Graph users.",
   deel: "Deel API token + webhook receiver URL. Now optional — CSV import covers the same need.",
   policyrepo:
     "GitHub PAT or App credentials; targets agoyalwdts/wdts-ai-policy. Branch protection before PAT — see docs/integrations/production-blockers-checklist.md.",

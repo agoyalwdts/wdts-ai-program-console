@@ -36,6 +36,7 @@ describe("integration env parsing", () => {
         "cursor",
         "openai",
         "codexenterprise",
+        "openaicompliance",
         "anthropic",
         "m365graph",
         "azuread",
@@ -44,6 +45,6 @@ describe("integration env parsing", () => {
         "azureopenai",
       ]),
     );
-    expect(INTEGRATION_NAMES).toHaveLength(10);
+    expect(INTEGRATION_NAMES).toHaveLength(11);
   });
 });
