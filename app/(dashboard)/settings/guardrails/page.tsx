@@ -92,7 +92,7 @@ export default async function GuardrailsSettingsPage() {
         title="Guardrails monitor"
         subtitle="Day-one model posture, complexity-aware advisor, and cloud-control alerts"
       />
-      <div className="p-6 space-y-6 max-w-6xl">
+      <div className="p-6 space-y-6 max-w-[90rem]">
         <Card className="border-amber-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

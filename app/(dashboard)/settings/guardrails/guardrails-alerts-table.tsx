@@ -3,7 +3,6 @@
 import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
 import { ChevronDown, ChevronRight, Info, Loader2 } from "lucide-react";
 
 export type GuardrailAlertRow = {
@@ -195,10 +194,19 @@ export function GuardrailsAlertsTable({
   }
 
   const selectClass =
-    "h-7 max-w-[11rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50";
+    "h-8 w-full min-w-[9.5rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <Table>
+    <Table className="min-w-[960px] table-fixed">
+      <colgroup>
+        <col className="w-[11%]" />
+        <col className="w-[12%]" />
+        <col className="w-[8%]" />
+        <col className="w-[14%]" />
+        <col className="w-[11%]" />
+        <col className="w-[32%]" />
+        <col className="w-[12%]" />
+      </colgroup>
       <THead>
         <TR>
           <TH className="pl-3">When</TH>
@@ -207,7 +215,7 @@ export function GuardrailsAlertsTable({
           <TH>User</TH>
           <TH>Model/Product</TH>
           <TH>Rule</TH>
-          <TH className="pr-3 w-[10rem]">Actions</TH>
+          <TH className="pr-3">Actions</TH>
         </TR>
       </THead>
       <TBody>
@@ -231,11 +239,11 @@ export function GuardrailsAlertsTable({
             return (
               <React.Fragment key={r.id}>
               <TR className={dim ? "opacity-70" : ""}>
-                <TD className="pl-3 text-xs whitespace-nowrap">
+                <TD className="pl-3 text-xs whitespace-nowrap align-top py-2">
                   {new Date(r.occurredAt).toLocaleString()}
                 </TD>
-                <TD className="text-xs">{r.category}</TD>
-                <TD>
+                <TD className="text-xs align-top py-2 break-words">{r.category}</TD>
+                <TD className="align-top py-2">
                   <Badge
                     variant={
                       r.severity === "HIGH"
@@ -248,19 +256,19 @@ export function GuardrailsAlertsTable({
                     {r.severity}
                   </Badge>
                 </TD>
-                <TD className="text-xs font-mono max-w-[160px]">
-                  <span className="block truncate" title={r.userEmail ?? undefined}>
+                <TD className="text-xs font-mono align-top py-2">
+                  <span className="block break-all leading-snug" title={r.userEmail ?? undefined}>
                     {r.userEmail ?? "—"}
                   </span>
                 </TD>
-                <TD className="text-xs max-w-[220px]">
-                  <div className="truncate" title={r.model ?? undefined}>
+                <TD className="text-xs align-top py-2">
+                  <div className="break-words leading-snug" title={r.model ?? undefined}>
                     {r.model ?? "—"}
                   </div>
                   <div className="text-slate-500">{r.product ?? "—"}</div>
                 </TD>
-                <TD className="text-xs max-w-[280px] align-top">
-                  <div className="flex gap-1.5">
+                <TD className="text-xs align-top py-2">
+                  <div className="flex gap-1.5 min-w-0">
                     <button
                       type="button"
                       className="mt-0.5 shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
@@ -275,54 +283,55 @@ export function GuardrailsAlertsTable({
                       )}
                     </button>
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium text-slate-800">{r.title}</div>
-                      <div className="font-mono text-[10px] text-slate-500">{r.ruleCode}</div>
+                      <div className="font-medium text-slate-800 leading-snug break-words">{r.title}</div>
+                      <div className="font-mono text-[10px] text-slate-500 break-all">{r.ruleCode}</div>
                       {!expanded ? (
-                        <p className="mt-1 text-slate-600 line-clamp-2 leading-snug">{r.rationale}</p>
-                      ) : null}
-                      {r.recommendation && !expanded ? (
-                        <p className="mt-0.5 text-sky-800 line-clamp-1 leading-snug">
-                          Suggested: {r.recommendation}
+                        <p className="mt-1 text-slate-500 text-[10px] leading-snug">
+                          Expand for rationale and suggested action
                         </p>
                       ) : null}
                     </div>
                   </div>
                 </TD>
-                <TD className="pr-3 align-middle">
-                  <div className="flex flex-col items-end gap-1">
+                <TD className="pr-3 align-top py-2">
+                  <div className="space-y-2 min-w-0">
                     {(r.acknowledgedAt ||
                       r.userEmailNotifiedAt ||
                       r.subjectDisabled ||
-                      removalId) && (
-                      <div className="flex flex-wrap justify-end gap-0.5 max-w-[11rem]">
+                      removalId) ? (
+                      <div className="flex flex-wrap gap-1">
                         {r.acknowledgedAt ? (
-                          <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
                             Ack
                           </Badge>
                         ) : null}
                         {r.userEmailNotifiedAt ? (
-                          <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
                             Emailed
                           </Badge>
                         ) : null}
                         {r.subjectDisabled ? (
-                          <Badge variant="warning" className="text-[10px] px-1 py-0">
+                          <Badge variant="warning" className="text-[10px] px-1.5 py-0 shrink-0">
                             Console off
                           </Badge>
                         ) : null}
                         {removalId ? (
-                          <Badge variant="secondary" className="text-[10px] px-1 py-0" title={removalId}>
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px] px-1.5 py-0 shrink-0"
+                            title={removalId}
+                          >
                             Removal
                           </Badge>
                         ) : null}
                       </div>
-                    )}
-                    <div className="flex items-center gap-1">
+                    ) : null}
+                    <div className="flex items-center gap-1.5">
                       {isRowPending(r.id) ? (
-                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-slate-500" />
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-slate-500" />
                       ) : null}
                       <select
-                        className={cn(selectClass, "w-full")}
+                        className={selectClass}
                         defaultValue=""
                         disabled={pending !== null}
                         aria-label={`Actions for alert ${r.ruleCode}`}
@@ -353,9 +362,7 @@ export function GuardrailsAlertsTable({
                       </select>
                     </div>
                     {rowError[r.id] ? (
-                      <p className="text-[10px] text-red-600 text-right max-w-[11rem] leading-tight">
-                        {rowError[r.id]}
-                      </p>
+                      <p className="text-[10px] text-red-600 leading-snug break-words">{rowError[r.id]}</p>
                     ) : null}
                   </div>
                 </TD>
