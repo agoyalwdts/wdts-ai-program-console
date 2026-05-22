@@ -4,7 +4,7 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Info, Loader2 } from "lucide-react";
 
 export type GuardrailAlertRow = {
   id: string;
@@ -43,6 +43,19 @@ export function GuardrailsAlertsTable({
   const [pending, setPending] = React.useState<{ id: string; action: PendingAction } | null>(null);
   const [rowError, setRowError] = React.useState<Record<string, string>>({});
   const [seatRemovalLogged, setSeatRemovalLogged] = React.useState<Record<string, string>>({});
+  const [expandedId, setExpandedId] = React.useState<string | null>(null);
+
+  function disabledActionTitle(r: GuardrailAlertRow, kind: "email" | "disable" | "seat") {
+    if (!r.userEmail) return "No user on alert";
+    if (kind !== "seat" && !r.subjectHasUserRow) return "No User row — invite under Settings → Users";
+    if (kind !== "seat" && r.subjectDisabled) {
+      return kind === "email" ? "User disabled on console" : "Already disabled";
+    }
+    if (kind === "disable") return "Blocks dashboard sign-in only";
+    if (kind === "seat" && seatRemovalLogged[r.id]) return "Removal already logged this session";
+    if (kind === "seat") return "Writes Decision — no vendor API call";
+    return undefined;
+  }
 
   async function runAction(
     id: string,
@@ -202,8 +215,14 @@ export function GuardrailsAlertsTable({
             const canSeatRemoval = Boolean(r.userEmail);
             const removalId = seatRemovalLogged[r.id];
 
+            const expanded = expandedId === r.id;
+            const emailTitle = disabledActionTitle(r, "email");
+            const disableTitle = disabledActionTitle(r, "disable");
+            const seatTitle = disabledActionTitle(r, "seat");
+
             return (
-              <TR key={r.id} className={dim ? "opacity-70" : ""}>
+              <React.Fragment key={r.id}>
+              <TR className={dim ? "opacity-70" : ""}>
                 <TD className="pl-3 text-xs whitespace-nowrap">
                   {new Date(r.occurredAt).toLocaleString()}
                 </TD>
@@ -221,19 +240,45 @@ export function GuardrailsAlertsTable({
                     {r.severity}
                   </Badge>
                 </TD>
-                <TD className="text-xs font-mono max-w-[160px] truncate" title={r.userEmail ?? "—"}>
-                  {r.userEmail ?? "—"}
+                <TD className="text-xs font-mono max-w-[160px]">
+                  <span className="block truncate" title={r.userEmail ?? undefined}>
+                    {r.userEmail ?? "—"}
+                  </span>
                 </TD>
-                <TD className="text-xs max-w-[220px]" title={`${r.model ?? "—"} / ${r.product ?? "—"}`}>
-                  <div>{r.model ?? "—"}</div>
+                <TD className="text-xs max-w-[220px]">
+                  <div className="truncate" title={r.model ?? undefined}>
+                    {r.model ?? "—"}
+                  </div>
                   <div className="text-slate-500">{r.product ?? "—"}</div>
                 </TD>
-                <TD
-                  className="text-xs max-w-[240px]"
-                  title={`${r.title}\n${r.rationale}\n${r.recommendation ?? ""}`}
-                >
-                  <div className="font-medium text-slate-800">{r.title}</div>
-                  <div className="text-slate-500 line-clamp-2">{r.ruleCode}</div>
+                <TD className="text-xs max-w-[280px] align-top">
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      className="mt-0.5 shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      aria-expanded={expanded}
+                      aria-label={expanded ? "Hide alert details" : "Show alert details"}
+                      onClick={() => setExpandedId(expanded ? null : r.id)}
+                    >
+                      {expanded ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-slate-800">{r.title}</div>
+                      <div className="font-mono text-[10px] text-slate-500">{r.ruleCode}</div>
+                      {!expanded ? (
+                        <p className="mt-1 text-slate-600 line-clamp-2 leading-snug">{r.rationale}</p>
+                      ) : null}
+                      {r.recommendation && !expanded ? (
+                        <p className="mt-0.5 text-sky-800 line-clamp-1 leading-snug">
+                          Suggested: {r.recommendation}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
                 </TD>
                 <TD className="pr-3 align-top">
                   <div className="flex flex-col items-end gap-1.5">
@@ -276,21 +321,9 @@ export function GuardrailsAlertsTable({
                           )}
                         </Button>
                       ) : null}
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs w-full"
+                      <ActionButton
                         disabled={!canEmail || pending !== null}
-                        title={
-                          !r.userEmail
-                            ? "No user on alert"
-                            : !r.subjectHasUserRow
-                              ? "No User row — invite under Settings → Users"
-                              : r.subjectDisabled
-                                ? "User disabled on console"
-                                : undefined
-                        }
+                        disabledTitle={emailTitle}
                         onClick={() => sendEmail(r)}
                       >
                         {isPending(r.id, "email") ? (
@@ -298,23 +331,12 @@ export function GuardrailsAlertsTable({
                         ) : (
                           "Email user"
                         )}
-                      </Button>
+                      </ActionButton>
                       {canManageUsers ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs w-full border-amber-300 text-amber-900 hover:bg-amber-50"
+                        <ActionButton
                           disabled={!canDisable || pending !== null}
-                          title={
-                            !r.userEmail
-                              ? "No user on alert"
-                              : !r.subjectHasUserRow
-                                ? "No User row"
-                                : r.subjectDisabled
-                                  ? "Already disabled"
-                                  : "Blocks dashboard sign-in only"
-                          }
+                          disabledTitle={disableTitle}
+                          className="border-amber-300 text-amber-900 hover:bg-amber-50"
                           onClick={() => disableUser(r)}
                         >
                           {isPending(r.id, "disable") ? (
@@ -322,19 +344,11 @@ export function GuardrailsAlertsTable({
                           ) : (
                             "Block console"
                           )}
-                        </Button>
+                        </ActionButton>
                       ) : null}
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs w-full"
+                      <ActionButton
                         disabled={!canSeatRemoval || Boolean(removalId) || pending !== null}
-                        title={
-                          removalId
-                            ? "Removal already logged this session"
-                            : "Writes Decision — no vendor API call"
-                        }
+                        disabledTitle={seatTitle}
                         onClick={() => requestSeatRemoval(r)}
                       >
                         {isPending(r.id, "seat-removal") ? (
@@ -342,7 +356,7 @@ export function GuardrailsAlertsTable({
                         ) : (
                           "Request seat removal"
                         )}
-                      </Button>
+                      </ActionButton>
                     </div>
                     {rowError[r.id] ? (
                       <p className="text-[10px] text-red-600 text-right max-w-[200px]">{rowError[r.id]}</p>
@@ -350,10 +364,66 @@ export function GuardrailsAlertsTable({
                   </div>
                 </TD>
               </TR>
+              {expanded ? (
+                <TR className="bg-slate-50/80">
+                  <TD colSpan={7} className="px-4 py-3 text-xs text-slate-700">
+                    <div className="flex gap-2">
+                      <Info className="h-4 w-4 shrink-0 text-sky-600 mt-0.5" />
+                      <div className="space-y-2 min-w-0">
+                        <div>
+                          <span className="font-medium text-slate-900">Rationale</span>
+                          <p className="mt-0.5 whitespace-pre-wrap break-words">{r.rationale}</p>
+                        </div>
+                        {r.recommendation ? (
+                          <div>
+                            <span className="font-medium text-slate-900">Suggested action</span>
+                            <p className="mt-0.5 whitespace-pre-wrap break-words text-sky-900">
+                              {r.recommendation}
+                            </p>
+                          </div>
+                        ) : null}
+                        <p className="text-[10px] text-slate-500 font-mono">Alert id: {r.id}</p>
+                      </div>
+                    </div>
+                  </TD>
+                </TR>
+              ) : null}
+              </React.Fragment>
             );
           })
         )}
       </TBody>
     </Table>
+  );
+}
+
+/** Disabled buttons suppress native `title` tooltips — wrap so hover still explains why. */
+function ActionButton({
+  children,
+  disabled,
+  disabledTitle,
+  className,
+  onClick,
+}: {
+  children: React.ReactNode;
+  disabled: boolean;
+  disabledTitle?: string;
+  className?: string;
+  onClick: () => void;
+}) {
+  const wrapTitle = disabled && disabledTitle ? disabledTitle : undefined;
+  return (
+    <span className="block w-full" title={wrapTitle}>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className={`h-7 text-xs w-full ${className ?? ""}`}
+        disabled={disabled}
+        onClick={onClick}
+      >
+        {children}
+      </Button>
+    </span>
   );
 }
