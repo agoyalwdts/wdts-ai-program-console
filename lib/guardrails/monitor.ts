@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { DecisionType, Prisma, type PrismaClient, type Product } from "@prisma/client";
+import { DecisionType, Prisma, Product, type PrismaClient } from "@prisma/client";
 import {
   DAY_ONE_DEFAULT_MODEL,
   DISABLED_MODE_MARKERS,
@@ -10,6 +10,7 @@ import {
 import { evaluateModelAdvisor, productFromUsageProduct } from "./advisor";
 import { sendGuardrailPolicyDigest } from "@/lib/notify/guardrail-policy-email";
 import { notifyGuardrailAlertUsers } from "@/lib/notify/notify-end-users";
+import { loadCursorUsageForGuardrailMonitor } from "./load-cursor-usage-for-monitor";
 
 type Candidate = {
   occurredAt: Date;
@@ -30,6 +31,10 @@ type Candidate = {
 
 export type GuardrailMonitorSummary = {
   scannedUsageRows: number;
+  scannedCursorEvents: number;
+  cursorRowsInWindow: number;
+  cursorFeedActive: boolean;
+  cursorFeedSkipReason: string | null;
   scannedDecisions: number;
   candidates: number;
   inserted: number;
@@ -64,7 +69,7 @@ function pushUsageCandidates(args: {
   candidates: Candidate[];
   row: {
     ts: Date;
-      product: Product;
+    product: Product;
     model: string;
     tokensIn: number | null;
     tokensOut: number | null;
@@ -72,8 +77,10 @@ function pushUsageCandidates(args: {
     region: string;
     costUsd: number | null;
     userEmail: string | null;
+    maxMode?: boolean;
   };
   environment: string;
+  source: string;
 }): void {
   const product = productFromUsageProduct(args.row.product);
   if (!product) return;
@@ -83,7 +90,7 @@ function pushUsageCandidates(args: {
     selectedModel: args.row.model,
     tokensIn: args.row.tokensIn,
     tokensOut: args.row.tokensOut,
-    maxMode: args.row.model.toLowerCase().includes("max"),
+    maxMode: args.row.maxMode ?? args.row.model.toLowerCase().includes("max"),
   });
 
   if (advisor.disabledModeHit) {
@@ -99,7 +106,7 @@ function pushUsageCandidates(args: {
       product,
       userEmail: args.row.userEmail,
       model: args.row.model,
-      source: "USAGE_RECORD",
+      source: args.source,
       context: {
         decision: args.row.decision,
         region: args.row.region,
@@ -131,7 +138,7 @@ function pushUsageCandidates(args: {
       product,
       userEmail: args.row.userEmail,
       model: args.row.model,
-      source: "USAGE_RECORD",
+      source: args.source,
       context: {
         complexityScore: advisor.complexityScore,
         complexityClass: advisor.complexityClass,
@@ -165,7 +172,7 @@ function pushUsageCandidates(args: {
       product,
       userEmail: args.row.userEmail,
       model: args.row.model,
-      source: "USAGE_RECORD",
+      source: args.source,
       context: { region: args.row.region },
       dedupeKey: dedupe([
         "UNAPPROVED_MODEL_ENDPOINT",
@@ -196,7 +203,7 @@ function pushUsageCandidates(args: {
       product,
       userEmail: args.row.userEmail,
       model: args.row.model,
-      source: "USAGE_RECORD",
+      source: args.source,
       context: { allowedRegions: STRICT_REGION_ALLOWLIST },
       dedupeKey: dedupe([
         "REGION_OUTSIDE_STRICT_ALLOWLIST",
@@ -289,9 +296,27 @@ export async function runGuardrailMonitor(
   const since = new Date(Date.now() - windowHours * 60 * 60 * 1000);
   const env = envMode();
 
+  let cursorFeed: Awaited<ReturnType<typeof loadCursorUsageForGuardrailMonitor>>;
+  try {
+    cursorFeed = await loadCursorUsageForGuardrailMonitor({ since });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    cursorFeed = {
+      active: false,
+      eventsFetched: 0,
+      rowsInWindow: 0,
+      rows: [],
+      reason: `Cursor API failed: ${message}`,
+    };
+  }
+  const excludeMirrorCursor = cursorFeed.active;
+
   const [usageRows, decisionRows] = await Promise.all([
     prisma.usageRecord.findMany({
-      where: { ts: { gte: since } },
+      where: {
+        ts: { gte: since },
+        ...(excludeMirrorCursor ? { product: { not: Product.CURSOR } } : {}),
+      },
       select: {
         ts: true,
         product: true,
@@ -314,6 +339,22 @@ export async function runGuardrailMonitor(
     }),
   ]);
 
+  const emptySummary = (): GuardrailMonitorSummary => ({
+    scannedUsageRows: usageRows.length,
+    scannedCursorEvents: cursorFeed.eventsFetched,
+    cursorRowsInWindow: cursorFeed.rowsInWindow,
+    cursorFeedActive: cursorFeed.active,
+    cursorFeedSkipReason: cursorFeed.active ? null : cursorFeed.reason,
+    scannedDecisions: decisionRows.length,
+    candidates: 0,
+    inserted: 0,
+    emailed: 0,
+    emailError: null,
+    userEmailed: 0,
+    userEmailAttempted: 0,
+    userEmailError: null,
+  });
+
   const candidates: Candidate[] = [];
   for (const r of usageRows) {
     pushUsageCandidates({
@@ -330,7 +371,19 @@ export async function runGuardrailMonitor(
         userEmail: r.user.email,
       },
       environment: env,
+      source: "USAGE_RECORD",
     });
+  }
+
+  if (cursorFeed.active) {
+    for (const r of cursorFeed.rows) {
+      pushUsageCandidates({
+        candidates,
+        row: r,
+        environment: env,
+        source: "CURSOR_ADMIN_API",
+      });
+    }
   }
 
   for (const d of decisionRows) {
@@ -342,17 +395,7 @@ export async function runGuardrailMonitor(
   }
 
   if (candidates.length === 0) {
-    return {
-      scannedUsageRows: usageRows.length,
-      scannedDecisions: decisionRows.length,
-      candidates: 0,
-      inserted: 0,
-      emailed: 0,
-      emailError: null,
-      userEmailed: 0,
-      userEmailAttempted: 0,
-      userEmailError: null,
-    };
+    return emptySummary();
   }
 
   const ins = await prisma.guardrailPolicyAlert.createMany({
@@ -457,6 +500,9 @@ export async function runGuardrailMonitor(
           userEmailed,
           userEmailAttempted,
           userEmailError,
+          scannedCursorEvents: cursorFeed.eventsFetched,
+          cursorRowsInWindow: cursorFeed.rowsInWindow,
+          cursorFeedActive: cursorFeed.active,
         }),
         actorEmail: args?.actorEmail ?? "system:guardrail-monitor",
         justification: `Automated guardrail monitor (${windowHours}h window)` ,
@@ -466,6 +512,10 @@ export async function runGuardrailMonitor(
 
   return {
     scannedUsageRows: usageRows.length,
+    scannedCursorEvents: cursorFeed.eventsFetched,
+    cursorRowsInWindow: cursorFeed.rowsInWindow,
+    cursorFeedActive: cursorFeed.active,
+    cursorFeedSkipReason: cursorFeed.active ? null : cursorFeed.reason,
     scannedDecisions: decisionRows.length,
     candidates: candidates.length,
     inserted,

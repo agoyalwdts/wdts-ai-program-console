@@ -6,6 +6,10 @@ import { Button } from "@/components/ui/button";
 
 type MonitorSummary = {
   scannedUsageRows: number;
+  scannedCursorEvents: number;
+  cursorRowsInWindow: number;
+  cursorFeedActive: boolean;
+  cursorFeedSkipReason: string | null;
   scannedDecisions: number;
   candidates: number;
   inserted: number;
@@ -63,8 +67,13 @@ export function RunGuardrailMonitorButton() {
             }
             const s = j.summary;
             setStatus("ok");
+            const cursorPart = s.cursorFeedActive
+              ? `Cursor API ${s.cursorRowsInWindow} row(s) (${s.scannedCursorEvents} events), `
+              : s.cursorFeedSkipReason
+                ? `Cursor API off (${s.cursorFeedSkipReason}), `
+                : "";
             setMsg(
-              `Scanned ${s.scannedUsageRows} usage row(s), ${s.inserted} new alert(s), ` +
+              `${cursorPart}mirror ${s.scannedUsageRows} row(s), ${s.inserted} new alert(s), ` +
                 `FinOps digest ${s.emailed}, user coaching ${s.userEmailed}/${s.userEmailAttempted}` +
                 (s.emailError ? ` · digest err: ${s.emailError}` : "") +
                 (s.userEmailError ? ` · user err: ${s.userEmailError}` : ""),

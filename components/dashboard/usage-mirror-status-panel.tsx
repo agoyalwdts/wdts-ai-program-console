@@ -88,8 +88,11 @@ export function UsageMirrorStatusPanel({ snapshot }: { snapshot: UsageMirrorSnap
         <Link href="/settings/gateway-mirror" className="text-sky-700 underline">
           Gateway usage mirror
         </Link>{" "}
-        — webhook URLs, env checklist, recent ingest batches. Cursor/Codex vendor sync does not
-        feed this table.
+        — webhook ingest for ChatGPT and cross-product rows.{" "}
+        <strong>Cursor guardrails</strong> also scan live{" "}
+        <code className="font-mono text-[11px]">filtered-usage-events</code> when{" "}
+        <code className="font-mono text-[11px]">INTEGRATION_CURSOR=real</code> (no mirror required
+        for Cursor). Codex vendor sync is spend-only (no per-model events).
       </p>
     </div>
   );

@@ -97,8 +97,10 @@ export default async function GuardrailsSettingsPage() {
               Active alerts
             </CardTitle>
             <CardDescription>
-              Scheduled hourly via GitHub Actions. FinOps digest:{" "}
-              <code className="font-mono text-xs">GUARDRAIL_ALERT_EMAIL_TO</code>. User coaching:{" "}
+              Hourly cron + manual run. <strong>Cursor</strong> is evaluated from Team Admin{" "}
+              <code className="font-mono text-xs">filtered-usage-events</code> when{" "}
+              <code className="font-mono text-xs">INTEGRATION_CURSOR=real</code>; other products need
+              gateway mirror ingest. User coaching:{" "}
               <code className="font-mono text-xs">USER_MODEL_COACHING_EMAIL=1</code> +{" "}
               <code className="font-mono text-xs">RESEND_API_KEY</code>.
             </CardDescription>

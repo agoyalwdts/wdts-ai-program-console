@@ -22,7 +22,11 @@ beforeEach(() => {
   mocks.runGuardrailMonitor.mockReset();
   mocks.requirePermission.mockResolvedValue({ email: "admin@wdts.com" });
   mocks.runGuardrailMonitor.mockResolvedValue({
-    scannedUsageRows: 10,
+    scannedUsageRows: 0,
+    scannedCursorEvents: 5,
+    cursorRowsInWindow: 3,
+    cursorFeedActive: true,
+    cursorFeedSkipReason: null,
     scannedDecisions: 0,
     candidates: 1,
     inserted: 1,

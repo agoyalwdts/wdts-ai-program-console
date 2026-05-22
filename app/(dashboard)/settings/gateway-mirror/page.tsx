@@ -50,6 +50,11 @@ export default async function GatewayMirrorSettingsPage() {
   const gatewayMode = getIntegrationMode("gateway");
   const lastEvent = usageAgg._max.ts;
   const publicBase = dashboardPublicBaseUrl();
+  const nowMs = new Date().getTime();
+  const staleMs = lastEvent ? nowMs - lastEvent.getTime() : null;
+  const staleHours =
+    staleMs != null ? Math.floor(staleMs / (60 * 60 * 1000)) : null;
+  const ingestStale = staleMs == null || staleMs > 24 * 60 * 60 * 1000;
 
   return (
     <>
@@ -58,6 +63,21 @@ export default async function GatewayMirrorSettingsPage() {
         subtitle="Webhook ingest health + recent batch audit rows."
       />
       <div className="p-6 space-y-6 max-w-4xl">
+        {ingestStale ? (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <p className="font-medium">
+              {lastEvent
+                ? `Mirror is stale — last usage event was ${staleHours} hour(s) ago.`
+                : "No usage rows in the mirror yet."}
+            </p>
+            <p className="mt-1 text-amber-900/90">
+              Deploys and hourly Cursor/Codex spend sync do <strong>not</strong> update this page.
+              Only <code className="font-mono text-xs">POST /api/webhooks/usage-ingest</code> (or
+              LiteLLM) appends <code className="font-mono text-xs">UsageRecord</code> rows. Wire a
+              forwarder or run <code className="font-mono text-xs">scripts/send-usage-ingest-smoke.sh</code>.
+            </p>
+          </div>
+        ) : null}
         <Card className="border-emerald-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -144,13 +164,25 @@ export default async function GatewayMirrorSettingsPage() {
             </CardTitle>
             <CardDescription>Latest usage event timestamp across all mirrored rows.</CardDescription>
           </CardHeader>
-          <CardContent className="text-sm text-slate-700">
+          <CardContent className="text-sm text-slate-700 space-y-2">
             <div>
               <span className="text-slate-500">Latest UsageRecord.ts</span>{" "}
               <span className="font-mono">
                 {lastEvent ? lastEvent.toISOString() : "— (no rows)"}
               </span>
+              {lastEvent ? (
+                <span className="ml-2 text-xs text-slate-500">
+                  ({lastEvent.toLocaleString()} local)
+                </span>
+              ) : null}
             </div>
+            {lastEvent && staleHours != null && staleHours >= 1 ? (
+              <p className="text-xs text-amber-800">
+                Age: {staleHours >= 48 ? `${Math.floor(staleHours / 24)} day(s)` : `${staleHours} hour(s)`}{" "}
+                — refresh this page after a successful ingest; the timestamp only moves when new
+                webhook batches land.
+              </p>
+            ) : null}
           </CardContent>
         </Card>
 
