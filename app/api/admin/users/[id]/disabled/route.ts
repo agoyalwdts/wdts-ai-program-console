@@ -15,6 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { setUserDisabled } from "@/lib/admin/set-user-disabled";
 import { requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
@@ -45,50 +46,21 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
     );
   }
 
-  const subject = await prisma.user.findUnique({ where: { id } });
-  if (!subject) {
-    return NextResponse.json(
-      { ok: false, error: "user not found" },
-      { status: 404 },
-    );
-  }
-
-  if (disabled && subject.isOwner) {
-    return NextResponse.json(
-      { ok: false, error: "Cannot disable the dashboard owner." },
-      { status: 409 },
-    );
-  }
-  if (disabled && subject.email === actor.email) {
-    return NextResponse.json(
-      { ok: false, error: "You cannot disable yourself." },
-      { status: 409 },
-    );
-  }
-
-  if (subject.disabled === disabled) {
-    return NextResponse.json({
-      ok: true,
-      noOp: true,
-      message: `User already ${disabled ? "disabled" : "enabled"}.`,
-    });
-  }
-
-  await prisma.$transaction(async (tx) => {
-    await tx.user.update({ where: { id }, data: { disabled } });
-    await tx.decision.create({
-      data: {
-        type: disabled ? "USER_DISABLED" : "USER_ENABLED",
-        subjectUserId: id,
-        beforeState: JSON.stringify({ disabled: subject.disabled }),
-        afterState: JSON.stringify({ disabled }),
-        actorEmail: actor.email,
-        justification: disabled
-          ? `Disabled user ${subject.email}`
-          : `Re-enabled user ${subject.email}`,
-      },
-    });
+  const result = await setUserDisabled({
+    prisma,
+    actorEmail: actor.email,
+    userId: id,
+    disabled,
   });
 
-  return NextResponse.json({ ok: true, disabled });
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    disabled: result.disabled,
+    noOp: result.noOp ?? false,
+    message: result.message ?? null,
+  });
 }

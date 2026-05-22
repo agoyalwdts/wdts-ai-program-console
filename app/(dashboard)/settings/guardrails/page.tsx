@@ -1,5 +1,5 @@
 import { Topbar } from "@/components/dashboard/topbar";
-import { requirePermission } from "@/lib/auth";
+import { requirePermission, userHasPermission } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,49 +17,74 @@ import { GuardrailsAlertsTable } from "./guardrails-alerts-table";
 export const dynamic = "force-dynamic";
 
 export default async function GuardrailsSettingsPage() {
-  await requirePermission(PERMISSIONS.GUARDRAILS_MONITOR);
+  const user = await requirePermission(PERMISSIONS.GUARDRAILS_MONITOR);
+  const canManageUsers = userHasPermission(user, PERMISSIONS.USERS_MANAGE);
 
   const [alerts, usageMirror] = await Promise.all([
     prisma.guardrailPolicyAlert.findMany({
-    orderBy: { occurredAt: "desc" },
-    take: 200,
-    select: {
-      id: true,
-      occurredAt: true,
-      category: true,
-      severity: true,
-      product: true,
-      userEmail: true,
-      model: true,
-      ruleCode: true,
-      title: true,
-      rationale: true,
-      recommendation: true,
-      acknowledgedAt: true,
-    },
-  }),
+      orderBy: { occurredAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        occurredAt: true,
+        category: true,
+        severity: true,
+        product: true,
+        userEmail: true,
+        model: true,
+        ruleCode: true,
+        title: true,
+        rationale: true,
+        recommendation: true,
+        acknowledgedAt: true,
+        userEmailNotifiedAt: true,
+      },
+    }),
     getUsageMirrorSnapshot(prisma),
   ]);
+
+  const emails = [
+    ...new Set(
+      alerts.map((a) => a.userEmail?.trim().toLowerCase()).filter((e): e is string => Boolean(e)),
+    ),
+  ];
+  const usersByEmail = new Map(
+    emails.length > 0
+      ? (
+          await prisma.user.findMany({
+            where: { email: { in: emails } },
+            select: { email: true, disabled: true },
+          })
+        ).map((u) => [u.email.toLowerCase(), u] as const)
+      : [],
+  );
 
   const tableKey =
     alerts.length > 0
       ? `${alerts.length}:${alerts[0]!.id}:${alerts[0]!.occurredAt.toISOString()}`
       : "empty";
 
-  const initial = alerts.map((a) => ({
-    id: a.id,
-    occurredAt: a.occurredAt.toISOString(),
-    category: a.category,
-    severity: a.severity,
-    product: a.product,
-    userEmail: a.userEmail,
-    model: a.model,
-    ruleCode: a.ruleCode,
-    title: a.title,
-    rationale: a.rationale,
-    recommendation: a.recommendation,
-    acknowledgedAt: a.acknowledgedAt?.toISOString() ?? null,
-  }));
+  const initial = alerts.map((a) => {
+    const email = a.userEmail?.trim().toLowerCase() ?? null;
+    const subject = email ? usersByEmail.get(email) : undefined;
+    return {
+      id: a.id,
+      occurredAt: a.occurredAt.toISOString(),
+      category: a.category,
+      severity: a.severity,
+      product: a.product,
+      userEmail: a.userEmail,
+      model: a.model,
+      ruleCode: a.ruleCode,
+      title: a.title,
+      rationale: a.rationale,
+      recommendation: a.recommendation,
+      acknowledgedAt: a.acknowledgedAt?.toISOString() ?? null,
+      userEmailNotifiedAt: a.userEmailNotifiedAt?.toISOString() ?? null,
+      subjectHasUserRow: Boolean(subject),
+      subjectDisabled: subject ? subject.disabled : null,
+    };
+  });
 
   return (
     <>
@@ -102,11 +127,11 @@ export default async function GuardrailsSettingsPage() {
               Active alerts
             </CardTitle>
             <CardDescription>
-              Hourly cron + manual run. <strong>Cursor</strong> is evaluated from Team Admin{" "}
+              Hourly cron + manual run. Per-row actions: acknowledge, email user, block console
+              sign-in (<code className="font-mono text-xs">users.manage</code>), or log a seat-removal
+              Decision (no vendor API). <strong>Cursor</strong> uses Team Admin{" "}
               <code className="font-mono text-xs">filtered-usage-events</code> when{" "}
-              <code className="font-mono text-xs">INTEGRATION_CURSOR=real</code>; other products need
-              gateway mirror ingest. User coaching:{" "}
-              <code className="font-mono text-xs">USER_MODEL_COACHING_EMAIL=1</code> +{" "}
+              <code className="font-mono text-xs">INTEGRATION_CURSOR=real</code>. Email user needs{" "}
               <code className="font-mono text-xs">RESEND_API_KEY</code>.
             </CardDescription>
           </CardHeader>
@@ -115,7 +140,11 @@ export default async function GuardrailsSettingsPage() {
             <RunGuardrailMonitorButton />
           </CardContent>
           <CardContent className="px-0 pb-0 pt-0">
-            <GuardrailsAlertsTable key={tableKey} initial={initial} />
+            <GuardrailsAlertsTable
+              key={tableKey}
+              initial={initial}
+              canManageUsers={canManageUsers}
+            />
           </CardContent>
         </Card>
       </div>
