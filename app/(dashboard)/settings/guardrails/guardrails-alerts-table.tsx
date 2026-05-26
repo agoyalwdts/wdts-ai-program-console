@@ -22,21 +22,29 @@ export type GuardrailAlertRow = {
   /** Dashboard User.disabled for alert.userEmail, if a row exists. */
   subjectDisabled: boolean | null;
   subjectHasUserRow: boolean;
+  /** Invited user (has role) who is currently console-blocked — Allow console is valid. */
+  subjectCanReenable: boolean;
 };
 
 type PendingAction =
   | "ack"
   | "email"
   | "disable"
+  | "enable"
   | "seat-removal"
   | null;
 
 export function GuardrailsAlertsTable({
   initial,
   canManageUsers,
+  coachingEmailConfigured,
+  emailProvider,
 }: {
   initial: GuardrailAlertRow[];
   canManageUsers: boolean;
+  /** False when mail is not configured for the active EMAIL_PROVIDER. */
+  coachingEmailConfigured: boolean;
+  emailProvider: "graph" | "resend";
 }) {
   const [rows, setRows] = React.useState(initial);
   const [pending, setPending] = React.useState<{ id: string; action: PendingAction } | null>(null);
@@ -110,7 +118,7 @@ export function GuardrailsAlertsTable({
     if (j.skipped) {
       setRowError((prev) => ({
         ...prev,
-        [r.id]: String(j.reason ?? "Email skipped (check RESEND_API_KEY)."),
+        [r.id]: String(j.reason ?? "Email skipped (check mail configuration)."),
       }));
       return;
     }
@@ -127,23 +135,36 @@ export function GuardrailsAlertsTable({
     );
   }
 
-  async function disableUser(r: GuardrailAlertRow) {
+  async function setConsoleAccess(r: GuardrailAlertRow, disabled: boolean) {
+    const verb = disabled ? "Block" : "Allow";
     if (
       !confirm(
-        `Disable dashboard sign-in for ${r.userEmail}?\n\nThis blocks access to this console only — it does not revoke Cursor, ChatGPT, or other vendor seats.`,
+        `${verb} dashboard sign-in for ${r.userEmail}?\n\nThis only affects access to this console — it does not revoke Cursor, ChatGPT, or other vendor seats.`,
       )
     ) {
       return;
     }
     const j = await runAction(
       r.id,
-      "disable",
+      disabled ? "disable" : "enable",
       `/api/guardrail-policy-alerts/${r.id}/disable-user`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disabled }),
+      },
     );
     if (!j) return;
     setRows((prev) =>
-      prev.map((row) => (row.id === r.id ? { ...row, subjectDisabled: true } : row)),
+      prev.map((row) =>
+        row.id === r.id
+          ? {
+              ...row,
+              subjectDisabled: disabled,
+              subjectHasUserRow: true,
+            }
+          : row,
+      ),
     );
   }
 
@@ -183,7 +204,10 @@ export function GuardrailsAlertsTable({
         await sendEmail(r);
         break;
       case "disable":
-        await disableUser(r);
+        await setConsoleAccess(r, true);
+        break;
+      case "enable":
+        await setConsoleAccess(r, false);
         break;
       case "seat-removal":
         await requestSeatRemoval(r);
@@ -228,9 +252,9 @@ export function GuardrailsAlertsTable({
         ) : (
           rows.map((r) => {
             const dim = Boolean(r.acknowledgedAt);
-            const canEmail = Boolean(r.userEmail) && r.subjectHasUserRow && !r.subjectDisabled;
-            const canDisable =
-              canManageUsers && Boolean(r.userEmail) && r.subjectHasUserRow && !r.subjectDisabled;
+            const canEmail = Boolean(r.userEmail);
+            const canDisable = canManageUsers && Boolean(r.userEmail) && !r.subjectDisabled;
+            const canEnable = canManageUsers && Boolean(r.userEmail) && r.subjectCanReenable;
             const canSeatRemoval = Boolean(r.userEmail);
             const removalId = seatRemovalLogged[r.id];
 
@@ -353,6 +377,11 @@ export function GuardrailsAlertsTable({
                             Block console
                           </option>
                         ) : null}
+                        {canManageUsers ? (
+                          <option value="enable" disabled={!canEnable}>
+                            Allow console
+                          </option>
+                        ) : null}
                         <option
                           value="seat-removal"
                           disabled={!canSeatRemoval || Boolean(removalId)}
@@ -363,6 +392,12 @@ export function GuardrailsAlertsTable({
                     </div>
                     {rowError[r.id] ? (
                       <p className="text-[10px] text-red-600 leading-snug break-words">{rowError[r.id]}</p>
+                    ) : !coachingEmailConfigured && canEmail ? (
+                      <p className="text-[10px] text-amber-700 leading-snug">
+                        {emailProvider === "graph"
+                          ? "Email needs GRAPH_MAIL_SENDER + Mail.Send on the Entra app."
+                          : "Email needs RESEND_API_KEY in App Service / Key Vault."}
+                      </p>
                     ) : null}
                   </div>
                 </TD>

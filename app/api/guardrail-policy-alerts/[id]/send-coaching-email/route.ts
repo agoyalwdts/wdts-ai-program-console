@@ -2,7 +2,7 @@
  * POST /api/guardrail-policy-alerts/:id/send-coaching-email
  *
  * Sends a one-off coaching email for this alert (any rule code). Requires
- * RESEND_API_KEY and a User row for the alert's email.
+ * RESEND_API_KEY. Sends to the alert's userEmail (no invite required).
  */
 
 import { NextResponse } from "next/server";

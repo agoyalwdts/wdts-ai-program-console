@@ -12,6 +12,7 @@ import {
 import { RunGuardrailMonitorButton } from "@/components/dashboard/run-guardrail-monitor-button";
 import { UsageMirrorStatusPanel } from "@/components/dashboard/usage-mirror-status-panel";
 import { getUsageMirrorSnapshot } from "@/lib/gateway-mirror/usage-mirror-snapshot";
+import { emailProvider, isEmailConfigured } from "@/lib/notify/send-email";
 import { GuardrailsAlertsTable } from "./guardrails-alerts-table";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +54,7 @@ export default async function GuardrailsSettingsPage() {
       ? (
           await prisma.user.findMany({
             where: { email: { in: emails } },
-            select: { email: true, disabled: true },
+            select: { email: true, disabled: true, dashboardRoleId: true },
           })
         ).map((u) => [u.email.toLowerCase(), u] as const)
       : [],
@@ -83,6 +84,9 @@ export default async function GuardrailsSettingsPage() {
       userEmailNotifiedAt: a.userEmailNotifiedAt?.toISOString() ?? null,
       subjectHasUserRow: Boolean(subject),
       subjectDisabled: subject ? subject.disabled : null,
+      subjectCanReenable: subject
+        ? Boolean(subject.dashboardRoleId) && subject.disabled
+        : false,
     };
   });
 
@@ -131,8 +135,11 @@ export default async function GuardrailsSettingsPage() {
               sign-in (<code className="font-mono text-xs">users.manage</code>), or log a seat-removal
               Decision (no vendor API). <strong>Cursor</strong> uses Team Admin{" "}
               <code className="font-mono text-xs">filtered-usage-events</code> when{" "}
-              <code className="font-mono text-xs">INTEGRATION_CURSOR=real</code>. Email user needs{" "}
-              <code className="font-mono text-xs">RESEND_API_KEY</code>.
+              <code className="font-mono text-xs">INTEGRATION_CURSOR=real</code>. Automated + manual
+              email use <code className="font-mono text-xs">EMAIL_PROVIDER=graph</code> (Microsoft
+              Graph sendMail) or <code className="font-mono text-xs">resend</code>; hourly cron does
+              not require the dashboard to be open. Block console
+              creates a mirror User row when needed (no vendor API).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 px-6 pb-4">
@@ -144,6 +151,8 @@ export default async function GuardrailsSettingsPage() {
               key={tableKey}
               initial={initial}
               canManageUsers={canManageUsers}
+              coachingEmailConfigured={isEmailConfigured()}
+              emailProvider={emailProvider()}
             />
           </CardContent>
         </Card>

@@ -2,10 +2,10 @@
  * Minimal Resend HTTP client shared by operator digests and end-user coaching mail.
  */
 
-export type ResendSendResult =
-  | { ok: true; skipped: false; id: string }
-  | { ok: true; skipped: true; reason: string }
-  | { ok: false; error: string };
+import type { SendHtmlEmailResult } from "./email-types";
+
+/** @deprecated Use SendHtmlEmailResult from send-email.ts */
+export type ResendSendResult = SendHtmlEmailResult;
 
 export function parseEmailList(raw: string | undefined): string[] {
   if (!raw?.trim()) return [];
@@ -13,6 +13,10 @@ export function parseEmailList(raw: string | undefined): string[] {
     .split(/[;,\s]+/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+export function isResendConfigured(): boolean {
+  return Boolean(process.env.RESEND_API_KEY?.trim());
 }
 
 export function truthyEnv(raw: string | undefined): boolean {

@@ -50,6 +50,33 @@ export type SendAlertCoachingEmailResult =
   | { ok: true; skipped: true; reason: string }
   | { ok: false; status: number; error: string };
 
+/**
+ * Mirror-only User row for guardrail block-console (closed-by-default sign-in).
+ * Does not grant dashboard access: disabled=true, no dashboardRoleId.
+ */
+export async function ensureGuardrailMirrorUser(
+  prisma: PrismaClient,
+  email: string,
+): Promise<{ id: string; email: string; disabled: boolean; isOwner: boolean; created: boolean }> {
+  const normalized = email.trim().toLowerCase();
+  const existing = await findUserIdByEmail(prisma, normalized);
+  if (existing) {
+    return { ...existing, created: false };
+  }
+
+  const created = await prisma.user.create({
+    data: {
+      email: normalized,
+      displayName: normalized.split("@")[0] || normalized,
+      roleTag: "guardrail-mirror",
+      region: "unknown",
+      disabled: true,
+    },
+    select: { id: true, email: true, disabled: true, isOwner: true },
+  });
+  return { ...created, created: true };
+}
+
 /** Manual coaching email for one alert (any rule code). */
 export async function sendAlertCoachingEmail(
   prisma: PrismaClient,
@@ -58,22 +85,6 @@ export async function sendAlertCoachingEmail(
   const email = alert.userEmail?.trim().toLowerCase();
   if (!email) {
     return { ok: false, status: 400, error: "Alert has no user email." };
-  }
-
-  const user = await findUserIdByEmail(prisma, email);
-  if (!user) {
-    return {
-      ok: false,
-      status: 404,
-      error: `No User row for ${email}. Invite them under Settings → Users first.`,
-    };
-  }
-  if (user.disabled) {
-    return {
-      ok: false,
-      status: 409,
-      error: "User is disabled on the dashboard — re-enable before sending coaching mail.",
-    };
   }
 
   const resent = alert.userEmailNotifiedAt !== null;

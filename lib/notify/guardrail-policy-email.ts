@@ -1,4 +1,5 @@
-import { parseEmailList, sendResendHtmlEmail, escapeHtml, type ResendSendResult } from "./resend-send";
+import { parseEmailList, escapeHtml } from "./resend-send";
+import { sendHtmlEmail, type SendHtmlEmailResult } from "./send-email";
 
 export type GuardrailAlertEmailLine = {
   category: string;
@@ -10,7 +11,7 @@ export type GuardrailAlertEmailLine = {
   title: string;
 };
 
-export type SendGuardrailDigestResult = ResendSendResult;
+export type SendGuardrailDigestResult = SendHtmlEmailResult;
 
 export async function sendGuardrailPolicyDigest(params: {
   dashboardBaseUrl: string;
@@ -38,5 +39,5 @@ export async function sendGuardrailPolicyDigest(params: {
   const listUrl = `${params.dashboardBaseUrl.replace(/\/$/, "")}/settings/guardrails`;
   const html = `<p>New guardrail policy alert(s):</p><table style="border-collapse:collapse">${rows}</table><p><a href="${escapeHtml(listUrl)}">Open dashboard</a></p>`;
 
-  return sendResendHtmlEmail({ to, subject: params.subject, html });
+  return sendHtmlEmail({ to, subject: params.subject, html });
 }

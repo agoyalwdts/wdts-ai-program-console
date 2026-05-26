@@ -32,16 +32,17 @@ function groupByEmail<T extends { userEmail: string }>(
   return map;
 }
 
-async function activeUserEmails(
+/** Skip only when a User row exists and console sign-in is blocked. */
+async function maySendUserCoachingEmail(
   prisma: PrismaClient,
-  emails: string[],
-): Promise<Set<string>> {
-  if (emails.length === 0) return new Set();
-  const users = await prisma.user.findMany({
-    where: { email: { in: emails }, disabled: false },
-    select: { email: true },
+  email: string,
+): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { disabled: true },
   });
-  return new Set(users.map((u) => u.email.toLowerCase()));
+  if (!user) return true;
+  return !user.disabled;
 }
 
 export async function notifyGuardrailAlertUsers(args: {
@@ -80,14 +81,13 @@ export async function notifyGuardrailAlertUsers(args: {
       userEmail: a.userEmail!.trim().toLowerCase(),
     })),
   );
-  const active = await activeUserEmails(args.prisma, [...byUser.keys()]);
   const bcc = userCoachingBccList();
   const errors: string[] = [];
   let sent = 0;
   let attempted = 0;
 
   for (const [email, rows] of byUser) {
-    if (!active.has(email)) continue;
+    if (!(await maySendUserCoachingEmail(args.prisma, email))) continue;
     attempted += 1;
     const lines: GuardrailUserCoachingLine[] = rows.map((r) => ({
       ruleCode: r.ruleCode,
@@ -151,14 +151,13 @@ export async function notifyCursorPrudenceAlertUsers(args: {
     return { attempted: 0, sent: 0, skippedReason: "no alerts with user email", errors: [] };
   }
 
-  const active = await activeUserEmails(args.prisma, [...byUser.keys()]);
   const bcc = userCoachingBccList();
   const errors: string[] = [];
   let sent = 0;
   let attempted = 0;
 
   for (const [email, rows] of byUser) {
-    if (!active.has(email)) continue;
+    if (!(await maySendUserCoachingEmail(args.prisma, email))) continue;
     attempted += 1;
     const lines: CursorUserCoachingLine[] = rows.map((r) => ({
       ruleCode: r.ruleCode,

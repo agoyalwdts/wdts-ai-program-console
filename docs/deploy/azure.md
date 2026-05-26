@@ -144,7 +144,8 @@ grant needs a privileged human anyway.
    Application permissions → add:
    - `User.Read.All`
    - `Reports.Read.All`
-   - (later, when F11 lands) `AuditLog.Read.All`
+   - `AuditLog.Read.All` (sign-in logs / F2 footprint)
+   - `Mail.Send` (application — outbound alert + coaching mail via Graph; see LDR 0006)
 6. **Grant admin consent for WDTS** — top of the API permissions
    blade. This is the privilege that the dev/sandbox app
    intentionally does not have.
@@ -212,6 +213,13 @@ Non-secret App Settings (set as plain values, not Key Vault refs):
 | `POLICYREPO_OWNER` | `agoyalwdts` |
 | `POLICYREPO_NAME` | `wdts-ai-policy` |
 | `POLICYREPO_DEFAULT_BRANCH` | `main` |
+| `EMAIL_PROVIDER` | `graph` (preferred) or `resend` |
+| `GRAPH_MAIL_SENDER` | Shared mailbox UPN, e.g. `wdts-ai-console@wdtablesystems.com` — see LDR 0006 |
+| `USER_MODEL_COACHING_EMAIL` | `1` — enables cron + manual end-user coaching mail |
+| `GUARDRAIL_ALERT_EMAIL_TO` | Comma-separated FinOps digest recipients |
+| `APP_ENV` | `prod` |
+
+Optional: `RESEND_API_KEY` in Key Vault only if `EMAIL_PROVIDER=resend`.
 
 **Rotation pattern.** Any of these is rotated by:
 1. Rotate the secret at the source (Entra ID, vendor admin panel, etc.).

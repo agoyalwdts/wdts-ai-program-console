@@ -244,7 +244,9 @@ When usage is mirrored with `model` + token counts, the guardrail monitor
 |----------|---------|
 | `USER_MODEL_COACHING_EMAIL` | `1` / `true` — master switch |
 | `USER_MODEL_COACHING_ALLOW_DEV` | Required in dev/sandbox so local cron does not mail real users |
-| `RESEND_API_KEY` | Resend API key (same as operator digests) |
+| `EMAIL_PROVIDER` | `graph` (Microsoft 365 sendMail) or `resend` |
+| `GRAPH_MAIL_SENDER` | Mailbox UPN when `EMAIL_PROVIDER=graph` (LDR 0006) |
+| `RESEND_API_KEY` | Resend API key when `EMAIL_PROVIDER=resend` |
 | `GUARDRAIL_USER_COACHING_RULE_CODES` | Optional comma list; defaults to the three complexity/posture rules |
 | `USER_MODEL_COACHING_BCC` | Optional BCC (defaults to `GUARDRAIL_ALERT_EMAIL_TO`) |
 

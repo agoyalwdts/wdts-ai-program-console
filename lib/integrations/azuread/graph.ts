@@ -100,7 +100,8 @@ export async function graphGet<T>(
         `on the app registration. Required scopes by endpoint: ` +
         `/users → User.Read.All (or Directory.Read.All); ` +
         `/reports → Reports.Read.All; ` +
-        `/auditLogs → AuditLog.Read.All. ` +
+        `/auditLogs → AuditLog.Read.All; ` +
+        `/users/{id}/sendMail → Mail.Send (application) plus Exchange app-access policy. ` +
         `Re-run "Grant admin consent for <tenant>" in the Azure portal after ` +
         `adding the missing one.`,
     );
@@ -113,6 +114,41 @@ export async function graphGet<T>(
     );
   }
   return (await r.json()) as T;
+}
+
+/**
+ * POST against Graph with the cached app-only token. sendMail returns 202 with
+ * an empty body on success.
+ */
+export async function graphPost(
+  cfg: GraphConfig,
+  path: string,
+  body: unknown,
+): Promise<void> {
+  const token = await getAccessToken(cfg);
+  const url = path.startsWith("http") ? path : `https://graph.microsoft.com/v1.0${path}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (r.status === 403) {
+    throw new IntegrationError(
+      "azuread",
+      `Graph returned 403 on POST ${path}. For sendMail: grant Mail.Send (application) ` +
+        `on the app registration and configure an Exchange Online application access ` +
+        `policy for GRAPH_MAIL_SENDER.`,
+    );
+  }
+  if (r.status === 202 || r.status === 200 || r.status === 204) return;
+  const text = await r.text().catch(() => "");
+  throw new IntegrationError(
+    "azuread",
+    `Graph POST ${path} returned ${r.status}: ${text || r.statusText}`,
+  );
 }
 
 /** Iterate over a paginated Graph collection, yielding values in chunks. */

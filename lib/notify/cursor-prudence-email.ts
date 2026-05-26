@@ -3,7 +3,8 @@
  * End-user coaching uses `lib/notify/notify-end-users.ts`.
  */
 
-import { parseEmailList, sendResendHtmlEmail, escapeHtml, type ResendSendResult } from "./resend-send";
+import { parseEmailList, escapeHtml } from "./resend-send";
+import { sendHtmlEmail, type SendHtmlEmailResult } from "./send-email";
 
 export type NewAlertLine = {
   userEmail: string;
@@ -13,7 +14,7 @@ export type NewAlertLine = {
   title: string;
 };
 
-export type SendPrudenceDigestResult = ResendSendResult;
+export type SendPrudenceDigestResult = SendHtmlEmailResult;
 
 export async function sendCursorPrudenceDigest(params: {
   dashboardBaseUrl: string;
@@ -39,5 +40,5 @@ export async function sendCursorPrudenceDigest(params: {
 <table style="border-collapse:collapse">${rows}</table>
 <p style="font-size:13px"><a href="${escapeHtml(listUrl)}">Open dashboard</a></p>`;
 
-  return sendResendHtmlEmail({ to, subject: params.subject, html });
+  return sendHtmlEmail({ to, subject: params.subject, html });
 }

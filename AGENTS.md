@@ -414,6 +414,7 @@ Current index:
 | 0003 | Production deploy target: Azure App Service + Postgres FS + Key Vault + GHA OIDC | accepted |
 | 0004 | Cursor is credit-bound, not seat-bound: 4 sub-tiers, 120-seat plan inside a $500K/yr envelope | accepted |
 | 0005 | App-level RBAC: dashboard owns its own access control (AAD = identity only) | accepted |
+| 0006 | Outbound mail via Microsoft Graph sendMail (Resend optional fallback) | accepted |
 
 The README in that folder explains the format and the proposed→accepted
 sign-off rule.

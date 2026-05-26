@@ -29,7 +29,7 @@ describe("notifyGuardrailAlertUsers", () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const prisma = {
       user: {
-        findMany: vi.fn().mockResolvedValue([{ email: "dev@wdts.com" }]),
+        findUnique: vi.fn().mockResolvedValue({ disabled: false }),
       },
       guardrailPolicyAlert: { updateMany },
     } as unknown as PrismaClient;
@@ -68,7 +68,7 @@ describe("notifyGuardrailAlertUsers", () => {
 
   it("skips disabled users", async () => {
     const prisma = {
-      user: { findMany: vi.fn().mockResolvedValue([]) },
+      user: { findUnique: vi.fn().mockResolvedValue({ disabled: true }) },
       guardrailPolicyAlert: { updateMany: vi.fn() },
     } as unknown as PrismaClient;
 
@@ -94,10 +94,41 @@ describe("notifyGuardrailAlertUsers", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("emails alert address when there is no User row", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ id: "em_2" }),
+    });
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const prisma = {
+      user: { findUnique: vi.fn().mockResolvedValue(null) },
+      guardrailPolicyAlert: { updateMany },
+    } as unknown as PrismaClient;
+
+    const { notifyGuardrailAlertUsers } = await import("./notify-end-users");
+    const summary = await notifyGuardrailAlertUsers({
+      prisma,
+      alerts: [
+        {
+          id: "a2",
+          userEmail: "cursor-only@wdts.com",
+          ruleCode: "NON_COMPLEX_NON_DEFAULT_MODEL",
+          title: "Model",
+          rationale: "r",
+          recommendation: null,
+          product: "CURSOR",
+          model: "default",
+        },
+      ],
+    });
+    expect(summary.sent).toBe(1);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("does not email for non-coaching rule codes", async () => {
     const { notifyGuardrailAlertUsers } = await import("./notify-end-users");
     const summary = await notifyGuardrailAlertUsers({
-      prisma: { user: { findMany: vi.fn() } } as unknown as PrismaClient,
+      prisma: { user: { findUnique: vi.fn() } } as unknown as PrismaClient,
       alerts: [
         {
           id: "a1",

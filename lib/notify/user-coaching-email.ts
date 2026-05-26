@@ -1,5 +1,6 @@
 import { DAY_ONE_DEFAULT_MODEL, type ProductKey } from "@/lib/guardrails/day-one-defaults";
-import { escapeHtml, sendResendHtmlEmail, type ResendSendResult } from "./resend-send";
+import { escapeHtml } from "./resend-send";
+import { sendHtmlEmail, type SendHtmlEmailResult } from "./send-email";
 
 export type GuardrailUserCoachingLine = {
   ruleCode: string;
@@ -29,7 +30,7 @@ export async function sendGuardrailUserCoachingEmail(params: {
   to: string;
   lines: GuardrailUserCoachingLine[];
   bcc?: string[];
-}): Promise<ResendSendResult> {
+}): Promise<SendHtmlEmailResult> {
   const items = params.lines
     .map((l) => {
       const rec = l.recommendation ?? defaultForProduct(l.product);
@@ -61,7 +62,7 @@ export async function sendGuardrailUserCoachingEmail(params: {
       ? `[WDTS AI] Model tip: consider a lower-cost model`
       : `[WDTS AI] Model tips (${params.lines.length} items)`;
 
-  return sendResendHtmlEmail({
+  return sendHtmlEmail({
     to: [params.to],
     subject,
     html,
@@ -74,7 +75,7 @@ export async function sendCursorPrudenceUserCoachingEmail(params: {
   lines: CursorUserCoachingLine[];
   dashboardBaseUrl: string;
   bcc?: string[];
-}): Promise<ResendSendResult> {
+}): Promise<SendHtmlEmailResult> {
   const items = params.lines
     .map(
       (l) =>
@@ -98,7 +99,7 @@ export async function sendCursorPrudenceUserCoachingEmail(params: {
       ? `[WDTS AI] Cursor usage tip: review model choice`
       : `[WDTS AI] Cursor usage tips (${params.lines.length} items)`;
 
-  return sendResendHtmlEmail({
+  return sendHtmlEmail({
     to: [params.to],
     subject,
     html,
