@@ -3,11 +3,11 @@
 # Prerequisites: shared mailbox exists, Mail.Send consented on prod app reg,
 # Exchange application access policy (M365 admin).
 #
-# Usage: ./scripts/wire-graph-mail-prod.sh wdts-ai-console@wdtablesystems.com
+# Usage: ./scripts/wire-graph-mail-prod.sh ai-alerts@wdtablesystems.com
 
 set -euo pipefail
 
-SENDER="${1:?Usage: $0 <mailbox-upn> e.g. wdts-ai-console@wdtablesystems.com}"
+SENDER="${1:?Usage: $0 <mailbox-upn> e.g. ai-alerts@wdtablesystems.com}"
 RG=wdts-ai-program-console-rg
 APP=wdts-ai-program-console
 APP_ID=c71fbd12-105c-4566-bd8e-90bbc41fc0f2

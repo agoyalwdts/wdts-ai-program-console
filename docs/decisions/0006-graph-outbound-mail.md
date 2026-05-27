@@ -29,7 +29,7 @@ using the same Entra app registration as Azure AD / M365 Graph integrations.
 1. **Application permission:** `Mail.Send` on the prod app registration
    (`e1bb9a0d-278-4f63-9442-d8fe427db8c3`) with admin consent.
 2. **Shared mailbox** (or licensed sender): `GRAPH_MAIL_SENDER` App Setting
-   (e.g. `wdts-ai-console@wdtablesystems.com`).
+   (e.g. `ai-alerts@wdtablesystems.com`).
 3. **Exchange Online application access policy** allowing the app to send as
    that mailbox (tenant-specific; M365 admin).
 
@@ -40,7 +40,7 @@ Resend remains available when `EMAIL_PROVIDER=resend` and `RESEND_API_KEY` is se
 | Setting | Example |
 |---------|---------|
 | `EMAIL_PROVIDER` | `graph` |
-| `GRAPH_MAIL_SENDER` | `wdts-ai-console@wdtablesystems.com` |
+| `GRAPH_MAIL_SENDER` | `ai-alerts@wdtablesystems.com` |
 | `USER_MODEL_COACHING_EMAIL` | `1` |
 | `GUARDRAIL_ALERT_EMAIL_TO` | FinOps digest recipients |
 | `AZURE_AD_*` | Same Key Vault refs as today |

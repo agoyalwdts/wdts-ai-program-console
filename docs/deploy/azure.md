@@ -214,7 +214,7 @@ Non-secret App Settings (set as plain values, not Key Vault refs):
 | `POLICYREPO_NAME` | `wdts-ai-policy` |
 | `POLICYREPO_DEFAULT_BRANCH` | `main` |
 | `EMAIL_PROVIDER` | `graph` (preferred) or `resend` |
-| `GRAPH_MAIL_SENDER` | Shared mailbox UPN, e.g. `wdts-ai-console@wdtablesystems.com` — see LDR 0006 |
+| `GRAPH_MAIL_SENDER` | Shared mailbox UPN, e.g. `ai-alerts@wdtablesystems.com` — see LDR 0006 |
 | `USER_MODEL_COACHING_EMAIL` | `1` — enables cron + manual end-user coaching mail |
 | `GUARDRAIL_ALERT_EMAIL_TO` | Comma-separated FinOps digest recipients |
 | `APP_ENV` | `prod` |
