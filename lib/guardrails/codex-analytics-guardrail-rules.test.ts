@@ -26,4 +26,23 @@ describe("pushCodexAnalyticsGuardrailCandidates", () => {
     expect(codes).toContain("CODEX_MULTI_CLIENT_SURFACE");
     expect(candidates.every((c) => c.product === "CODEX")).toBe(true);
   });
+
+  it("dedupes by codex user_id when email is missing", () => {
+    const candidates: GuardrailCandidate[] = [];
+    pushCodexAnalyticsGuardrailCandidates({
+      candidates,
+      occurredAt: new Date("2026-05-27T12:00:00Z"),
+      environment: "prod",
+      userEmail: null,
+      codexUserId: "user-abc",
+      model: "gpt-5-codex-medium",
+      credits: 25,
+      turns: 10,
+      clientIds: [],
+      costUsd: null,
+      dedupe,
+    });
+    expect(candidates[0]?.dedupeKey).toContain("user-abc");
+    expect(candidates[0]?.dedupeKey).not.toContain("|unknown|");
+  });
 });

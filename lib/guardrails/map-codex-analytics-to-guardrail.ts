@@ -14,6 +14,8 @@ export type CodexGuardrailMappedEntry = {
   credits: number;
   turns: number;
   clientIds: string[];
+  /** Analytics `user_id` when email is not on the bucket (dedupe + display). */
+  codexUserId: string | null;
 };
 
 /** Credits in one daily bucket that suggest premium/heavy posture for advisor rules. */
@@ -91,6 +93,8 @@ export function mapCodexUsageRowToGuardrailUsage(args: {
   const tokensIn = Math.round(Math.max(turns, 1) * 500);
   const tokensOut = Math.round(Math.max(credits, 0.25) * 100);
 
+  const codexUserId = args.row.user_id?.trim() || null;
+
   return {
     usage: {
       ts: new Date(endMs),
@@ -107,5 +111,6 @@ export function mapCodexUsageRowToGuardrailUsage(args: {
     credits,
     turns,
     clientIds,
+    codexUserId,
   };
 }

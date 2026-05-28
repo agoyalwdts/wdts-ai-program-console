@@ -14,15 +14,29 @@ import { UsageMirrorStatusPanel } from "@/components/dashboard/usage-mirror-stat
 import { getUsageMirrorSnapshot } from "@/lib/gateway-mirror/usage-mirror-snapshot";
 import { emailProvider, isEmailConfigured } from "@/lib/notify/send-email";
 import { GuardrailsAlertsTable } from "./guardrails-alerts-table";
+import {
+  GUARDRAIL_PRODUCT_FILTER_ALL,
+  guardrailProductFilterParam,
+  parseGuardrailProductFilter,
+  prismaWhereForGuardrailProductFilter,
+} from "@/lib/guardrails/alert-product-filter";
 
 export const dynamic = "force-dynamic";
 
-export default async function GuardrailsSettingsPage() {
+type SP = { product?: string };
+
+export default async function GuardrailsSettingsPage(props: { searchParams: Promise<SP> }) {
   const user = await requirePermission(PERMISSIONS.GUARDRAILS_MONITOR);
   const canManageUsers = userHasPermission(user, PERMISSIONS.USERS_MANAGE);
 
-  const [alerts, usageMirror] = await Promise.all([
+  const sp = await props.searchParams;
+  const productFilter = parseGuardrailProductFilter(sp.product);
+  const alertWhere = prismaWhereForGuardrailProductFilter(productFilter);
+  const productFilterKey = guardrailProductFilterParam(productFilter) ?? GUARDRAIL_PRODUCT_FILTER_ALL;
+
+  const [alerts, alertTotal, productGroups, usageMirror] = await Promise.all([
     prisma.guardrailPolicyAlert.findMany({
+      where: alertWhere,
       orderBy: { occurredAt: "desc" },
       take: 200,
       select: {
@@ -41,8 +55,20 @@ export default async function GuardrailsSettingsPage() {
         userEmailNotifiedAt: true,
       },
     }),
+    prisma.guardrailPolicyAlert.count({ where: alertWhere }),
+    prisma.guardrailPolicyAlert.groupBy({
+      by: ["product"],
+      _count: { _all: true },
+    }),
     getUsageMirrorSnapshot(prisma),
   ]);
+
+  const productCounts = productGroups
+    .map((g) => ({
+      value: g.product ?? "OTHER",
+      count: g._count._all,
+    }))
+    .sort((a, b) => b.count - a.count);
 
   const emails = [
     ...new Set(
@@ -62,8 +88,8 @@ export default async function GuardrailsSettingsPage() {
 
   const tableKey =
     alerts.length > 0
-      ? `${alerts.length}:${alerts[0]!.id}:${alerts[0]!.occurredAt.toISOString()}`
-      : "empty";
+      ? `${productFilterKey}:${alerts.length}:${alerts[0]!.id}:${alerts[0]!.occurredAt.toISOString()}`
+      : `${productFilterKey}:empty`;
 
   const initial = alerts.map((a) => {
     const email = a.userEmail?.trim().toLowerCase() ?? null;
@@ -152,6 +178,9 @@ export default async function GuardrailsSettingsPage() {
             <GuardrailsAlertsTable
               key={tableKey}
               initial={initial}
+              productFilter={productFilterKey}
+              productCounts={productCounts}
+              alertTotal={alertTotal}
               canManageUsers={canManageUsers}
               coachingEmailConfigured={isEmailConfigured()}
               emailProvider={emailProvider()}

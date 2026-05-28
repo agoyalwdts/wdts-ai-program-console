@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { ChevronDown, ChevronRight, Info, Loader2 } from "lucide-react";
@@ -34,37 +35,54 @@ type PendingAction =
   | "seat-removal"
   | null;
 
+export type GuardrailProductCount = { value: string; count: number };
+
 export function GuardrailsAlertsTable({
   initial,
+  productFilter,
+  productCounts,
+  alertTotal,
   canManageUsers,
   coachingEmailConfigured,
   emailProvider,
 }: {
   initial: GuardrailAlertRow[];
+  /** Server-driven filter (`ALL`, `CODEX`, `OTHER`, …). */
+  productFilter: string;
+  productCounts: GuardrailProductCount[];
+  /** Total alerts in DB for the active product filter. */
+  alertTotal: number;
   canManageUsers: boolean;
   /** False when mail is not configured for the active EMAIL_PROVIDER. */
   coachingEmailConfigured: boolean;
   emailProvider: "graph" | "resend";
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [rows, setRows] = React.useState(initial);
   const [pending, setPending] = React.useState<{ id: string; action: PendingAction } | null>(null);
   const [rowError, setRowError] = React.useState<Record<string, string>>({});
   const [seatRemovalLogged, setSeatRemovalLogged] = React.useState<Record<string, string>>({});
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
-  const [productFilter, setProductFilter] = React.useState<string>("ALL");
   const [userFilter, setUserFilter] = React.useState<string>("");
   const [sortBy, setSortBy] = React.useState<"when" | "product" | "user">("when");
   const [sortDir, setSortDir] = React.useState<"asc" | "desc">("desc");
 
+  function onProductFilterChange(value: string) {
+    const params = new URLSearchParams();
+    if (value !== "ALL") params.set("product", value);
+    const q = params.toString();
+    router.push(q ? `${pathname}?${q}` : pathname);
+  }
+
   const visible = React.useMemo(() => {
     const q = userFilter.trim().toLowerCase();
     const filtered = rows.filter((r) => {
-      const productOk = productFilter === "ALL" || (r.product ?? "OTHER") === productFilter;
       const userOk =
         q.length === 0 ||
         (r.userEmail ?? "").toLowerCase().includes(q) ||
         (r.title ?? "").toLowerCase().includes(q);
-      return productOk && userOk;
+      return userOk;
     });
 
     const sorted = [...filtered].sort((a, b) => {
@@ -78,7 +96,7 @@ export function GuardrailsAlertsTable({
     });
 
     return sortDir === "asc" ? sorted : sorted.reverse();
-  }, [rows, productFilter, userFilter, sortBy, sortDir]);
+  }, [rows, userFilter, sortBy, sortDir]);
 
   async function runAction(
     id: string,
@@ -264,10 +282,12 @@ export function GuardrailsAlertsTable({
   const selectClass =
     "h-8 w-full min-w-[9.5rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50";
 
-  const productOptions = React.useMemo(() => {
-    const set = new Set(rows.map((r) => r.product ?? "OTHER"));
-    return ["ALL", ...[...set].sort()];
-  }, [rows]);
+  const loadedCapNote =
+    productFilter === "ALL" && alertTotal > rows.length
+      ? ` (latest ${rows.length} of ${alertTotal.toLocaleString()} — pick a product to load that slice)`
+      : alertTotal > rows.length
+        ? ` (showing latest ${rows.length} of ${alertTotal.toLocaleString()})`
+        : "";
 
   return (
     <div className="space-y-3">
@@ -277,11 +297,17 @@ export function GuardrailsAlertsTable({
           <select
             className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
             value={productFilter}
-            onChange={(e) => setProductFilter(e.target.value)}
+            onChange={(e) => onProductFilterChange(e.target.value)}
           >
-            {productOptions.map((p) => (
-              <option key={p} value={p}>
-                {p === "ALL" ? "All products" : p}
+            <option value="ALL">
+              All products
+              {productCounts.length > 0
+                ? ` (${productCounts.reduce((n, p) => n + p.count, 0).toLocaleString()})`
+                : ""}
+            </option>
+            {productCounts.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.value} ({p.count.toLocaleString()})
               </option>
             ))}
           </select>
@@ -296,7 +322,9 @@ export function GuardrailsAlertsTable({
           />
         </label>
         <span className="text-xs text-slate-500">
-          Showing {visible.length} of {rows.length} alert(s)
+          Showing {visible.length} of {rows.length} loaded
+          {alertTotal !== rows.length ? ` · ${alertTotal.toLocaleString()} in DB` : ""} alert(s)
+          {loadedCapNote}
         </span>
       </div>
     <Table className="min-w-[1080px] table-fixed">
@@ -357,8 +385,10 @@ export function GuardrailsAlertsTable({
           <TR>
             <TD colSpan={8} className="pl-3 pr-3 py-8 text-center text-slate-500 text-sm">
               {rows.length === 0
-                ? "No guardrail alerts yet. Run the monitor or wait for the hourly cron."
-                : `No alerts for product ${productFilter}. Try “All products” or run the monitor with a 24h window.`}
+                ? productFilter === "ALL"
+                  ? "No guardrail alerts yet. Run the monitor or wait for the hourly cron."
+                  : `No ${productFilter} alerts in the database. Run the monitor with a 24h window — Codex needs INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real.`
+                : "No rows match the user/email filter."}
             </TD>
           </TR>
         ) : (

@@ -422,6 +422,7 @@ export async function runGuardrailMonitor(
         occurredAt: r.ts,
         environment: env,
         userEmail: r.userEmail,
+        codexUserId: entry.codexUserId,
         model: r.model,
         credits: entry.credits,
         turns: entry.turns,

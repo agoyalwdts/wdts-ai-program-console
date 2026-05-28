@@ -14,6 +14,8 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
   occurredAt: Date;
   environment: string;
   userEmail: string | null;
+  /** When email is missing, dedupe per analytics user_id instead of one shared "unknown". */
+  codexUserId?: string | null;
   model: string;
   credits: number;
   turns: number;
@@ -22,6 +24,7 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
   dedupe: (parts: readonly string[]) => string;
 }): void {
   const product: ProductKey = "CODEX";
+  const subjectKey = args.userEmail ?? args.codexUserId?.trim() ?? "unknown";
   const base = {
     occurredAt: args.occurredAt,
     environment: args.environment,
@@ -48,11 +51,7 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
         clientIds: args.clientIds,
         costUsd: args.costUsd,
       },
-      dedupeKey: args.dedupe([
-        "CODEX_HIGH_DAILY_CREDITS",
-        args.userEmail ?? "unknown",
-        day,
-      ]),
+      dedupeKey: args.dedupe(["CODEX_HIGH_DAILY_CREDITS", subjectKey, day]),
     });
   } else if (args.credits >= CODEX_CREDITS_WARN_PER_DAY) {
     args.candidates.push({
@@ -69,11 +68,7 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
         clientIds: args.clientIds,
         costUsd: args.costUsd,
       },
-      dedupeKey: args.dedupe([
-        "CODEX_ELEVATED_DAILY_CREDITS",
-        args.userEmail ?? "unknown",
-        day,
-      ]),
+      dedupeKey: args.dedupe(["CODEX_ELEVATED_DAILY_CREDITS", subjectKey, day]),
     });
   }
 
@@ -95,7 +90,7 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
       },
       dedupeKey: args.dedupe([
         "CODEX_MULTI_CLIENT_SURFACE",
-        args.userEmail ?? "unknown",
+        subjectKey,
         day,
         activeClients.sort().join(","),
       ]),
