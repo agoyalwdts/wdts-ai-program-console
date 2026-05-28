@@ -52,11 +52,33 @@ export function GuardrailsAlertsTable({
   const [seatRemovalLogged, setSeatRemovalLogged] = React.useState<Record<string, string>>({});
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const [productFilter, setProductFilter] = React.useState<string>("ALL");
+  const [userFilter, setUserFilter] = React.useState<string>("");
+  const [sortBy, setSortBy] = React.useState<"when" | "product" | "user">("when");
+  const [sortDir, setSortDir] = React.useState<"asc" | "desc">("desc");
 
-  const visible =
-    productFilter === "ALL"
-      ? rows
-      : rows.filter((r) => (r.product ?? "OTHER") === productFilter);
+  const visible = React.useMemo(() => {
+    const q = userFilter.trim().toLowerCase();
+    const filtered = rows.filter((r) => {
+      const productOk = productFilter === "ALL" || (r.product ?? "OTHER") === productFilter;
+      const userOk =
+        q.length === 0 ||
+        (r.userEmail ?? "").toLowerCase().includes(q) ||
+        (r.title ?? "").toLowerCase().includes(q);
+      return productOk && userOk;
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortBy === "product") {
+        return (a.product ?? "OTHER").localeCompare(b.product ?? "OTHER");
+      }
+      if (sortBy === "user") {
+        return (a.userEmail ?? "").localeCompare(b.userEmail ?? "");
+      }
+      return new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime();
+    });
+
+    return sortDir === "asc" ? sorted : sorted.reverse();
+  }, [rows, productFilter, userFilter, sortBy, sortDir]);
 
   async function runAction(
     id: string,
@@ -248,18 +270,47 @@ export function GuardrailsAlertsTable({
             ))}
           </select>
         </label>
+        <label className="flex items-center gap-2">
+          <span className="text-xs font-medium text-slate-500">User/email</span>
+          <input
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
+            value={userFilter}
+            onChange={(e) => setUserFilter(e.target.value)}
+            placeholder="Filter user/email…"
+          />
+        </label>
+        <label className="flex items-center gap-2">
+          <span className="text-xs font-medium text-slate-500">Sort</span>
+          <select
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as "when" | "product" | "user")}
+          >
+            <option value="when">When</option>
+            <option value="product">Product</option>
+            <option value="user">User/email</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700"
+          onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+        >
+          {sortDir === "asc" ? "Asc" : "Desc"}
+        </button>
         <span className="text-xs text-slate-500">
           Showing {visible.length} of {rows.length} alert(s)
         </span>
       </div>
-    <Table className="min-w-[960px] table-fixed">
+    <Table className="min-w-[1080px] table-fixed">
       <colgroup>
-        <col className="w-[11%]" />
+        <col className="w-[10%]" />
         <col className="w-[12%]" />
         <col className="w-[8%]" />
         <col className="w-[14%]" />
-        <col className="w-[11%]" />
-        <col className="w-[32%]" />
+        <col className="w-[10%]" />
+        <col className="w-[8%]" />
+        <col className="w-[26%]" />
         <col className="w-[12%]" />
       </colgroup>
       <THead>
@@ -268,7 +319,8 @@ export function GuardrailsAlertsTable({
           <TH>Category</TH>
           <TH>Severity</TH>
           <TH>User</TH>
-          <TH>Model/Product</TH>
+          <TH>Model</TH>
+          <TH>Product</TH>
           <TH>Rule</TH>
           <TH className="pr-3">Actions</TH>
         </TR>
@@ -276,7 +328,7 @@ export function GuardrailsAlertsTable({
       <TBody>
         {visible.length === 0 ? (
           <TR>
-            <TD colSpan={7} className="pl-3 pr-3 py-8 text-center text-slate-500 text-sm">
+            <TD colSpan={8} className="pl-3 pr-3 py-8 text-center text-slate-500 text-sm">
               {rows.length === 0
                 ? "No guardrail alerts yet. Run the monitor or wait for the hourly cron."
                 : `No alerts for product ${productFilter}. Try “All products” or run the monitor with a 24h window.`}
@@ -319,10 +371,12 @@ export function GuardrailsAlertsTable({
                   </span>
                 </TD>
                 <TD className="text-xs align-top py-2">
-                  <div className="break-words leading-snug" title={r.model ?? undefined}>
+                  <div className="break-words leading-snug font-mono" title={r.model ?? undefined}>
                     {r.model ?? "—"}
                   </div>
-                  <div className="text-slate-500">{r.product ?? "—"}</div>
+                </TD>
+                <TD className="text-xs align-top py-2">
+                  <Badge variant="outline">{r.product ?? "OTHER"}</Badge>
                 </TD>
                 <TD className="text-xs align-top py-2">
                   <div className="flex gap-1.5 min-w-0">
@@ -437,7 +491,7 @@ export function GuardrailsAlertsTable({
               </TR>
               {expanded ? (
                 <TR className="bg-slate-50/80">
-                  <TD colSpan={7} className="px-4 py-3 text-xs text-slate-700">
+                  <TD colSpan={8} className="px-4 py-3 text-xs text-slate-700">
                     <div className="flex gap-2">
                       <Info className="h-4 w-4 shrink-0 text-sky-600 mt-0.5" />
                       <div className="space-y-2 min-w-0">
