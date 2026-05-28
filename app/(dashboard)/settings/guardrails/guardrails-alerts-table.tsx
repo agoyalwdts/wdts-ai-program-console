@@ -245,6 +245,22 @@ export function GuardrailsAlertsTable({
     }
   }
 
+  function onSortHeaderClick(column: "when" | "product" | "user") {
+    setSortBy((prev) => {
+      if (prev === column) {
+        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+        return prev;
+      }
+      setSortDir(column === "when" ? "desc" : "asc");
+      return column;
+    });
+  }
+
+  function sortMarker(column: "when" | "product" | "user") {
+    if (sortBy !== column) return "↕";
+    return sortDir === "asc" ? "↑" : "↓";
+  }
+
   const selectClass =
     "h-8 w-full min-w-[9.5rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -279,25 +295,6 @@ export function GuardrailsAlertsTable({
             placeholder="Filter user/email…"
           />
         </label>
-        <label className="flex items-center gap-2">
-          <span className="text-xs font-medium text-slate-500">Sort</span>
-          <select
-            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as "when" | "product" | "user")}
-          >
-            <option value="when">When</option>
-            <option value="product">Product</option>
-            <option value="user">User/email</option>
-          </select>
-        </label>
-        <button
-          type="button"
-          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700"
-          onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
-        >
-          {sortDir === "asc" ? "Asc" : "Desc"}
-        </button>
         <span className="text-xs text-slate-500">
           Showing {visible.length} of {rows.length} alert(s)
         </span>
@@ -315,12 +312,42 @@ export function GuardrailsAlertsTable({
       </colgroup>
       <THead>
         <TR>
-          <TH className="pl-3">When</TH>
+          <TH className="pl-3">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-left"
+              onClick={() => onSortHeaderClick("when")}
+              aria-label="Sort by when"
+            >
+              <span>When</span>
+              <span className="text-[10px] text-slate-500">{sortMarker("when")}</span>
+            </button>
+          </TH>
           <TH>Category</TH>
           <TH>Severity</TH>
-          <TH>User</TH>
+          <TH>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-left"
+              onClick={() => onSortHeaderClick("user")}
+              aria-label="Sort by user"
+            >
+              <span>User</span>
+              <span className="text-[10px] text-slate-500">{sortMarker("user")}</span>
+            </button>
+          </TH>
           <TH>Model</TH>
-          <TH>Product</TH>
+          <TH>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-left"
+              onClick={() => onSortHeaderClick("product")}
+              aria-label="Sort by product"
+            >
+              <span>Product</span>
+              <span className="text-[10px] text-slate-500">{sortMarker("product")}</span>
+            </button>
+          </TH>
           <TH>Rule</TH>
           <TH className="pr-3">Actions</TH>
         </TR>
