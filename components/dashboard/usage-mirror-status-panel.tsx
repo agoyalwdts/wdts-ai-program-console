@@ -89,10 +89,13 @@ export function UsageMirrorStatusPanel({ snapshot }: { snapshot: UsageMirrorSnap
           Gateway usage mirror
         </Link>{" "}
         — webhook ingest for ChatGPT and cross-product rows.{" "}
-        <strong>Cursor guardrails</strong> also scan live{" "}
+        <strong>Cursor guardrails</strong> scan live{" "}
         <code className="font-mono text-[11px]">filtered-usage-events</code> when{" "}
-        <code className="font-mono text-[11px]">INTEGRATION_CURSOR=real</code> (no mirror required
-        for Cursor). Codex vendor sync is spend-only (no per-model events).
+        <code className="font-mono text-[11px]">INTEGRATION_CURSOR=real</code>.{" "}
+        <strong>Codex guardrails</strong> scan per-user Enterprise Analytics buckets when{" "}
+        <code className="font-mono text-[11px]">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>{" "}
+        (credits/turns — not per-request models). Compliance API is F2 sign-in footprint only.
+        Vendor daily sync is spend-only for F1.
       </p>
     </div>
   );

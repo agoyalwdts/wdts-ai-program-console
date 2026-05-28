@@ -10,6 +10,7 @@ import {
 import { evaluateModelAdvisor, productFromUsageProduct } from "./advisor";
 import { sendGuardrailPolicyDigest } from "@/lib/notify/guardrail-policy-email";
 import { notifyGuardrailAlertUsers } from "@/lib/notify/notify-end-users";
+import { loadCodexUsageForGuardrailMonitor } from "./load-codex-usage-for-guardrail-monitor";
 import { loadCursorUsageForGuardrailMonitor } from "./load-cursor-usage-for-monitor";
 
 type Candidate = {
@@ -35,6 +36,10 @@ export type GuardrailMonitorSummary = {
   cursorRowsInWindow: number;
   cursorFeedActive: boolean;
   cursorFeedSkipReason: string | null;
+  scannedCodexBuckets: number;
+  codexRowsInWindow: number;
+  codexFeedActive: boolean;
+  codexFeedSkipReason: string | null;
   scannedDecisions: number;
   candidates: number;
   inserted: number;
@@ -309,13 +314,32 @@ export async function runGuardrailMonitor(
       reason: `Cursor API failed: ${message}`,
     };
   }
-  const excludeMirrorCursor = cursorFeed.active;
+
+  let codexFeed: Awaited<ReturnType<typeof loadCodexUsageForGuardrailMonitor>>;
+  try {
+    codexFeed = await loadCodexUsageForGuardrailMonitor({ since });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    codexFeed = {
+      active: false,
+      bucketsFetched: 0,
+      rowsInWindow: 0,
+      rows: [],
+      reason: `Codex analytics API failed: ${message}`,
+    };
+  }
+
+  const excludeMirrorProducts: Product[] = [];
+  if (cursorFeed.active) excludeMirrorProducts.push(Product.CURSOR);
+  if (codexFeed.active) excludeMirrorProducts.push(Product.CODEX);
 
   const [usageRows, decisionRows] = await Promise.all([
     prisma.usageRecord.findMany({
       where: {
         ts: { gte: since },
-        ...(excludeMirrorCursor ? { product: { not: Product.CURSOR } } : {}),
+        ...(excludeMirrorProducts.length > 0
+          ? { product: { notIn: excludeMirrorProducts } }
+          : {}),
       },
       select: {
         ts: true,
@@ -339,12 +363,20 @@ export async function runGuardrailMonitor(
     }),
   ]);
 
-  const emptySummary = (): GuardrailMonitorSummary => ({
-    scannedUsageRows: usageRows.length,
+  const feedSummaryFields = () => ({
     scannedCursorEvents: cursorFeed.eventsFetched,
     cursorRowsInWindow: cursorFeed.rowsInWindow,
     cursorFeedActive: cursorFeed.active,
     cursorFeedSkipReason: cursorFeed.active ? null : cursorFeed.reason,
+    scannedCodexBuckets: codexFeed.active ? codexFeed.bucketsFetched : 0,
+    codexRowsInWindow: codexFeed.rowsInWindow,
+    codexFeedActive: codexFeed.active,
+    codexFeedSkipReason: codexFeed.active ? null : codexFeed.reason,
+  });
+
+  const emptySummary = (): GuardrailMonitorSummary => ({
+    scannedUsageRows: usageRows.length,
+    ...feedSummaryFields(),
     scannedDecisions: decisionRows.length,
     candidates: 0,
     inserted: 0,
@@ -382,6 +414,17 @@ export async function runGuardrailMonitor(
         row: r,
         environment: env,
         source: "CURSOR_ADMIN_API",
+      });
+    }
+  }
+
+  if (codexFeed.active) {
+    for (const r of codexFeed.rows) {
+      pushUsageCandidates({
+        candidates,
+        row: r,
+        environment: env,
+        source: "CODEX_ENTERPRISE_ANALYTICS",
       });
     }
   }
@@ -500,9 +543,7 @@ export async function runGuardrailMonitor(
           userEmailed,
           userEmailAttempted,
           userEmailError,
-          scannedCursorEvents: cursorFeed.eventsFetched,
-          cursorRowsInWindow: cursorFeed.rowsInWindow,
-          cursorFeedActive: cursorFeed.active,
+          ...feedSummaryFields(),
         }),
         actorEmail: args?.actorEmail ?? "system:guardrail-monitor",
         justification: `Automated guardrail monitor (${windowHours}h window)` ,
@@ -512,10 +553,7 @@ export async function runGuardrailMonitor(
 
   return {
     scannedUsageRows: usageRows.length,
-    scannedCursorEvents: cursorFeed.eventsFetched,
-    cursorRowsInWindow: cursorFeed.rowsInWindow,
-    cursorFeedActive: cursorFeed.active,
-    cursorFeedSkipReason: cursorFeed.active ? null : cursorFeed.reason,
+    ...feedSummaryFields(),
     scannedDecisions: decisionRows.length,
     candidates: candidates.length,
     inserted,

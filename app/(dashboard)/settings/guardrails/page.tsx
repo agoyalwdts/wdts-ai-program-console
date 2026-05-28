@@ -138,8 +138,10 @@ export default async function GuardrailsSettingsPage() {
               <code className="font-mono text-xs">INTEGRATION_CURSOR=real</code>. Automated + manual
               email use <code className="font-mono text-xs">EMAIL_PROVIDER=graph</code> (Microsoft
               Graph sendMail) or <code className="font-mono text-xs">resend</code>; hourly cron does
-              not require the dashboard to be open. Block console
-              creates a mirror User row when needed (no vendor API).
+              not require the dashboard to be open. <strong>Codex</strong> uses Enterprise
+              Analytics per-user usage when{" "}
+              <code className="font-mono text-xs">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>
+              . Block console creates a mirror User row when needed (no vendor API).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 px-6 pb-4">

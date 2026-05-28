@@ -10,6 +10,10 @@ type MonitorSummary = {
   cursorRowsInWindow: number;
   cursorFeedActive: boolean;
   cursorFeedSkipReason: string | null;
+  scannedCodexBuckets: number;
+  codexRowsInWindow: number;
+  codexFeedActive: boolean;
+  codexFeedSkipReason: string | null;
   scannedDecisions: number;
   candidates: number;
   inserted: number;
@@ -72,8 +76,13 @@ export function RunGuardrailMonitorButton() {
               : s.cursorFeedSkipReason
                 ? `Cursor API off (${s.cursorFeedSkipReason}), `
                 : "";
+            const codexPart = s.codexFeedActive
+              ? `Codex analytics ${s.codexRowsInWindow} row(s) (${s.scannedCodexBuckets} buckets), `
+              : s.codexFeedSkipReason
+                ? `Codex analytics off (${s.codexFeedSkipReason}), `
+                : "";
             setMsg(
-              `${cursorPart}mirror ${s.scannedUsageRows} row(s), ${s.inserted} new alert(s), ` +
+              `${cursorPart}${codexPart}mirror ${s.scannedUsageRows} row(s), ${s.inserted} new alert(s), ` +
                 `FinOps digest ${s.emailed}, user coaching ${s.userEmailed}/${s.userEmailAttempted}` +
                 (s.emailError ? ` · digest err: ${s.emailError}` : "") +
                 (s.userEmailError ? ` · user err: ${s.userEmailError}` : ""),
