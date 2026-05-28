@@ -22,10 +22,10 @@ describe("mapCodexUsageRowToGuardrailUsage", () => {
       },
     });
     expect(row).not.toBeNull();
-    expect(row!.product).toBe("CODEX");
-    expect(row!.userEmail).toBe("dev@wdtablesystems.com");
-    expect(row!.model).toBe("gpt-5-codex-max");
-    expect(row!.costUsd).toBeCloseTo(1.5, 5);
+    expect(row!.usage.product).toBe("CODEX");
+    expect(row!.usage.userEmail).toBe("dev@wdtablesystems.com");
+    expect(row!.usage.model).toBe("gpt-5-codex-max");
+    expect(row!.usage.costUsd).toBeCloseTo(1.5, 5);
   });
 
   it("skips buckets before the scan window", () => {

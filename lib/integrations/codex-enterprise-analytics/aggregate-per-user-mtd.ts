@@ -4,9 +4,25 @@ export function normCodexAnalyticsEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-export function resolveCodexUsageRowEmail(row: CodexUsageRow): string | null {
+export function resolveCodexUsageRowEmail(
+  row: CodexUsageRow,
+  userIdToEmail?: ReadonlyMap<string, string>,
+): string | null {
   const raw = row.email?.trim();
-  if (raw && raw.includes("@")) return raw;
+  if (raw && raw.includes("@")) return normCodexAnalyticsEmail(raw);
+
+  const uid = row.user_id?.trim();
+  if (!uid || !userIdToEmail) return null;
+
+  const direct = userIdToEmail.get(uid);
+  if (direct?.includes("@")) return normCodexAnalyticsEmail(direct);
+
+  if (uid.startsWith("openai-org:")) {
+    const orgId = uid.slice("openai-org:".length);
+    const viaOrg = userIdToEmail.get(orgId);
+    if (viaOrg?.includes("@")) return normCodexAnalyticsEmail(viaOrg);
+  }
+
   return null;
 }
 

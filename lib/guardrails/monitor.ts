@@ -1,34 +1,20 @@
 import { createHash } from "node:crypto";
-import { DecisionType, Prisma, Product, type PrismaClient } from "@prisma/client";
+import { DecisionType, Product, type PrismaClient } from "@prisma/client";
 import {
   DAY_ONE_DEFAULT_MODEL,
   DISABLED_MODE_MARKERS,
   MODEL_ALLOWLIST,
   STRICT_REGION_ALLOWLIST,
-  type ProductKey,
 } from "./day-one-defaults";
 import { evaluateModelAdvisor, productFromUsageProduct } from "./advisor";
 import { sendGuardrailPolicyDigest } from "@/lib/notify/guardrail-policy-email";
 import { notifyGuardrailAlertUsers } from "@/lib/notify/notify-end-users";
+import { pushCodexAnalyticsGuardrailCandidates } from "./codex-analytics-guardrail-rules";
 import { loadCodexUsageForGuardrailMonitor } from "./load-codex-usage-for-guardrail-monitor";
 import { loadCursorUsageForGuardrailMonitor } from "./load-cursor-usage-for-monitor";
+import type { GuardrailCandidate } from "./types";
 
-type Candidate = {
-  occurredAt: Date;
-  category: string;
-  severity: string;
-  ruleCode: string;
-  title: string;
-  rationale: string;
-  recommendation: string | null;
-  environment: string | null;
-  product: ProductKey | null;
-  userEmail: string | null;
-  model: string | null;
-  source: string;
-  context: Prisma.InputJsonValue;
-  dedupeKey: string;
-};
+export type { GuardrailCandidate } from "./types";
 
 export type GuardrailMonitorSummary = {
   scannedUsageRows: number;
@@ -40,6 +26,7 @@ export type GuardrailMonitorSummary = {
   codexRowsInWindow: number;
   codexFeedActive: boolean;
   codexFeedSkipReason: string | null;
+  codexBucketsWithoutEmail: number;
   scannedDecisions: number;
   candidates: number;
   inserted: number;
@@ -71,7 +58,7 @@ function envMode(): "dev" | "sandbox" | "staging" | "prod" {
 }
 
 function pushUsageCandidates(args: {
-  candidates: Candidate[];
+  candidates: GuardrailCandidate[];
   row: {
     ts: Date;
     product: Product;
@@ -223,7 +210,7 @@ function pushUsageCandidates(args: {
 }
 
 function pushDecisionCandidates(args: {
-  candidates: Candidate[];
+  candidates: GuardrailCandidate[];
   row: {
     ts: Date;
     type: string;
@@ -325,6 +312,8 @@ export async function runGuardrailMonitor(
       bucketsFetched: 0,
       rowsInWindow: 0,
       rows: [],
+      emailsResolved: 0,
+      bucketsWithoutEmail: 0,
       reason: `Codex analytics API failed: ${message}`,
     };
   }
@@ -372,6 +361,7 @@ export async function runGuardrailMonitor(
     codexRowsInWindow: codexFeed.rowsInWindow,
     codexFeedActive: codexFeed.active,
     codexFeedSkipReason: codexFeed.active ? null : codexFeed.reason,
+    codexBucketsWithoutEmail: codexFeed.active ? codexFeed.bucketsWithoutEmail : 0,
   });
 
   const emptySummary = (): GuardrailMonitorSummary => ({
@@ -387,7 +377,7 @@ export async function runGuardrailMonitor(
     userEmailError: null,
   });
 
-  const candidates: Candidate[] = [];
+  const candidates: GuardrailCandidate[] = [];
   for (const r of usageRows) {
     pushUsageCandidates({
       candidates,
@@ -419,13 +409,28 @@ export async function runGuardrailMonitor(
   }
 
   if (codexFeed.active) {
-    for (const r of codexFeed.rows) {
+    for (const entry of codexFeed.rows) {
+      const r = entry.usage;
       pushUsageCandidates({
         candidates,
         row: r,
         environment: env,
         source: "CODEX_ENTERPRISE_ANALYTICS",
       });
+      if (r.userEmail) {
+        pushCodexAnalyticsGuardrailCandidates({
+          candidates,
+          occurredAt: r.ts,
+          environment: env,
+          userEmail: r.userEmail,
+          model: r.model,
+          credits: entry.credits,
+          turns: entry.turns,
+          clientIds: entry.clientIds,
+          costUsd: r.costUsd,
+          dedupe,
+        });
+      }
     }
   }
 

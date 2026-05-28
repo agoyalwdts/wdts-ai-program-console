@@ -10,21 +10,28 @@ import {
   resolveUsdPerCredit,
 } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
 import type { Fetch } from "@/lib/integrations/_http";
-import { mapCodexUsageRowToGuardrailUsage } from "./map-codex-analytics-to-guardrail";
-import type { GuardrailMonitorUsageRow } from "./load-cursor-usage-for-monitor";
+import { buildCodexAnalyticsUserEmailMap } from "./build-codex-user-email-map";
+import {
+  mapCodexUsageRowToGuardrailUsage,
+  type CodexGuardrailMappedEntry,
+} from "./map-codex-analytics-to-guardrail";
 
 export type CodexGuardrailFeedResult =
   | {
       active: true;
       bucketsFetched: number;
       rowsInWindow: number;
-      rows: GuardrailMonitorUsageRow[];
+      rows: CodexGuardrailMappedEntry[];
+      emailsResolved: number;
+      bucketsWithoutEmail: number;
     }
   | {
       active: false;
       bucketsFetched: 0;
       rowsInWindow: 0;
       rows: [];
+      emailsResolved: 0;
+      bucketsWithoutEmail: 0;
       reason: string;
     };
 
@@ -45,6 +52,8 @@ export async function loadCodexUsageForGuardrailMonitor(args: {
       rowsInWindow: 0,
       rows: [],
       reason: "INTEGRATION_CODEX_ENTERPRISE_ANALYTICS is not real",
+      emailsResolved: 0,
+      bucketsWithoutEmail: 0,
     };
   }
 
@@ -55,6 +64,8 @@ export async function loadCodexUsageForGuardrailMonitor(args: {
       bucketsFetched: 0,
       rowsInWindow: 0,
       rows: [],
+      emailsResolved: 0,
+      bucketsWithoutEmail: 0,
       reason: "OPENAI_CODEX_ANALYTICS_API_KEY or CHATGPT_WORKSPACE_ID unset",
     };
   }
@@ -62,12 +73,20 @@ export async function loadCodexUsageForGuardrailMonitor(args: {
   const sinceMs = args.since.getTime();
   const endMs = Date.now();
   if (sinceMs >= endMs) {
-    return { active: true, bucketsFetched: 0, rowsInWindow: 0, rows: [] };
+    return {
+      active: true,
+      bucketsFetched: 0,
+      rowsInWindow: 0,
+      rows: [],
+      emailsResolved: 0,
+      bucketsWithoutEmail: 0,
+    };
   }
 
   const startSec = Math.floor(sinceMs / 1000);
   const endSec = Math.floor(endMs / 1000);
   const usdPerCredit = resolveUsdPerCredit(env);
+  const userIdToEmail = await buildCodexAnalyticsUserEmailMap(env);
 
   const buckets = await fetchCodexEnterprisePerUserUsageRows({
     startTimeSec: startSec,
@@ -77,12 +96,19 @@ export async function loadCodexUsageForGuardrailMonitor(args: {
     maxPages: args.maxPages ?? DEFAULT_MAX_PAGES,
   });
 
-  const rows: GuardrailMonitorUsageRow[] = [];
+  const rows: CodexGuardrailMappedEntry[] = [];
+  let bucketsWithoutEmail = 0;
   for (const bucket of buckets) {
+    const hasEmail =
+      Boolean(bucket.email?.includes("@")) ||
+      Boolean(bucket.user_id && userIdToEmail.has(bucket.user_id.trim()));
+    if (!hasEmail && (bucket.totals?.credits ?? 0) > 0) bucketsWithoutEmail += 1;
+
     const mapped = mapCodexUsageRowToGuardrailUsage({
       row: bucket,
       sinceMs,
       usdPerCredit,
+      userIdToEmail,
     });
     if (mapped) rows.push(mapped);
   }
@@ -92,5 +118,7 @@ export async function loadCodexUsageForGuardrailMonitor(args: {
     bucketsFetched: buckets.length,
     rowsInWindow: rows.length,
     rows,
+    emailsResolved: userIdToEmail.size,
+    bucketsWithoutEmail,
   };
 }

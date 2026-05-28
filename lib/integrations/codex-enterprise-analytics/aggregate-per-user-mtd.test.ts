@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateLastActivityEndSecByNormEmail,
   aggregateMtdCreditsByNormEmail,
+  resolveCodexUsageRowEmail,
 } from "./aggregate-per-user-mtd";
 import type { CodexUsageRow } from "./types";
 
@@ -53,6 +54,18 @@ describe("aggregateMtdCreditsByNormEmail", () => {
       endSec: t + 10_000,
     });
     expect(map.size).toBe(0);
+  });
+});
+
+describe("resolveCodexUsageRowEmail", () => {
+  it("resolves email via user_id map when row email is absent", () => {
+    const map = new Map([["u-openai-1", "alice@wdts.com"]]);
+    expect(
+      resolveCodexUsageRowEmail(
+        row({ start_time: 1, end_time: 2, email: null, user_id: "u-openai-1" }),
+        map,
+      ),
+    ).toBe("alice@wdts.com");
   });
 });
 

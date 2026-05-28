@@ -14,6 +14,7 @@ type MonitorSummary = {
   codexRowsInWindow: number;
   codexFeedActive: boolean;
   codexFeedSkipReason: string | null;
+  codexBucketsWithoutEmail?: number;
   scannedDecisions: number;
   candidates: number;
   inserted: number;
@@ -77,7 +78,11 @@ export function RunGuardrailMonitorButton() {
                 ? `Cursor API off (${s.cursorFeedSkipReason}), `
                 : "";
             const codexPart = s.codexFeedActive
-              ? `Codex analytics ${s.codexRowsInWindow} row(s) (${s.scannedCodexBuckets} buckets), `
+              ? `Codex analytics ${s.codexRowsInWindow} row(s) (${s.scannedCodexBuckets} buckets${
+                  s.codexBucketsWithoutEmail
+                    ? `, ${s.codexBucketsWithoutEmail} without email`
+                    : ""
+                }), `
               : s.codexFeedSkipReason
                 ? `Codex analytics off (${s.codexFeedSkipReason}), `
                 : "";

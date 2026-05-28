@@ -51,6 +51,12 @@ export function GuardrailsAlertsTable({
   const [rowError, setRowError] = React.useState<Record<string, string>>({});
   const [seatRemovalLogged, setSeatRemovalLogged] = React.useState<Record<string, string>>({});
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
+  const [productFilter, setProductFilter] = React.useState<string>("ALL");
+
+  const visible =
+    productFilter === "ALL"
+      ? rows
+      : rows.filter((r) => (r.product ?? "OTHER") === productFilter);
 
   async function runAction(
     id: string,
@@ -220,7 +226,32 @@ export function GuardrailsAlertsTable({
   const selectClass =
     "h-8 w-full min-w-[9.5rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50";
 
+  const productOptions = React.useMemo(() => {
+    const set = new Set(rows.map((r) => r.product ?? "OTHER"));
+    return ["ALL", ...[...set].sort()];
+  }, [rows]);
+
   return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 px-3 text-sm text-slate-600">
+        <label className="flex items-center gap-2">
+          <span className="text-xs font-medium text-slate-500">Product</span>
+          <select
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
+            value={productFilter}
+            onChange={(e) => setProductFilter(e.target.value)}
+          >
+            {productOptions.map((p) => (
+              <option key={p} value={p}>
+                {p === "ALL" ? "All products" : p}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="text-xs text-slate-500">
+          Showing {visible.length} of {rows.length} alert(s)
+        </span>
+      </div>
     <Table className="min-w-[960px] table-fixed">
       <colgroup>
         <col className="w-[11%]" />
@@ -243,14 +274,16 @@ export function GuardrailsAlertsTable({
         </TR>
       </THead>
       <TBody>
-        {rows.length === 0 ? (
+        {visible.length === 0 ? (
           <TR>
             <TD colSpan={7} className="pl-3 pr-3 py-8 text-center text-slate-500 text-sm">
-              No guardrail alerts yet. Run the monitor or wait for the hourly cron.
+              {rows.length === 0
+                ? "No guardrail alerts yet. Run the monitor or wait for the hourly cron."
+                : `No alerts for product ${productFilter}. Try “All products” or run the monitor with a 24h window.`}
             </TD>
           </TR>
         ) : (
-          rows.map((r) => {
+          visible.map((r) => {
             const dim = Boolean(r.acknowledgedAt);
             const canEmail = Boolean(r.userEmail);
             const canDisable = canManageUsers && Boolean(r.userEmail) && !r.subjectDisabled;
@@ -432,5 +465,6 @@ export function GuardrailsAlertsTable({
         )}
       </TBody>
     </Table>
+    </div>
   );
 }

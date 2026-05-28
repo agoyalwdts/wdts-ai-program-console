@@ -37,8 +37,8 @@ describe("loadCodexUsageForGuardrailMonitor", () => {
     expect(out.active).toBe(true);
     if (out.active) {
       expect(out.rowsInWindow).toBe(1);
-      expect(out.rows[0]?.product).toBe("CODEX");
-      expect(out.rows[0]?.userEmail).toBe("coder@wdtablesystems.com");
+      expect(out.rows[0]?.usage.product).toBe("CODEX");
+      expect(out.rows[0]?.usage.userEmail).toBe("coder@wdtablesystems.com");
     }
   });
 });

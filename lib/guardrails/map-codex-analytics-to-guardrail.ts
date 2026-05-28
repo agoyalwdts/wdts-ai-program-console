@@ -9,6 +9,13 @@ import { resolveCodexUsageRowEmail } from "@/lib/integrations/codex-enterprise-a
 import { DAY_ONE_DEFAULT_MODEL } from "./day-one-defaults";
 import type { GuardrailMonitorUsageRow } from "./load-cursor-usage-for-monitor";
 
+export type CodexGuardrailMappedEntry = {
+  usage: GuardrailMonitorUsageRow;
+  credits: number;
+  turns: number;
+  clientIds: string[];
+};
+
 /** Credits in one daily bucket that suggest premium/heavy posture for advisor rules. */
 export const CODEX_GUARD_HIGH_CREDITS_PER_DAY = 20;
 
@@ -51,8 +58,9 @@ export function mapCodexUsageRowToGuardrailUsage(args: {
   row: CodexUsageRow;
   sinceMs: number;
   usdPerCredit: number;
-}): GuardrailMonitorUsageRow | null {
-  const email = resolveCodexUsageRowEmail(args.row);
+  userIdToEmail?: ReadonlyMap<string, string>;
+}): CodexGuardrailMappedEntry | null {
+  const email = resolveCodexUsageRowEmail(args.row, args.userIdToEmail);
   if (!email) return null;
 
   const endMs = args.row.end_time * 1000;
@@ -70,6 +78,10 @@ export function mapCodexUsageRowToGuardrailUsage(args: {
       : 0;
   if (credits <= 0 && turns <= 0) return null;
 
+  const clientIds = (args.row.clients ?? [])
+    .map((c) => c.client_id?.trim())
+    .filter((id): id is string => Boolean(id));
+
   const dom = dominantClient(args.row.clients);
   const model = inferCodexModelForGuardrail({
     credits,
@@ -81,15 +93,20 @@ export function mapCodexUsageRowToGuardrailUsage(args: {
   const tokensOut = Math.round(Math.max(credits, 0.25) * 100);
 
   return {
-    ts: new Date(endMs),
-    product: Product.CODEX,
-    model,
-    tokensIn,
-    tokensOut,
-    decision: "ALLOWED",
-    region: "global",
-    costUsd: credits > 0 ? credits * args.usdPerCredit : null,
-    userEmail: email,
-    maxMode: model.toLowerCase().includes("max"),
+    usage: {
+      ts: new Date(endMs),
+      product: Product.CODEX,
+      model,
+      tokensIn,
+      tokensOut,
+      decision: "ALLOWED",
+      region: "global",
+      costUsd: credits > 0 ? credits * args.usdPerCredit : null,
+      userEmail: email,
+      maxMode: model.toLowerCase().includes("max"),
+    },
+    credits,
+    turns,
+    clientIds,
   };
 }
