@@ -21,17 +21,47 @@ export type JsonGetOpts = {
   fetchImpl?: Fetch;
   /** Headers to merge with whatever the helper adds. */
   headers?: Record<string, string>;
+  /** Request timeout in milliseconds (default from env or 8000). */
+  timeoutMs?: number;
   /** Identifier used in IntegrationError messages — usually the
    *  IntegrationName (e.g. "openai", "anthropic"). */
   integration: string;
 };
 
+function integrationHttpTimeoutMs(override?: number): number {
+  if (typeof override === "number" && Number.isFinite(override) && override > 0) {
+    return Math.floor(override);
+  }
+  const raw = process.env.INTEGRATION_HTTP_TIMEOUT_MS?.trim();
+  if (!raw) return 8000;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 8000;
+  return parsed;
+}
+
 export async function jsonGet<T>(url: string, opts: JsonGetOpts): Promise<T> {
   const f = opts.fetchImpl ?? globalThis.fetch.bind(globalThis);
-  const res = await f(url, {
-    method: "GET",
-    headers: { Accept: "application/json", ...(opts.headers ?? {}) },
-  });
+  const timeoutMs = integrationHttpTimeoutMs(opts.timeoutMs);
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await f(url, {
+      method: "GET",
+      headers: { Accept: "application/json", ...(opts.headers ?? {}) },
+      signal: ctrl.signal,
+    });
+  } catch (err) {
+    if ((err as { name?: string } | null)?.name === "AbortError") {
+      throw new IntegrationError(
+        opts.integration,
+        `GET ${url} timed out after ${timeoutMs}ms`,
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new IntegrationError(

@@ -31,6 +31,9 @@ import { Search, ChevronRight, AlertTriangle } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
+const DIRECTORY_VENDOR_TIMEOUT_MS = 2500;
+const DIRECTORY_IDENTITY_TIMEOUT_MS = 1800;
+const FOOTPRINT_TIMEOUT_MS = 2500;
 
 type SP = { q?: string; user?: string; page?: string };
 
@@ -44,22 +47,71 @@ function matches(u: DeelEmployee, q: string) {
   );
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function listDirectoryFromPrisma(): Promise<DeelEmployee[]> {
+  const users = await prisma.user.findMany({
+    select: {
+      email: true,
+      displayName: true,
+      roleTag: true,
+      manager: { select: { email: true } },
+      region: true,
+      status: true,
+    },
+    orderBy: { displayName: "asc" },
+  });
+  return users.map((u) => ({
+    email: u.email,
+    displayName: u.displayName,
+    roleTag: u.roleTag ?? "",
+    managerEmail: u.manager?.email ?? null,
+    region: u.region,
+    status:
+      u.status === "SUSPENDED" || u.status === "TERMINATED" ? u.status : "ACTIVE",
+  }));
+}
+
 async function getDirectoryPage(q: string, page: number) {
   // Directory rows come from Deel `listEmployees()`; Azure AD is only used
   // to enrich display when the integration exposes it. Links and detail use
   // Prisma `User.id` (UUID) when a row exists for that email — never Entra
   // object ids, which are not primary keys in our schema.
   const [employees, identityAll] = await Promise.all([
-    getDeelClient().listEmployees(),
-    getAzureADClient()
-      .listUsers()
-      .catch((err) => {
-        console.error(
-          "[users] Azure AD listUsers failed; continuing with Deel directory only",
-          err,
-        );
-        return [];
-      }),
+    withTimeout(
+      getDeelClient().listEmployees(),
+      DIRECTORY_VENDOR_TIMEOUT_MS,
+      "Deel directory",
+    ).catch(async (err) => {
+      console.error(
+        "[users] Deel listEmployees failed/slow; falling back to Prisma user table",
+        err,
+      );
+      return listDirectoryFromPrisma();
+    }),
+    withTimeout(
+      getAzureADClient().listUsers(),
+      DIRECTORY_IDENTITY_TIMEOUT_MS,
+      "Azure AD listUsers",
+    ).catch((err) => {
+      console.error(
+        "[users] Azure AD listUsers failed/slow; continuing with directory only",
+        err,
+      );
+      return [];
+    }),
   ]);
   const idByEmail = new Map(identityAll.map((u) => [u.email, u]));
 
@@ -143,21 +195,46 @@ async function getUserDetail(selection: string) {
     gateway.aggregateByUser({ userIds: [uid], periodStart: openAiPeriodStart, periodEnd: now }),
     gateway.aggregateByUser({ userIds: [uid], periodStart: calendarMonthStart, periodEnd: now }),
     gateway.listUsageRecords({ userId: uid, since, limit: 25 }),
-    getDeelClient().getEmployeeByEmail(user.email),
-    safeFootprint(() =>
-      summarizeCursorLoginIpsForEmail({ email: user.email, lookbackDays: footprintLookbackDays }),
+    withTimeout(
+      getDeelClient().getEmployeeByEmail(user.email),
+      DIRECTORY_VENDOR_TIMEOUT_MS,
+      "Deel employee lookup",
+    ).catch((err) => {
+      console.error("[users] Deel getEmployeeByEmail failed/slow; continuing without Deel row", err);
+      return null;
+    }),
+    safeFootprint(
+      () =>
+        summarizeCursorLoginIpsForEmail({
+          email: user.email,
+          lookbackDays: footprintLookbackDays,
+        }),
+      "Cursor footprint",
     ),
-    safeFootprint(() =>
-      summarizeCodexClientsForEmail({ email: user.email, lookbackDays: footprintLookbackDays, now }),
+    safeFootprint(
+      () =>
+        summarizeCodexClientsForEmail({
+          email: user.email,
+          lookbackDays: footprintLookbackDays,
+          now,
+        }),
+      "Codex footprint",
     ),
-    safeFootprint(() =>
-      summarizeEntraAiSignInIpsForEmail({ email: user.email, lookbackDays: footprintLookbackDays }),
+    safeFootprint(
+      () =>
+        summarizeEntraAiSignInIpsForEmail({
+          email: user.email,
+          lookbackDays: footprintLookbackDays,
+        }),
+      "Entra footprint",
     ),
-    safeFootprint(() =>
-      summarizeComplianceAuthLogIpsForEmail({
-        email: user.email,
-        lookbackDays: footprintLookbackDays,
-      }),
+    safeFootprint(
+      () =>
+        summarizeComplianceAuthLogIpsForEmail({
+          email: user.email,
+          lookbackDays: footprintLookbackDays,
+        }),
+      "Compliance footprint",
     ),
   ]);
 
@@ -200,9 +277,11 @@ async function getUserDetail(selection: string) {
 
 async function safeFootprint<T extends { available: boolean; reason?: string }>(
   fn: () => Promise<T>,
+  label: string,
+  timeoutMs = FOOTPRINT_TIMEOUT_MS,
 ): Promise<T> {
   try {
-    return await fn();
+    return await withTimeout(fn(), timeoutMs, label);
   } catch (e) {
     return {
       available: false,
@@ -217,7 +296,9 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
   const q = sp.q?.trim() || "";
   const pageNum = parseInt(sp.page ?? "1", 10);
   const directory = await getDirectoryPage(q, pageNum);
-  const selectedId = sp.user || directory.rows[0]?.id;
+  // Avoid expensive per-user footprint fan-out on initial page open.
+  // Detail loads after explicit user selection.
+  const selectedId = sp.user;
   const detail = selectedId ? await getUserDetail(selectedId) : null;
 
   return (

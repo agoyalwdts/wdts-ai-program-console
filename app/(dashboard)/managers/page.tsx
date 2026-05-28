@@ -60,43 +60,38 @@ async function getManagerSummaries(): Promise<ManagerSummary[]> {
   });
 
   const gateway = getGatewayClient();
-  const summaries: ManagerSummary[] = [];
+  const summaries = await Promise.all(
+    managers.map(async (m): Promise<ManagerSummary> => {
+      const [rows, pending] = await Promise.all([
+        gateway.managerQueue({ managerUserId: m.id }),
+        prisma.decision.count({
+          where: {
+            subjectUserId: { in: m.reports.map((r) => r.id) },
+            type: "RECLAMATION",
+            afterState: { contains: '"NOTIFIED"' },
+          },
+        }),
+      ]);
 
-  // Fan-out per manager. With 30 users this is fine; for v1 prod
-  // (~30 managers × ~6 reports avg) it's still well under a second total.
-  // If we outgrow that, materialise `v_manager_queue` (scoping §3.2) and
-  // read it directly.
-  for (const m of managers) {
-    const rows = await gateway.managerQueue({ managerUserId: m.id });
-    let overCap = 0;
-    let idle = 0;
-    for (const r of rows) {
-      const max = Math.max(
-        ...Object.values(r.capUtilisation).map((v) => v ?? 0),
-      );
-      if (max >= OVER_CAP_THRESHOLD) overCap++;
-      if (r.idleDays != null && r.idleDays >= IDLE_THRESHOLD_DAYS) idle++;
-    }
+      let overCap = 0;
+      let idle = 0;
+      for (const r of rows) {
+        const max = Math.max(...Object.values(r.capUtilisation).map((v) => v ?? 0));
+        if (max >= OVER_CAP_THRESHOLD) overCap++;
+        if (r.idleDays != null && r.idleDays >= IDLE_THRESHOLD_DAYS) idle++;
+      }
 
-    const reportIds = m.reports.map((r) => r.id);
-    const pending = await prisma.decision.count({
-      where: {
-        subjectUserId: { in: reportIds },
-        type: "RECLAMATION",
-        afterState: { contains: '"NOTIFIED"' },
-      },
-    });
-
-    summaries.push({
-      id: m.id,
-      email: m.email,
-      displayName: m.displayName,
-      reportCount: rows.length,
-      overCapCount: overCap,
-      idleCount: idle,
-      pendingCount: pending,
-    });
-  }
+      return {
+        id: m.id,
+        email: m.email,
+        displayName: m.displayName,
+        reportCount: rows.length,
+        overCapCount: overCap,
+        idleCount: idle,
+        pendingCount: pending,
+      };
+    }),
+  );
 
   return summaries;
 }
