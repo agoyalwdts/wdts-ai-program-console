@@ -578,7 +578,7 @@ model GuardrailPolicyAlert {
   id             String   @id @default(uuid())
   createdAt      DateTime @default(now())
   occurredAt     DateTime
-  /// `MODEL_POSTURE`, `COMPLEXITY_ADVISOR`, `CLOUD_CONTROL`.
+  /// `MODEL_POSTURE`, `COMPLEXITY_ADVISOR`, `CLOUD_CONTROL`, `USAGE_POSTURE`.
   category       String
   /// `LOW`, `MEDIUM`, `HIGH`.
   severity       String

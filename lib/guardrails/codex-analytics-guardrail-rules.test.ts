@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GUARDRAIL_CATEGORY } from "./categories";
 import { pushCodexAnalyticsGuardrailCandidates } from "./codex-analytics-guardrail-rules";
 import type { GuardrailCandidate } from "./types";
 
@@ -25,6 +26,9 @@ describe("pushCodexAnalyticsGuardrailCandidates", () => {
     expect(codes).toContain("CODEX_HIGH_DAILY_CREDITS");
     expect(codes).toContain("CODEX_MULTI_CLIENT_SURFACE");
     expect(candidates.every((c) => c.product === "CODEX")).toBe(true);
+    const high = candidates.find((c) => c.ruleCode === "CODEX_HIGH_DAILY_CREDITS");
+    expect(high?.category).toBe(GUARDRAIL_CATEGORY.USAGE_POSTURE);
+    expect(high?.category).not.toBe(GUARDRAIL_CATEGORY.COMPLEXITY_ADVISOR);
   });
 
   it("dedupes by codex user_id when email is missing", () => {

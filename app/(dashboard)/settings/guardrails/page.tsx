@@ -131,7 +131,8 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
             </CardTitle>
             <CardDescription>
               Conservative default model posture (Codex/Cursor fast/yolo disabled), complexity-aware
-              model advisor, and cloud-governance checks (allowlist/env-gating/high-risk approval evidence).
+              model advisor, usage/credit signals (Codex Enterprise Analytics), and cloud-governance
+              checks (allowlist/env-gating/high-risk approval evidence).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-slate-700">

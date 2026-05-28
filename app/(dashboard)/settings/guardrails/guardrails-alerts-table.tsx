@@ -4,6 +4,7 @@ import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { guardrailCategoryLabel } from "@/lib/guardrails/categories";
 import { ChevronDown, ChevronRight, Info, Loader2 } from "lucide-react";
 
 export type GuardrailAlertRow = {
@@ -408,7 +409,9 @@ export function GuardrailsAlertsTable({
                 <TD className="pl-3 text-xs whitespace-nowrap align-top py-2">
                   {new Date(r.occurredAt).toLocaleString()}
                 </TD>
-                <TD className="text-xs align-top py-2 break-words">{r.category}</TD>
+                <TD className="text-xs align-top py-2 break-words" title={r.category}>
+                  {guardrailCategoryLabel(r.category, r.ruleCode)}
+                </TD>
                 <TD className="align-top py-2">
                   <Badge
                     variant={

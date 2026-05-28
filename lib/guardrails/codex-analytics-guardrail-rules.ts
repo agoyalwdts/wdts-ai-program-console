@@ -2,6 +2,7 @@
  * Codex Enterprise Analytics guardrail rules (credits / clients — not per-request models).
  */
 
+import { GUARDRAIL_CATEGORY } from "./categories";
 import type { ProductKey } from "./day-one-defaults";
 import type { GuardrailCandidate } from "./types";
 
@@ -39,12 +40,12 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
   if (args.credits >= CODEX_CREDITS_HIGH_PER_DAY) {
     args.candidates.push({
       ...base,
-      category: "COMPLEXITY_ADVISOR",
+      category: GUARDRAIL_CATEGORY.USAGE_POSTURE,
       severity: "HIGH",
       ruleCode: "CODEX_HIGH_DAILY_CREDITS",
       title: "Codex daily credit usage is high",
-      rationale: `${args.credits.toFixed(1)} credits in one analytics bucket (≥ ${CODEX_CREDITS_HIGH_PER_DAY}). Review tier and task complexity.`,
-      recommendation: "Confirm Codex sub-tier matches need; avoid premium posture for routine work.",
+      rationale: `${args.credits.toFixed(1)} credits in one analytics bucket (≥ ${CODEX_CREDITS_HIGH_PER_DAY}). Review assigned Codex sub-tier and whether usage matches role.`,
+      recommendation: "Confirm Codex sub-tier matches need; escalate if usage is routine work at premium credit burn.",
       context: {
         credits: args.credits,
         turns: args.turns,
@@ -56,7 +57,7 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
   } else if (args.credits >= CODEX_CREDITS_WARN_PER_DAY) {
     args.candidates.push({
       ...base,
-      category: "COMPLEXITY_ADVISOR",
+      category: GUARDRAIL_CATEGORY.USAGE_POSTURE,
       severity: "MEDIUM",
       ruleCode: "CODEX_ELEVATED_DAILY_CREDITS",
       title: "Codex daily credit usage elevated",
@@ -76,7 +77,7 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
   if (activeClients.length >= CODEX_MULTI_CLIENT_MIN) {
     args.candidates.push({
       ...base,
-      category: "MODEL_POSTURE",
+      category: GUARDRAIL_CATEGORY.USAGE_POSTURE,
       severity: "LOW",
       ruleCode: "CODEX_MULTI_CLIENT_SURFACE",
       title: "Codex used from multiple client surfaces same day",
