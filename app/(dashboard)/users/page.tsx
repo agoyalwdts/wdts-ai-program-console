@@ -51,7 +51,15 @@ async function getDirectoryPage(q: string, page: number) {
   // object ids, which are not primary keys in our schema.
   const [employees, identityAll] = await Promise.all([
     getDeelClient().listEmployees(),
-    getAzureADClient().listUsers(),
+    getAzureADClient()
+      .listUsers()
+      .catch((err) => {
+        console.error(
+          "[users] Azure AD listUsers failed; continuing with Deel directory only",
+          err,
+        );
+        return [];
+      }),
   ]);
   const idByEmail = new Map(identityAll.map((u) => [u.email, u]));
 
