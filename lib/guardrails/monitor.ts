@@ -417,20 +417,18 @@ export async function runGuardrailMonitor(
         environment: env,
         source: "CODEX_ENTERPRISE_ANALYTICS",
       });
-      if (r.userEmail) {
-        pushCodexAnalyticsGuardrailCandidates({
-          candidates,
-          occurredAt: r.ts,
-          environment: env,
-          userEmail: r.userEmail,
-          model: r.model,
-          credits: entry.credits,
-          turns: entry.turns,
-          clientIds: entry.clientIds,
-          costUsd: r.costUsd,
-          dedupe,
-        });
-      }
+      pushCodexAnalyticsGuardrailCandidates({
+        candidates,
+        occurredAt: r.ts,
+        environment: env,
+        userEmail: r.userEmail,
+        model: r.model,
+        credits: entry.credits,
+        turns: entry.turns,
+        clientIds: entry.clientIds,
+        costUsd: r.costUsd,
+        dedupe,
+      });
     }
   }
 

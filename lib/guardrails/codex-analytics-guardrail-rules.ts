@@ -13,7 +13,7 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
   candidates: GuardrailCandidate[];
   occurredAt: Date;
   environment: string;
-  userEmail: string;
+  userEmail: string | null;
   model: string;
   credits: number;
   turns: number;
@@ -48,7 +48,11 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
         clientIds: args.clientIds,
         costUsd: args.costUsd,
       },
-      dedupeKey: args.dedupe(["CODEX_HIGH_DAILY_CREDITS", args.userEmail, day]),
+      dedupeKey: args.dedupe([
+        "CODEX_HIGH_DAILY_CREDITS",
+        args.userEmail ?? "unknown",
+        day,
+      ]),
     });
   } else if (args.credits >= CODEX_CREDITS_WARN_PER_DAY) {
     args.candidates.push({
@@ -65,7 +69,11 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
         clientIds: args.clientIds,
         costUsd: args.costUsd,
       },
-      dedupeKey: args.dedupe(["CODEX_ELEVATED_DAILY_CREDITS", args.userEmail, day]),
+      dedupeKey: args.dedupe([
+        "CODEX_ELEVATED_DAILY_CREDITS",
+        args.userEmail ?? "unknown",
+        day,
+      ]),
     });
   }
 
@@ -87,7 +95,7 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
       },
       dedupeKey: args.dedupe([
         "CODEX_MULTI_CLIENT_SURFACE",
-        args.userEmail,
+        args.userEmail ?? "unknown",
         day,
         activeClients.sort().join(","),
       ]),

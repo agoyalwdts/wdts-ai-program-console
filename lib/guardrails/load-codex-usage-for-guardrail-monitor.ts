@@ -36,6 +36,7 @@ export type CodexGuardrailFeedResult =
     };
 
 const DEFAULT_MAX_PAGES = 40;
+const MIN_CODEX_GUARDRAIL_LOOKBACK_HOURS = 24;
 
 export async function loadCodexUsageForGuardrailMonitor(args: {
   since: Date;
@@ -71,8 +72,12 @@ export async function loadCodexUsageForGuardrailMonitor(args: {
   }
 
   const sinceMs = args.since.getTime();
+  const effectiveSinceMs = Math.min(
+    sinceMs,
+    Date.now() - MIN_CODEX_GUARDRAIL_LOOKBACK_HOURS * 60 * 60 * 1000,
+  );
   const endMs = Date.now();
-  if (sinceMs >= endMs) {
+  if (effectiveSinceMs >= endMs) {
     return {
       active: true,
       bucketsFetched: 0,
@@ -83,7 +88,7 @@ export async function loadCodexUsageForGuardrailMonitor(args: {
     };
   }
 
-  const startSec = Math.floor(sinceMs / 1000);
+  const startSec = Math.floor(effectiveSinceMs / 1000);
   const endSec = Math.floor(endMs / 1000);
   const usdPerCredit = resolveUsdPerCredit(env);
   const userIdToEmail = await buildCodexAnalyticsUserEmailMap(env);
@@ -106,7 +111,7 @@ export async function loadCodexUsageForGuardrailMonitor(args: {
 
     const mapped = mapCodexUsageRowToGuardrailUsage({
       row: bucket,
-      sinceMs,
+      sinceMs: effectiveSinceMs,
       usdPerCredit,
       userIdToEmail,
     });

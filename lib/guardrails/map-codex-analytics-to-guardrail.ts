@@ -61,7 +61,6 @@ export function mapCodexUsageRowToGuardrailUsage(args: {
   userIdToEmail?: ReadonlyMap<string, string>;
 }): CodexGuardrailMappedEntry | null {
   const email = resolveCodexUsageRowEmail(args.row, args.userIdToEmail);
-  if (!email) return null;
 
   const endMs = args.row.end_time * 1000;
   const startMs = args.row.start_time * 1000;
@@ -102,7 +101,7 @@ export function mapCodexUsageRowToGuardrailUsage(args: {
       decision: "ALLOWED",
       region: "global",
       costUsd: credits > 0 ? credits * args.usdPerCredit : null,
-      userEmail: email,
+      userEmail: email ?? null,
       maxMode: model.toLowerCase().includes("max"),
     },
     credits,
