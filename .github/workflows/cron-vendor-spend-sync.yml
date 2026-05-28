@@ -1,4 +1,4 @@
-# Cursor + OpenAI + Codex Enterprise Analytics → VendorDailySpend (HMAC cron).
+# Cursor + OpenAI + Codex Enterprise Analytics + Workspace Analytics → VendorDailySpend / snapshots (HMAC cron).
 # Cursor and Codex run hourly; OpenAI org costs stay twice daily (lighter rate-limit risk).
 #
 # Prerequisites:
@@ -14,6 +14,7 @@ on:
   schedule:
     - cron: "5 * * * *"
     - cron: "25 * * * *"
+    - cron: "35 * * * *"
     - cron: "41 4 * * *"
     - cron: "41 16 * * *"
   workflow_dispatch:
@@ -81,6 +82,37 @@ jobs:
           SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" | awk '{print $2}')
           URL="${DASHBOARD_BASE_URL}/api/cron/sync-codex-enterprise-spend"
           echo "## codex_enterprise — $URL" >> "$GITHUB_STEP_SUMMARY"
+          HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
+            -H "x-cron-signature: sha256=${SIG}" -H "content-type: application/json" \
+            --data "$BODY" "$URL")
+          cat /tmp/out.json >> "$GITHUB_STEP_SUMMARY"
+          [ "$HTTP" = "200" ] || (echo "::error::HTTP $HTTP" && exit 1)
+
+  sync-workspace-analytics:
+    name: workspace analytics (hourly)
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '35 * * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: cron-workspace-analytics
+      cancel-in-progress: false
+    steps:
+      - name: Verify secret
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          if [ -z "$CRON_SHARED_SECRET" ]; then
+            echo "::error::CRON_SHARED_SECRET is not set."
+            exit 1
+          fi
+      - name: POST sync-workspace-analytics
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          BODY='{"initialLookbackDays":7}'
+          SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" | awk '{print $2}')
+          URL="${DASHBOARD_BASE_URL}/api/cron/sync-workspace-analytics"
+          echo "## workspace_analytics — $URL" >> "$GITHUB_STEP_SUMMARY"
           HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
             -H "x-cron-signature: sha256=${SIG}" -H "content-type: application/json" \
             --data "$BODY" "$URL")

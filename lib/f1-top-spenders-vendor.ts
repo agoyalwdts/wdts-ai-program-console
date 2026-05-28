@@ -128,7 +128,7 @@ export async function mergeTopSpendersWithVendorAttribution(
   }
 
   const chatgptSnaps = await prisma.programVendorExportSnapshot.findMany({
-    where: { kind: "CHATGPT_USERS_CSV" },
+    where: { kind: { in: ["CHATGPT_USERS_CSV", "CHATGPT_USER_ANALYTICS"] } },
     orderBy: { createdAt: "desc" },
     take: 15,
     select: {

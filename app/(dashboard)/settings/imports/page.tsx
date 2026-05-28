@@ -58,13 +58,23 @@ export default async function SettingsImportsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Program vendor exports — ChatGPT, Codex, Cursor</CardTitle>
-            <CardDescription>
-              Until OpenAI and Codex analytics APIs are fully wired, drop the Business admin CSV/JSON
-              exports here. ChatGPT users CSV and Codex workspace JSON update Program Health spend
-              tiles via manual{" "}
-              <code className="text-xs bg-slate-100 px-1 py-0.5 rounded">VendorDailySpend</code>{" "}
-              rows (live vendor syncs still take precedence). All accepted files also store the
-              latest snapshot for the Analytics page.
+            <CardDescription className="space-y-2">
+              <p>
+                Drop Business admin CSV/JSON exports here when you need a one-off ingest. ChatGPT
+                users CSV and Codex workspace JSON update Program Health spend tiles via manual{" "}
+                <code className="text-xs bg-slate-100 px-1 py-0.5 rounded">VendorDailySpend</code>{" "}
+                rows (live vendor syncs still take precedence). All accepted files also store the
+                latest snapshot for the Analytics page.
+              </p>
+              <p className="text-amber-800 border border-amber-200 bg-amber-50 rounded-md px-3 py-2 text-sm">
+                <strong>Workspace Analytics API</strong> (OpenAI beta, Compliance Logs) syncs all
+                four ChatGPT analytics feeds hourly when{" "}
+                <code className="text-xs bg-amber-100 px-1 py-0.5 rounded">
+                  INTEGRATION_OPENAI_COMPLIANCE=real
+                </code>
+                . That feed is <strong>forward-only</strong> from beta enablement — use these CSV
+                uploads for periods before the API had data.
+              </p>
             </CardDescription>
           </CardHeader>
           <CardContent>

@@ -80,6 +80,9 @@ export {
 } from "./openai-compliance";
 export type { ComplianceAuthLogIpSummary } from "./openai-compliance";
 
+export { syncWorkspaceAnalytics, WORKSPACE_ANALYTICS_EVENT_TYPES } from "./workspace-analytics";
+export type { WorkspaceAnalyticsSyncResult } from "./workspace-analytics";
+
 export {
   getDeelClient,
   makeRealDeelClient,
