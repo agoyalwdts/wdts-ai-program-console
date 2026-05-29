@@ -3,6 +3,7 @@
  * when INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real (no gateway mirror required for Codex).
  */
 
+import type { PrismaClient } from "@prisma/client";
 import { getIntegrationMode, type IntegrationEnv } from "@/lib/integrations/env";
 import {
   fetchCodexEnterprisePerUserUsageRows,
@@ -41,6 +42,7 @@ const MIN_CODEX_GUARDRAIL_LOOKBACK_HOURS = 24;
 export async function loadCodexUsageForGuardrailMonitor(args: {
   since: Date;
   env?: IntegrationEnv;
+  prisma?: PrismaClient;
   fetchImpl?: Fetch;
   maxPages?: number;
 }): Promise<CodexGuardrailFeedResult> {
@@ -91,7 +93,7 @@ export async function loadCodexUsageForGuardrailMonitor(args: {
   const startSec = Math.floor(effectiveSinceMs / 1000);
   const endSec = Math.floor(endMs / 1000);
   const usdPerCredit = resolveUsdPerCredit(env);
-  const userIdToEmail = await buildCodexAnalyticsUserEmailMap(env);
+  const userIdToEmail = await buildCodexAnalyticsUserEmailMap({ env, prisma: args.prisma });
 
   const buckets = await fetchCodexEnterprisePerUserUsageRows({
     startTimeSec: startSec,

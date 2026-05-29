@@ -20,6 +20,10 @@ import {
   parseGuardrailProductFilter,
   prismaWhereForGuardrailProductFilter,
 } from "@/lib/guardrails/alert-product-filter";
+import {
+  guardrailAlertSubjectLabel,
+  guardrailAlertSubjectTitle,
+} from "@/lib/guardrails/alert-subject-display";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +57,8 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
         recommendation: true,
         acknowledgedAt: true,
         userEmailNotifiedAt: true,
+        context: true,
+        dedupeKey: true,
       },
     }),
     prisma.guardrailPolicyAlert.count({ where: alertWhere }),
@@ -101,6 +107,18 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
       severity: a.severity,
       product: a.product,
       userEmail: a.userEmail,
+      subjectLabel: guardrailAlertSubjectLabel({
+        userEmail: a.userEmail,
+        ruleCode: a.ruleCode,
+        context: a.context,
+        dedupeKey: a.dedupeKey,
+      }),
+      subjectTitle: guardrailAlertSubjectTitle({
+        userEmail: a.userEmail,
+        ruleCode: a.ruleCode,
+        context: a.context,
+        dedupeKey: a.dedupeKey,
+      }),
       model: a.model,
       ruleCode: a.ruleCode,
       title: a.title,
@@ -168,7 +186,9 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
               not require the dashboard to be open. <strong>Codex</strong> uses Enterprise
               Analytics per-user usage when{" "}
               <code className="font-mono text-xs">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>
-              . Block console creates a mirror User row when needed (no vendor API).
+              ; user identity is resolved from org roster + Workspace Analytics snapshots (email
+              when matched, otherwise <span className="font-mono text-xs">codex user …</span>).
+              Block console requires a resolved email (no vendor API).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 px-6 pb-4">

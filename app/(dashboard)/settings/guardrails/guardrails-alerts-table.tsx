@@ -14,6 +14,9 @@ export type GuardrailAlertRow = {
   severity: string;
   product: string | null;
   userEmail: string | null;
+  /** Email or `codex user …` when analytics has user_id only. */
+  subjectLabel: string;
+  subjectTitle?: string;
   model: string | null;
   ruleCode: string;
   title: string;
@@ -82,6 +85,7 @@ export function GuardrailsAlertsTable({
       const userOk =
         q.length === 0 ||
         (r.userEmail ?? "").toLowerCase().includes(q) ||
+        r.subjectLabel.toLowerCase().includes(q) ||
         (r.title ?? "").toLowerCase().includes(q);
       return userOk;
     });
@@ -91,7 +95,7 @@ export function GuardrailsAlertsTable({
         return (a.product ?? "OTHER").localeCompare(b.product ?? "OTHER");
       }
       if (sortBy === "user") {
-        return (a.userEmail ?? "").localeCompare(b.userEmail ?? "");
+        return a.subjectLabel.localeCompare(b.subjectLabel);
       }
       return new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime();
     });
@@ -426,8 +430,11 @@ export function GuardrailsAlertsTable({
                   </Badge>
                 </TD>
                 <TD className="text-xs font-mono align-top py-2">
-                  <span className="block break-all leading-snug" title={r.userEmail ?? undefined}>
-                    {r.userEmail ?? "—"}
+                  <span
+                    className={`block break-all leading-snug ${r.userEmail ? "" : "text-amber-800"}`}
+                    title={r.subjectTitle ?? r.userEmail ?? undefined}
+                  >
+                    {r.subjectLabel}
                   </span>
                 </TD>
                 <TD className="text-xs align-top py-2">

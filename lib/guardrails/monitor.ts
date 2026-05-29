@@ -304,7 +304,7 @@ export async function runGuardrailMonitor(
 
   let codexFeed: Awaited<ReturnType<typeof loadCodexUsageForGuardrailMonitor>>;
   try {
-    codexFeed = await loadCodexUsageForGuardrailMonitor({ since });
+    codexFeed = await loadCodexUsageForGuardrailMonitor({ since, prisma });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     codexFeed = {
