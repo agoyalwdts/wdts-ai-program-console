@@ -428,6 +428,8 @@ export async function runGuardrailMonitor(
         turns: entry.turns,
         clientIds: entry.clientIds,
         costUsd: r.costUsd,
+        models: entry.models,
+        codeAttribution: entry.codeAttribution,
         dedupe,
       });
     }

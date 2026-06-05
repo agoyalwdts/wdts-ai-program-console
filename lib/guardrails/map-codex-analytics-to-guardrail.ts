@@ -6,6 +6,7 @@
 import { Product } from "@prisma/client";
 import type { CodexUsageRow } from "@/lib/integrations/codex-enterprise-analytics/types";
 import { resolveCodexUsageRowEmail } from "@/lib/integrations/codex-enterprise-analytics/aggregate-per-user-mtd";
+import { codexUsageRowUserId } from "@/lib/integrations/codex-enterprise-analytics/resolve-usage-row-identity";
 import { DAY_ONE_DEFAULT_MODEL } from "./day-one-defaults";
 import type { GuardrailMonitorUsageRow } from "./load-cursor-usage-for-monitor";
 
@@ -14,8 +15,9 @@ export type CodexGuardrailMappedEntry = {
   credits: number;
   turns: number;
   clientIds: string[];
-  /** Analytics `user_id` when email is not on the bucket (dedupe + display). */
   codexUserId: string | null;
+  models: { model: string; credits: number }[];
+  codeAttribution: { linesAdded?: number; linesRemoved?: number | null } | null;
 };
 
 /** Credits in one daily bucket that suggest premium/heavy posture for advisor rules. */
@@ -93,7 +95,7 @@ export function mapCodexUsageRowToGuardrailUsage(args: {
   const tokensIn = Math.round(Math.max(turns, 1) * 500);
   const tokensOut = Math.round(Math.max(credits, 0.25) * 100);
 
-  const codexUserId = args.row.user_id?.trim() || null;
+  const codexUserId = codexUsageRowUserId(args.row) ?? null;
 
   return {
     usage: {
@@ -112,5 +114,14 @@ export function mapCodexUsageRowToGuardrailUsage(args: {
     turns,
     clientIds,
     codexUserId,
+    models: (args.row.models ?? [])
+      .filter((m) => m.model && typeof m.credits === "number")
+      .map((m) => ({ model: m.model, credits: m.credits })),
+    codeAttribution: args.row.code_attribution
+      ? {
+          linesAdded: args.row.code_attribution.lines_added,
+          linesRemoved: args.row.code_attribution.lines_removed,
+        }
+      : null,
   };
 }

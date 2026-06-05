@@ -22,6 +22,8 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
   turns: number;
   clientIds: string[];
   costUsd: number | null;
+  models?: { model: string; credits: number }[];
+  codeAttribution?: { linesAdded?: number; linesRemoved?: number | null } | null;
   dedupe: (parts: readonly string[]) => string;
 }): void {
   const product: ProductKey = "CODEX";
@@ -53,7 +55,11 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
       title: "Codex daily credit usage is high",
       rationale: `${args.credits.toFixed(1)} credits in one analytics bucket (≥ ${CODEX_CREDITS_HIGH_PER_DAY}). Review assigned Codex sub-tier and whether usage matches role.`,
       recommendation: "Confirm Codex sub-tier matches need; escalate if usage is routine work at premium credit burn.",
-      context: analyticsContext,
+      context: {
+        ...analyticsContext,
+        models: args.models,
+        codeAttribution: args.codeAttribution,
+      },
       dedupeKey: args.dedupe(["CODEX_HIGH_DAILY_CREDITS", subjectKey, day]),
     });
   } else if (args.credits >= CODEX_CREDITS_WARN_PER_DAY) {
@@ -65,7 +71,11 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
       title: "Codex daily credit usage elevated",
       rationale: `${args.credits.toFixed(1)} credits in one analytics bucket (≥ ${CODEX_CREDITS_WARN_PER_DAY}).`,
       recommendation: "Track whether usage aligns with assigned Codex sub-tier.",
-      context: analyticsContext,
+      context: {
+        ...analyticsContext,
+        models: args.models,
+        codeAttribution: args.codeAttribution,
+      },
       dedupeKey: args.dedupe(["CODEX_ELEVATED_DAILY_CREDITS", subjectKey, day]),
     });
   }
@@ -84,6 +94,8 @@ export function pushCodexAnalyticsGuardrailCandidates(args: {
       context: {
         ...analyticsContext,
         clientIds: activeClients,
+        models: args.models,
+        codeAttribution: args.codeAttribution,
       },
       dedupeKey: args.dedupe([
         "CODEX_MULTI_CLIENT_SURFACE",

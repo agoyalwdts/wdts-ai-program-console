@@ -5,15 +5,14 @@
  * Base: https://api.chatgpt.com
  */
 
-import { jsonGet, type Fetch } from "../_http";
+import type { Fetch } from "../_http";
 import { IntegrationError } from "../errors";
-import type { CodexUsagePage, CodexUsageRow } from "./types";
+import { fetchCodexEnterpriseAnalyticsPages } from "./fetch-paginated";
+import type { CodexCodeReviewResponseRow, CodexReviewsRow, CodexUsageRow } from "./types";
 import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
 
 export const CODEX_ENTERPRISE_ANALYTICS_VENDOR_KEY =
   "OPENAI_CODEX_ENTERPRISE_ANALYTICS" as const;
-
-const API_BASE = "https://api.chatgpt.com";
 
 export type CodexEnterpriseAnalyticsEnv = {
   apiKey: string;
@@ -30,7 +29,7 @@ export function resolveCodexEnterpriseAnalyticsCredentials(
   return { apiKey, workspaceId };
 }
 
-function authHeader(apiKey: string): Record<string, string> {
+export function authHeader(apiKey: string): Record<string, string> {
   return {
     Authorization: `Bearer ${apiKey}`,
   };
@@ -50,51 +49,17 @@ export async function fetchCodexEnterpriseUsageRows(args: {
   fetchImpl?: Fetch;
   maxPages?: number;
 }): Promise<CodexUsageRow[]> {
-  const { creds, startTimeSec, endTimeSec, group } = args;
-  const f = args.fetchImpl ?? globalThis.fetch.bind(globalThis);
-  const maxPages = args.maxPages ?? 50;
-
-  const out: CodexUsageRow[] = [];
-  let pageCursor: string | null | undefined = undefined;
-  let stoppedWithMore = false;
-
-  for (let i = 0; i < maxPages; i++) {
-    const path = `/v1/analytics/codex/workspaces/${encodeURIComponent(creds.workspaceId)}/usage`;
-    const q = new URLSearchParams();
-    q.set("start_time", String(startTimeSec));
-    q.set("end_time", String(endTimeSec));
-    if (group === "workspace") q.set("group", "workspace");
-    q.set("limit", "1000");
-    if (pageCursor) q.set("page", pageCursor);
-
-    const url = `${API_BASE}${path}?${q.toString()}`;
-    const body = await jsonGet<CodexUsagePage>(url, {
-      integration: "codexenterprise",
-      headers: authHeader(creds.apiKey),
-      fetchImpl: f,
-    });
-    out.push(...(body.data ?? []));
-    const more = body.has_more === true;
-    const next = body.next_page ?? null;
-    if (!more || next == null || next === "") {
-      stoppedWithMore = false;
-      break;
-    }
-    pageCursor = next;
-    stoppedWithMore = true;
-  }
-
-  if (stoppedWithMore) {
-    throw new IntegrationError(
-      "codexenterprise",
-      `Codex analytics usage: exceeded maxPages=${maxPages} (pagination not exhausted).`,
-    );
-  }
-
-  return out;
+  return fetchCodexEnterpriseAnalyticsPages<CodexUsageRow>({
+    pathSuffix: "usage",
+    startTimeSec: args.startTimeSec,
+    endTimeSec: args.endTimeSec,
+    creds: args.creds,
+    fetchImpl: args.fetchImpl,
+    maxPages: args.maxPages,
+    group: args.group === "workspace" ? "workspace" : undefined,
+  });
 }
 
-/** Workspace-level daily rows (`group=workspace`). */
 export async function fetchCodexEnterpriseWorkspaceUsageRows(args: {
   startTimeSec: number;
   endTimeSec: number;
@@ -105,7 +70,6 @@ export async function fetchCodexEnterpriseWorkspaceUsageRows(args: {
   return fetchCodexEnterpriseUsageRows({ ...args, group: "workspace" });
 }
 
-/** Per-user daily rows (default API grouping). */
 export async function fetchCodexEnterprisePerUserUsageRows(args: {
   startTimeSec: number;
   endTimeSec: number;
@@ -114,6 +78,32 @@ export async function fetchCodexEnterprisePerUserUsageRows(args: {
   maxPages?: number;
 }): Promise<CodexUsageRow[]> {
   return fetchCodexEnterpriseUsageRows({ ...args, group: "user" });
+}
+
+export async function fetchCodexEnterpriseCodeReviewRows(args: {
+  startTimeSec: number;
+  endTimeSec: number;
+  creds: CodexEnterpriseAnalyticsEnv;
+  fetchImpl?: Fetch;
+  maxPages?: number;
+}): Promise<CodexReviewsRow[]> {
+  return fetchCodexEnterpriseAnalyticsPages<CodexReviewsRow>({
+    pathSuffix: "code_reviews",
+    ...args,
+  });
+}
+
+export async function fetchCodexEnterpriseCodeReviewResponseRows(args: {
+  startTimeSec: number;
+  endTimeSec: number;
+  creds: CodexEnterpriseAnalyticsEnv;
+  fetchImpl?: Fetch;
+  maxPages?: number;
+}): Promise<CodexCodeReviewResponseRow[]> {
+  return fetchCodexEnterpriseAnalyticsPages<CodexCodeReviewResponseRow>({
+    pathSuffix: "code_review_responses",
+    ...args,
+  });
 }
 
 /** USD per credit from env; defaults to {@link OPENAI_CREDIT_OVERAGE_USD} (contract overage). */

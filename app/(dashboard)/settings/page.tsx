@@ -147,7 +147,7 @@ const INTEGRATION_NOTES: Record<IntegrationName, string> = {
   openai:
     "OpenAI Enterprise admin API key + org id. Vendor spend sync: POST /api/cron/sync-openai-spend or GHA cron-vendor-spend-sync.yml.",
   codexenterprise:
-    "Bearer key (codex.enterprise.analytics.read) + CHATGPT_WORKSPACE_ID. GET api.chatgpt.com analytics — POST /api/cron/sync-codex-enterprise-spend or GHA cron-vendor-spend-sync.yml.",
+    "Bearer key (codex.enterprise.analytics.read) + CHATGPT_WORKSPACE_ID. GET api.chatgpt.com/v1/analytics/codex/… (usage, code_reviews, code_review_responses) — hourly snapshot sync + VendorDailySpend via POST /api/cron/sync-codex-enterprise-spend or GHA cron-vendor-spend-sync.yml.",
   openaicompliance:
     "Separate Compliance API key (OPENAI_COMPLIANCE_API_KEY) + CHATGPT_WORKSPACE_ID. AUTH_LOG JSONL at api.chatgpt.com/v1/compliance — security review before prod; F2 sign-in footprint.",
   anthropic: "Anthropic admin API key (workspace-seat introspection beta).",
@@ -449,7 +449,7 @@ export default async function SettingsPage() {
             <ProbeRow
               icon={<Radio className="h-4 w-4" />}
               title="Codex Enterprise Analytics"
-              endpoint="api.chatgpt.com/v1/analytics/codex/…"
+              endpoint="api.chatgpt.com/v1/analytics/codex/…/usage|code_reviews|code_review_responses"
               result={codexProbe}
             />
           </CardContent>

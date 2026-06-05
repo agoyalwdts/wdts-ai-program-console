@@ -1,29 +1,13 @@
 import type { CodexUsageRow } from "./types";
+import {
+  codexUsageRowUserId,
+  resolveCodexUsageRowEmail,
+} from "./resolve-usage-row-identity";
+
+export { codexUsageRowUserId, resolveCodexUsageRowEmail };
 
 export function normCodexAnalyticsEmail(email: string): string {
   return email.trim().toLowerCase();
-}
-
-export function resolveCodexUsageRowEmail(
-  row: CodexUsageRow,
-  userIdToEmail?: ReadonlyMap<string, string>,
-): string | null {
-  const raw = row.email?.trim();
-  if (raw && raw.includes("@")) return normCodexAnalyticsEmail(raw);
-
-  const uid = row.user_id?.trim();
-  if (!uid || !userIdToEmail) return null;
-
-  const direct = userIdToEmail.get(uid);
-  if (direct?.includes("@")) return normCodexAnalyticsEmail(direct);
-
-  if (uid.startsWith("openai-org:")) {
-    const orgId = uid.slice("openai-org:".length);
-    const viaOrg = userIdToEmail.get(orgId);
-    if (viaOrg?.includes("@")) return normCodexAnalyticsEmail(viaOrg);
-  }
-
-  return null;
 }
 
 /** Sum credits in [monthStartSec, endSec) per normalized email. */
@@ -31,11 +15,12 @@ export function aggregateMtdCreditsByNormEmail(args: {
   rows: CodexUsageRow[];
   monthStartSec: number;
   endSec: number;
+  userIdToEmail?: ReadonlyMap<string, string>;
 }): Map<string, number> {
   const out = new Map<string, number>();
   for (const r of args.rows) {
     if (r.start_time < args.monthStartSec || r.start_time >= args.endSec) continue;
-    const email = resolveCodexUsageRowEmail(r);
+    const email = resolveCodexUsageRowEmail(r, args.userIdToEmail);
     if (!email) continue;
     const credits =
       typeof r.totals?.credits === "number" && Number.isFinite(r.totals.credits)
@@ -48,13 +33,14 @@ export function aggregateMtdCreditsByNormEmail(args: {
   return out;
 }
 
-/** Latest bucket end_time (seconds) with credits &gt; 0 per email, for idle / dormancy. */
+/** Latest bucket end_time (seconds) with credits > 0 per email, for idle / dormancy. */
 export function aggregateLastActivityEndSecByNormEmail(
   rows: CodexUsageRow[],
+  userIdToEmail?: ReadonlyMap<string, string>,
 ): Map<string, number> {
   const out = new Map<string, number>();
   for (const r of rows) {
-    const email = resolveCodexUsageRowEmail(r);
+    const email = resolveCodexUsageRowEmail(r, userIdToEmail);
     if (!email) continue;
     const credits =
       typeof r.totals?.credits === "number" && Number.isFinite(r.totals.credits)

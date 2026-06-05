@@ -15,12 +15,15 @@ import {
   resolveCodexEnterpriseAnalyticsCredentials,
   resolveUsdPerCredit,
 } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
+import { syncCodexEnterpriseAnalyticsSnapshots } from "@/lib/integrations/codex-enterprise-analytics/sync-vendor-snapshots";
+import type { CodexEnterpriseSnapshotSyncResult } from "@/lib/integrations/codex-enterprise-analytics/sync-vendor-snapshots";
 
 export type CodexEnterpriseSyncResult = {
   daysUpserted: number;
   totalCredits: number;
   windowStartMs: number;
   windowEndMs: number;
+  snapshots?: CodexEnterpriseSnapshotSyncResult;
 };
 
 export async function syncCodexEnterpriseAnalyticsDaily(
@@ -29,6 +32,7 @@ export async function syncCodexEnterpriseAnalyticsDaily(
     lookbackDays: number;
     actorEmail: string;
     skipDecision?: boolean;
+    skipSnapshots?: boolean;
     env?: Record<string, string | undefined>;
     fetchImpl?: typeof fetch;
   },
@@ -98,6 +102,20 @@ export async function syncCodexEnterpriseAnalyticsDaily(
     });
   }
 
+  let snapshots: CodexEnterpriseSnapshotSyncResult | undefined;
+  if (!args.skipSnapshots) {
+    try {
+      snapshots = await syncCodexEnterpriseAnalyticsSnapshots(prisma, {
+        lookbackDays,
+        actorEmail: args.actorEmail,
+        env,
+        fetchImpl: args.fetchImpl,
+      });
+    } catch (err) {
+      console.error("[sync-codex-enterprise] analytics snapshot sync failed", err);
+    }
+  }
+
   if (!args.skipDecision) {
     await prisma.decision.create({
       data: {
@@ -110,9 +128,10 @@ export async function syncCodexEnterpriseAnalyticsDaily(
           windowStartMs: startMs,
           windowEndMs: endMs,
           lookbackDays,
+          snapshots,
         }),
         actorEmail: args.actorEmail,
-        justification: `Codex Enterprise Analytics: ${daysUpserted} VendorDailySpend row(s), ${totalCredits.toFixed(2)} total credits, lookback ${lookbackDays}d`,
+        justification: `Codex Enterprise Analytics: ${daysUpserted} VendorDailySpend row(s), ${totalCredits.toFixed(2)} total credits, lookback ${lookbackDays}d${snapshots ? `; ${snapshots.snapshotsWritten} snapshot(s)` : ""}`,
       },
     });
   }
@@ -122,5 +141,6 @@ export async function syncCodexEnterpriseAnalyticsDaily(
     totalCredits,
     windowStartMs: startMs,
     windowEndMs: endMs,
+    snapshots,
   };
 }

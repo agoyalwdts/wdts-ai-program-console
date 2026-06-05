@@ -24,6 +24,14 @@ import type { DeelEmployee, UsageRecord } from "@/lib/integrations";
 import { requireUser } from "@/lib/auth";
 import { summarizeCursorLoginIpsForEmail } from "@/lib/integrations/cursor/audit-logs";
 import { summarizeCodexClientsForEmail } from "@/lib/integrations/codex-enterprise-analytics/distinct-clients-by-email";
+import { normCodexAnalyticsEmail } from "@/lib/integrations/codex-enterprise-analytics/aggregate-per-user-mtd";
+import {
+  buildCodexPostureByEmailFromPayload,
+  buildCodexUsagePostureView,
+  loadLatestCodexSessionsSnapshot,
+  type CodexUserUsagePosture,
+} from "@/lib/analytics/codex-usage-posture";
+import { formatLocalYmd } from "@/lib/f1-period";
 import { summarizeEntraAiSignInIpsForEmail } from "@/lib/integrations/azuread/sign-in-logs";
 import { summarizeComplianceAuthLogIpsForEmail } from "@/lib/integrations/openai-compliance";
 import { Search, ChevronRight, AlertTriangle } from "lucide-react";
@@ -272,7 +280,25 @@ async function getUserDetail(selection: string) {
     codexFootprint,
     entraFootprint,
     complianceFootprint,
+    openAiPeriodStart,
   };
+}
+
+function resolveCodexUsagePostureForEmail(args: {
+  snapshot: Awaited<ReturnType<typeof loadLatestCodexSessionsSnapshot>>;
+  email: string;
+  clip: { start: string; end: string };
+}): CodexUserUsagePosture | null {
+  if (!args.snapshot) return null;
+  const view = buildCodexUsagePostureView({
+    payload: args.snapshot.payload,
+    clip: args.clip,
+    snapshotPeriodStart: args.snapshot.periodStart,
+    snapshotPeriodEnd: args.snapshot.periodEnd,
+  });
+  if (!view) return null;
+  const norm = normCodexAnalyticsEmail(args.email);
+  return view.topUsers.find((u) => u.email === norm) ?? null;
 }
 
 async function safeFootprint<T extends { available: boolean; reason?: string }>(
@@ -299,7 +325,26 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
   // Avoid expensive per-user footprint fan-out on initial page open.
   // Detail loads after explicit user selection.
   const selectedId = sp.user;
-  const detail = selectedId ? await getUserDetail(selectedId) : null;
+  const now = new Date();
+  const codexClip = {
+    start: formatLocalYmd(startOfOpenAiChatGptCodexBillingPeriod(now)),
+    end: formatLocalYmd(now),
+  };
+  const [detail, codexSnapshot] = await Promise.all([
+    selectedId ? getUserDetail(selectedId) : Promise.resolve(null),
+    loadLatestCodexSessionsSnapshot(prisma),
+  ]);
+  const codexPostureByEmail = codexSnapshot
+    ? buildCodexPostureByEmailFromPayload(codexSnapshot.payload)
+    : new Map<string, CodexUserUsagePosture>();
+  const detailCodexPosture =
+    detail && codexSnapshot
+      ? resolveCodexUsagePostureForEmail({
+          snapshot: codexSnapshot,
+          email: detail.user.email,
+          clip: codexClip,
+        })
+      : null;
 
   return (
     <>
@@ -359,6 +404,7 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
               <ul className="divide-y divide-slate-100 max-h-[680px] overflow-y-auto">
                 {directory.rows.map((u) => {
                   const isActive = u.id === selectedId;
+                  const codexHint = codexPostureByEmail.get(normCodexAnalyticsEmail(u.email));
                   return (
                     <li key={`${u.email}:${u.id}`}>
                       <Link
@@ -376,6 +422,14 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
                             {u.displayName}
                           </div>
                           <div className="text-xs text-slate-500 truncate">{u.email}</div>
+                          {codexHint?.top_model ? (
+                            <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                              Codex: {codexHint.top_model}
+                              {codexHint.lines_added > 0
+                                ? ` · ${codexHint.lines_added.toLocaleString()} lines`
+                                : ""}
+                            </div>
+                          ) : null}
                         </div>
                         {u.region === "apac-mo" ? (
                           <Badge variant="warning">apac-mo</Badge>
@@ -424,7 +478,18 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
           {/* Detail */}
           <div className="lg:col-span-2 space-y-4">
             {detail ? (
-              <UserDetail detail={detail} />
+              <UserDetail
+                detail={detail}
+                codexUsagePosture={detailCodexPosture}
+                codexSnapshotMeta={
+                  codexSnapshot
+                    ? {
+                        periodStart: codexSnapshot.periodStart,
+                        periodEnd: codexSnapshot.periodEnd,
+                      }
+                    : null
+                }
+              />
             ) : selectedId ? (
               <Card>
                 <CardContent className="p-10 text-sm text-slate-500">
@@ -449,8 +514,12 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
 
 function UserDetail({
   detail,
+  codexUsagePosture,
+  codexSnapshotMeta,
 }: {
   detail: NonNullable<Awaited<ReturnType<typeof getUserDetail>>>;
+  codexUsagePosture: CodexUserUsagePosture | null;
+  codexSnapshotMeta: { periodStart: string | null; periodEnd: string | null } | null;
 }) {
   const {
     user,
@@ -626,6 +695,71 @@ function UserDetail({
               <p className="mt-1 text-xs text-slate-500">{complianceFootprint.reason}</p>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card id="codex-usage">
+        <CardHeader>
+          <CardTitle>Codex usage posture</CardTitle>
+          <CardDescription>
+            Model mix and code attribution from the latest{" "}
+            <code className="font-mono text-xs">CODEX_SESSIONS_JSON</code> snapshot (OpenAI billing
+            period MTD).{" "}
+            <Link href="/analytics/codex" className="text-sky-700 underline underline-offset-2">
+              Program analytics
+            </Link>
+            .
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm">
+          {codexUsagePosture ? (
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <dt className="text-xs text-slate-500">Credits (snapshot window)</dt>
+                <dd className="font-mono text-base font-semibold text-slate-900">
+                  {codexUsagePosture.credits_used.toFixed(2)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Top model</dt>
+                <dd className="font-mono text-base font-semibold text-slate-900">
+                  {codexUsagePosture.top_model ?? "—"}
+                  {codexUsagePosture.top_model ? (
+                    <span className="text-sm font-normal text-slate-500">
+                      {" "}
+                      ({codexUsagePosture.top_model_credits.toFixed(1)} credits)
+                    </span>
+                  ) : null}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Lines added</dt>
+                <dd className="font-mono text-base font-semibold text-slate-900">
+                  {codexUsagePosture.lines_added.toLocaleString()}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Lines removed</dt>
+                <dd className="font-mono text-base font-semibold text-slate-900">
+                  {codexUsagePosture.lines_removed.toLocaleString()}
+                </dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="text-slate-500 text-sm">
+              No Codex usage posture in the current billing-period window. Run the Codex Enterprise
+              Analytics sync or check{" "}
+              <Link href="/analytics/codex" className="text-sky-700 underline underline-offset-2">
+                Analytics → Codex posture
+              </Link>
+              .
+            </p>
+          )}
+          {codexSnapshotMeta?.periodStart && codexSnapshotMeta.periodEnd ? (
+            <p className="mt-3 text-xs text-slate-500">
+              Snapshot covers {codexSnapshotMeta.periodStart} → {codexSnapshotMeta.periodEnd}.
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 

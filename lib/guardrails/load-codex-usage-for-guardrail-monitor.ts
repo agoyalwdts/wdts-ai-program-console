@@ -10,6 +10,10 @@ import {
   resolveCodexEnterpriseAnalyticsCredentials,
   resolveUsdPerCredit,
 } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
+import {
+  codexUsageRowUserId,
+  resolveCodexUsageRowEmail,
+} from "@/lib/integrations/codex-enterprise-analytics/resolve-usage-row-identity";
 import type { Fetch } from "@/lib/integrations/_http";
 import { buildCodexAnalyticsUserEmailMap } from "./build-codex-user-email-map";
 import {
@@ -107,8 +111,8 @@ export async function loadCodexUsageForGuardrailMonitor(args: {
   let bucketsWithoutEmail = 0;
   for (const bucket of buckets) {
     const hasEmail =
-      Boolean(bucket.email?.includes("@")) ||
-      Boolean(bucket.user_id && userIdToEmail.has(bucket.user_id.trim()));
+      Boolean(resolveCodexUsageRowEmail(bucket, userIdToEmail)) ||
+      Boolean(codexUsageRowUserId(bucket) && userIdToEmail.has(codexUsageRowUserId(bucket)!));
     if (!hasEmail && (bucket.totals?.credits ?? 0) > 0) bucketsWithoutEmail += 1;
 
     const mapped = mapCodexUsageRowToGuardrailUsage({

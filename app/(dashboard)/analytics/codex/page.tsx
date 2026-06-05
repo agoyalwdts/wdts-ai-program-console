@@ -3,14 +3,15 @@ import { Suspense } from "react";
 import { Topbar } from "@/components/dashboard/topbar";
 import { F1PeriodRangeLine } from "@/components/dashboard/f1-period-range-line";
 import { HealthPeriodSelector } from "@/components/dashboard/health-period-selector";
-import { AnalyticsCursorPanels } from "@/components/dashboard/analytics-cursor-panels";
-import { AnalyticsManualVendorCharts } from "@/components/dashboard/analytics-manual-vendor-charts";
+import { AnalyticsCodexPosturePanel } from "@/components/dashboard/analytics-codex-posture-panel";
 import { requirePermission, requireUser } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { prisma } from "@/lib/prisma";
-import { loadCursorApiOverview } from "@/lib/integrations/cursor/cursor-api-overview";
-import { loadLatestProgramVendorExportSnapshots } from "@/lib/analytics/manual-vendor-snapshots";
-import { analyticsWindowForF1Plan } from "@/lib/cursor-analytics-window";
+import { getIntegrationMode } from "@/lib/integrations/env";
+import {
+  buildCodexUsagePostureView,
+  loadLatestCodexSessionsSnapshot,
+} from "@/lib/analytics/codex-usage-posture";
 import {
   formatLocalYmd,
   resolveF1PlanFromSearchParams,
@@ -31,7 +32,7 @@ function analyticsPeriodQueryString(sp: F1SearchParams): string {
   return s ? `?${s}` : "";
 }
 
-export default async function AnalyticsDiagnosticsPage(props: { searchParams: Promise<F1SearchParams> }) {
+export default async function AnalyticsCodexPage(props: { searchParams: Promise<F1SearchParams> }) {
   await requireUser();
   await requirePermission(PERMISSIONS.DASHBOARD_VIEW_ANALYTICS);
 
@@ -39,33 +40,45 @@ export default async function AnalyticsDiagnosticsPage(props: { searchParams: Pr
   const periodQs = analyticsPeriodQueryString(sp);
   const now = new Date();
   const { plan, period } = resolveF1PlanFromSearchParams(now, sp);
-  const analyticsWindow = analyticsWindowForF1Plan(plan);
+  const clip = {
+    start: formatLocalYmd(plan.periodStart),
+    end: formatLocalYmd(plan.periodEnd),
+  };
 
-  const [cursorOverview, manualVendorSnapshots] = await Promise.all([
-    loadCursorApiOverview({ analyticsWindow, includeDiagnostics: true }),
-    loadLatestProgramVendorExportSnapshots(prisma),
+  const [snapshot, codexEaMode] = await Promise.all([
+    loadLatestCodexSessionsSnapshot(prisma),
+    Promise.resolve(getIntegrationMode("codexenterprise")),
   ]);
+
+  const view = snapshot
+    ? buildCodexUsagePostureView({
+        payload: snapshot.payload,
+        clip,
+        snapshotPeriodStart: snapshot.periodStart,
+        snapshotPeriodEnd: snapshot.periodEnd,
+      })
+    : null;
 
   return (
     <div className="flex flex-col min-h-0">
       <Topbar
-        title="Analytics Diagnostics"
-        subtitle="Endpoint-level probes and imported snapshot previews"
+        title="Codex usage posture"
+        subtitle="Model mix and code attribution from Enterprise Analytics snapshots"
       />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-6 py-2.5">
         <div className="flex items-center gap-3">
           <F1PeriodRangeLine plan={plan} period={period} />
           <Link
             className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-            href={`/analytics/codex${periodQs}`}
-          >
-            Codex posture
-          </Link>
-          <Link
-            className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
             href={`/analytics${periodQs}`}
           >
             Analytics
+          </Link>
+          <Link
+            className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            href={`/analytics/diagnostics${periodQs}`}
+          >
+            Diagnostics
           </Link>
         </div>
         <Suspense
@@ -80,25 +93,27 @@ export default async function AnalyticsDiagnosticsPage(props: { searchParams: Pr
       </div>
       <div className="flex-1 overflow-auto px-6 py-6 space-y-6">
         <p className="text-sm text-slate-600 max-w-3xl">
-          This page is for drill-down troubleshooting. It includes lower-priority Cursor API probes
-          and raw imported snapshot previews that are intentionally excluded from the main Analytics
-          tab.
+          Per-user usage buckets (models and <code className="font-mono text-xs">code_attribution</code>
+          ) come from the hourly Codex Enterprise Analytics sync into{" "}
+          <code className="font-mono text-xs">CODEX_SESSIONS_JSON</code> snapshots — not a live API
+          call on this page. Charts respect the Program Health period above; the snapshot may cover a
+          shorter lookback window than your selected range.
         </p>
 
-        <AnalyticsCursorPanels
-          overview={cursorOverview}
-          includeCorePanels={false}
-          includeDiagnosticPanels
-        />
-
-        <AnalyticsManualVendorCharts
-          snapshots={manualVendorSnapshots}
-          clipRangeYmd={{
-            start: formatLocalYmd(plan.periodStart),
-            end: formatLocalYmd(plan.periodEnd),
-          }}
-          includeCoreSections={false}
-          includeDiagnosticSections
+        <AnalyticsCodexPosturePanel
+          view={view}
+          clip={clip}
+          codexMode={codexEaMode}
+          snapshotMeta={
+            snapshot
+              ? {
+                  filename: snapshot.filename,
+                  createdAt: snapshot.createdAt,
+                  periodStart: snapshot.periodStart,
+                  periodEnd: snapshot.periodEnd,
+                }
+              : null
+          }
         />
       </div>
     </div>

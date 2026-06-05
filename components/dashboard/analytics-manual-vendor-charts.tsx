@@ -129,6 +129,54 @@ function CodexSessionsChart({ payload, clip }: { payload: unknown; clip?: Analyt
   );
 }
 
+function CodexCodeReviewResponsesChart({
+  payload,
+  clip,
+}: {
+  payload: unknown;
+  clip?: AnalyticsClipYmd;
+}) {
+  const p = payload as {
+    days?: {
+      date: string;
+      replies: number;
+      reactions: number;
+      engaged?: number;
+    }[];
+  };
+  const data = (p.days ?? [])
+    .filter((d) => (clip ? ymdInClip(d.date, clip) : true))
+    .map((d) => ({
+      date: d.date.slice(5),
+      replies: d.replies,
+      reactions: d.reactions,
+      engaged: d.engaged ?? 0,
+    }));
+  if (data.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        {clip ? "No review-response days in the selected period." : "No rows."}
+      </p>
+    );
+  }
+  return (
+    <div className="h-64 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200" />
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+          <YAxis tick={{ fontSize: 11 }} />
+          <Tooltip />
+          <Legend />
+          <Line type="monotone" dataKey="replies" name="Replies" stroke="#2563eb" dot={false} />
+          <Line type="monotone" dataKey="reactions" name="Reactions" stroke="#7c3aed" dot={false} />
+          <Line type="monotone" dataKey="engaged" name="Engaged" stroke="#10b981" dot={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function CodexCodeReviewChart({ payload, clip }: { payload: unknown; clip?: AnalyticsClipYmd }) {
   const p = payload as { days?: { date: string; n_reviews: number; n_comments: number }[] };
   const data = (p.days ?? [])
@@ -347,6 +395,7 @@ export function AnalyticsManualVendorCharts({
   const workspace = findSnapshot(snapshots, "CODEX_WORKSPACE_JSON");
   const sessions = findSnapshot(snapshots, "CODEX_SESSIONS_JSON");
   const codeReview = findSnapshot(snapshots, "CODEX_CODE_REVIEW_JSON");
+  const codeReviewResponses = findSnapshot(snapshots, "CODEX_CODE_REVIEW_RESPONSES_JSON");
   const chatgptUsers = findSnapshot(snapshots, "CHATGPT_USERS_CSV");
   const gpts = findSnapshot(snapshots, "CHATGPT_GPTS_CSV");
   const projects = findSnapshot(snapshots, "CHATGPT_PROJECTS_CSV");
@@ -379,9 +428,9 @@ export function AnalyticsManualVendorCharts({
           Latest snapshot per export type from{" "}
           <Link href="/settings/imports" className="underline underline-offset-2 text-slate-800">
             Settings → Data imports
-          </Link>
-          . Re-upload anytime to refresh. Time-series charts are clipped to the selected Program
-          Health period above.
+          </Link>{" "}
+          or the hourly Codex Enterprise Analytics sync. Re-upload or wait for cron to refresh.
+          Time-series charts are clipped to the selected Program Health period above.
         </p>
         <PeriodClipHint clip={clipRangeYmd} />
       </div>
@@ -414,6 +463,26 @@ export function AnalyticsManualVendorCharts({
                   <CodexCodeReviewChart payload={codeReview.payload} clip={clipRangeYmd} />
                 ) : (
                   <p className="text-sm text-slate-500">No code review JSON imported.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Codex — code review user responses</CardTitle>
+                <CardDescription>Replies, reactions, and engagement on review comments.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {meta(codeReviewResponses)}
+                {codeReviewResponses ? (
+                  <CodexCodeReviewResponsesChart
+                    payload={codeReviewResponses.payload}
+                    clip={clipRangeYmd}
+                  />
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    No code review responses yet (import JSON or wait for analytics API sync).
+                  </p>
                 )}
               </CardContent>
             </Card>

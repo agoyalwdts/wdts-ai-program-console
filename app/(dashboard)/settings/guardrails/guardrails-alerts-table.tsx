@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
@@ -430,12 +431,22 @@ export function GuardrailsAlertsTable({
                   </Badge>
                 </TD>
                 <TD className="text-xs font-mono align-top py-2">
-                  <span
-                    className={`block break-all leading-snug ${r.userEmail ? "" : "text-amber-800"}`}
-                    title={r.subjectTitle ?? r.userEmail ?? undefined}
-                  >
-                    {r.subjectLabel}
-                  </span>
+                  {r.userEmail ? (
+                    <Link
+                      href={`/users?user=${encodeURIComponent(r.userEmail)}#codex-usage`}
+                      className="block break-all leading-snug text-sky-700 hover:underline"
+                      title={r.subjectTitle ?? r.userEmail}
+                    >
+                      {r.subjectLabel}
+                    </Link>
+                  ) : (
+                    <span
+                      className="block break-all leading-snug text-amber-800"
+                      title={r.subjectTitle ?? undefined}
+                    >
+                      {r.subjectLabel}
+                    </span>
+                  )}
                 </TD>
                 <TD className="text-xs align-top py-2">
                   <div className="break-words leading-snug font-mono" title={r.model ?? undefined}>

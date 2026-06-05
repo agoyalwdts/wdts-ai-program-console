@@ -121,11 +121,12 @@ export function ImportProgramVendorPanel() {
   return (
     <div className="space-y-6">
       <p className="text-sm text-slate-600">
-        Upload ChatGPT Business and Codex admin exports (and optional Cursor team CSV) until live
-        vendor APIs are wired. ChatGPT users CSV and Codex workspace JSON update{" "}
-        <code className="text-xs bg-slate-100 px-1 py-0.5 rounded">VendorDailySpend</code> so Program
-        Health matches the files. OpenAI org costs and Codex Enterprise Analytics syncs still
-        override these when active.
+        Upload ChatGPT Business and Codex admin exports (and optional Cursor team CSV) for history
+        or when live APIs are unavailable. When Codex Enterprise Analytics sync is enabled, the hourly
+        cron replaces manual Codex JSON with API snapshots (workspace, sessions, code reviews,
+        review responses). ChatGPT users CSV and Codex workspace JSON still update{" "}
+        <code className="text-xs bg-slate-100 px-1 py-0.5 rounded">VendorDailySpend</code> on
+        import. OpenAI org costs and Codex Enterprise Analytics syncs override imports when active.
       </p>
 
       <div className="grid gap-4 sm:grid-cols-2">

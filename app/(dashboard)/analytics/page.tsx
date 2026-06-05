@@ -85,6 +85,12 @@ export default async function AnalyticsPage(props: { searchParams: Promise<F1Sea
           <F1PeriodRangeLine plan={plan} period={period} />
           <Link
             className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            href={`/analytics/codex${periodQs}`}
+          >
+            Codex posture
+          </Link>
+          <Link
+            className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
             href={`/analytics/diagnostics${periodQs}`}
           >
             Diagnostics
