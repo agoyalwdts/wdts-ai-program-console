@@ -5,8 +5,8 @@
 #   - Repository secret CRON_SHARED_SECRET matches App Service CRON_SHARED_SECRET.
 #   - App Service has Cursor / OpenAI credentials when those integrations are real.
 #
-# Hourly legs use a short lookback (incremental refresh). For a full backfill, use
-# Settings → sync or workflow_dispatch (runs all three legs).
+# Hourly legs use a short lookback (incremental refresh). For Cursor history backfill,
+# workflow_dispatch with cursor_backfill_days (default 90) runs chunked 7-day windows.
 
 name: Cron — vendor spend sync
 
@@ -18,6 +18,12 @@ on:
     - cron: "41 4 * * *"
     - cron: "41 16 * * *"
   workflow_dispatch:
+    inputs:
+      cursor_backfill_days:
+        description: "Cursor backfill depth (0 = skip; max 120). Runs 7-day chunks via cron API."
+        required: false
+        default: "0"
+        type: string
 
 permissions:
   contents: read
@@ -43,19 +49,56 @@ jobs:
             echo "::error::CRON_SHARED_SECRET is not set."
             exit 1
           fi
-      - name: POST sync-cursor-spend
+      - name: POST sync-cursor-spend (incremental)
+        if: github.event_name != 'workflow_dispatch' || inputs.cursor_backfill_days == '0' || inputs.cursor_backfill_days == ''
         env:
           CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
         run: |
           BODY='{"lookbackDays":7}'
           SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" | awk '{print $2}')
           URL="${DASHBOARD_BASE_URL}/api/cron/sync-cursor-spend"
-          echo "## cursor — $URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "## cursor incremental — $URL" >> "$GITHUB_STEP_SUMMARY"
           HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
             -H "x-cron-signature: sha256=${SIG}" -H "content-type: application/json" \
             --data "$BODY" "$URL")
           cat /tmp/out.json >> "$GITHUB_STEP_SUMMARY"
           [ "$HTTP" = "200" ] || (echo "::error::HTTP $HTTP" && exit 1)
+      - name: POST sync-cursor-spend (chunked backfill)
+        if: github.event_name == 'workflow_dispatch' && inputs.cursor_backfill_days != '' && inputs.cursor_backfill_days != '0'
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+          BACKFILL_DAYS: ${{ inputs.cursor_backfill_days }}
+        run: |
+          set -euo pipefail
+          TOTAL="$BACKFILL_DAYS"
+          if ! [[ "$TOTAL" =~ ^[0-9]+$ ]] || [ "$TOTAL" -lt 1 ]; then
+            echo "::error::cursor_backfill_days must be a positive integer"
+            exit 1
+          fi
+          if [ "$TOTAL" -gt 120 ]; then TOTAL=120; fi
+          URL="${DASHBOARD_BASE_URL}/api/cron/sync-cursor-spend"
+          echo "## cursor backfill ${TOTAL}d — $URL" >> "$GITHUB_STEP_SUMMARY"
+          CHUNK=7
+          end_offset=0
+          chunk_num=0
+          while [ "$end_offset" -lt "$TOTAL" ]; do
+            chunk_num=$((chunk_num + 1))
+            remaining=$((TOTAL - end_offset))
+            lookback=$CHUNK
+            if [ "$remaining" -lt "$lookback" ]; then lookback=$remaining; fi
+            skip_decision="true"
+            next_offset=$((end_offset + CHUNK))
+            if [ "$next_offset" -ge "$TOTAL" ]; then skip_decision="false"; fi
+            BODY=$(printf '{"lookbackDays":%s,"endOffsetDays":%s,"skipDecision":%s}' "$lookback" "$end_offset" "$skip_decision")
+            SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" | awk '{print $2}')
+            echo "### chunk ${chunk_num} endOffset=${end_offset} lookback=${lookback}" >> "$GITHUB_STEP_SUMMARY"
+            HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
+              -H "x-cron-signature: sha256=${SIG}" -H "content-type: application/json" \
+              --data "$BODY" "$URL")
+            cat /tmp/out.json >> "$GITHUB_STEP_SUMMARY"
+            [ "$HTTP" = "200" ] || (echo "::error::HTTP $HTTP on chunk ${chunk_num}" && exit 1)
+            end_offset=$((end_offset + CHUNK))
+          done
 
   sync-codex:
     name: codex enterprise (hourly)

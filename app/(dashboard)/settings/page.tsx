@@ -318,9 +318,11 @@ export default async function SettingsPage() {
                     Calls Cursor Team Admin{" "}
                     <code className="font-mono text-xs">/teams/filtered-usage-events</code>{" "}
                     (Basic auth). Upserts daily USD into the dashboard DB so the F1 CURSOR tile
-                    matches the Cursor usage dashboard. Schedule{" "}
+                    matches the Cursor usage dashboard. Hourly cron refreshes the last 7 days;
+                    use <strong>Backfill 90 days</strong> once to populate older F1 tiles (chunked
+                    requests). Schedule{" "}
                     <code className="font-mono text-xs">POST /api/cron/sync-cursor-spend</code>{" "}
-                    (hourly, 7-day lookback) or run manually below (same window).
+                    or run manually below.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
