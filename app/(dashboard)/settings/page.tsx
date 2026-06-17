@@ -320,7 +320,7 @@ export default async function SettingsPage() {
                     (Basic auth). Upserts daily USD into the dashboard DB so the F1 CURSOR tile
                     matches the Cursor usage dashboard. Schedule{" "}
                     <code className="font-mono text-xs">POST /api/cron/sync-cursor-spend</code>{" "}
-                    or run manually below.
+                    (hourly, 7-day lookback) or run manually below (same window).
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

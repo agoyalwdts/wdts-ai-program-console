@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const lookbackDays = parsed.lookbackDays ?? 120;
+  const lookbackDays = Math.min(Math.max(parsed.lookbackDays ?? 7, 1), 30);
 
   try {
     const result = await syncCursorVendorDailySpend(prisma, {
