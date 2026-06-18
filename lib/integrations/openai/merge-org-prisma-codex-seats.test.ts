@@ -66,6 +66,29 @@ describe("mergeOrgUsersWithPrismaCodexSeats", () => {
     expect(merged[2]?.email).toBe("orphan@x.com");
   });
 
+  it("omits prisma orphans when includePrismaOrphans is false", () => {
+    const prismaSeats: CodexSeat[] = [
+      {
+        userId: "lic-2",
+        email: "orphan@x.com",
+        displayName: "O",
+        subTier: "DISCOVERY",
+        capUsdMonth: 75,
+        mtdSpendUsd: 0,
+        lastActivityTs: null,
+        idleDays: null,
+      },
+    ];
+    const merged = mergeOrgUsersWithPrismaCodexSeats({
+      orgMembers: [{ id: "ou_b", email: "b@x.com", displayName: "B" }],
+      prismaSeats,
+      dashboardUserIdByNormEmail: new Map([["b@x.com", "u-b"]]),
+      includePrismaOrphans: false,
+    });
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.email).toBe("b@x.com");
+  });
+
   it("uses openai-org id when no dashboard user for org-only email", () => {
     const merged = mergeOrgUsersWithPrismaCodexSeats({
       orgMembers: [{ id: "ou_x", email: "ghost@x.com", displayName: "Ghost" }],

@@ -11,7 +11,10 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { CODEX_TIERS } from "@/lib/program";
 import { cn, formatUsd } from "@/lib/utils";
-import { getOpenAIClient } from "@/lib/integrations";
+import {
+  loadCodexLadderSeats,
+  type CodexLadderSource,
+} from "@/lib/integrations/openai/codex-ladder-seats";
 import type { CodexSeat, CodexSubTier } from "@/lib/integrations/openai";
 import { requireUser, userHasPermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
@@ -40,7 +43,8 @@ function utilisationPct(seat: CodexSeat) {
 }
 
 async function getLadder() {
-  const seats = await getOpenAIClient().listCodexSeats();
+  const loaded = await loadCodexLadderSeats();
+  const seats = loaded.seats;
 
   const byTier: Record<Tier, CodexSeat[]> = {
     POWER: [],
@@ -74,7 +78,15 @@ async function getLadder() {
     .sort((a, b) => (b.idleDays ?? 0) - (a.idleDays ?? 0))
     .slice(0, 10);
 
-  return { byTier, promotionCandidates, demotionCandidates, dormancyCandidates, all: seats };
+  return {
+    byTier,
+    promotionCandidates,
+    demotionCandidates,
+    dormancyCandidates,
+    all: seats,
+    source: loaded.source,
+    warnings: loaded.warnings,
+  };
 }
 
 export default async function CodexLadderPage() {
@@ -94,12 +106,32 @@ export default async function CodexLadderPage() {
         subtitle="F9 — distribution across Power / Standard / Light / Discovery; cap utilisation and promotion/demotion queues."
       />
       <div className="p-6 space-y-6">
+        {data.warnings.length > 0 ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 space-y-1">
+            <p className="font-medium">Data source: {codexLadderSourceLabel(data.source)}</p>
+            {data.warnings.map((w) => (
+              <p key={w} className="text-xs text-amber-800">
+                {w}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">
+            Data source: {codexLadderSourceLabel(data.source)}
+          </p>
+        )}
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard
             label="Total Codex seats"
             value={total}
-            sub="listCodexSeats — Prisma tiers; real OpenAI org union; MTD from Codex analytics when enabled"
+            sub={
+              data.source === "synthetic_prisma"
+                ? "Dev Prisma License rows"
+                : data.source === "unavailable"
+                  ? "Live APIs returned no roster"
+                  : "OpenAI org + Codex analytics roster"
+            }
           />
           <StatCard label="Aggregate MTD" value={formatUsd(totalSpend, { decimals: 0 })} sub={`of ${formatUsd(totalCap, { decimals: 0 })} cap`} />
           <StatCard label="Promotion candidates" value={data.promotionCandidates.length} sub="Discovery ≥ 50% cap" tone="emerald" />
@@ -112,8 +144,9 @@ export default async function CodexLadderPage() {
             <CardTitle>Tier distribution</CardTitle>
             <CardDescription>
               Counts vs the §4.6.2 design quotas (Power 16 / Standard 40 / Light 24 /
-              Discovery 234). v0.2 prototype runs at 30-user scale, so absolute counts
-              differ; ratios should still show the funnel shape.
+              Discovery 234). Tier and cap come from dashboard{" "}
+              <code className="font-mono text-xs">License</code> rows when present; roster
+              members come from live OpenAI org and/or Codex analytics exports.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -195,21 +228,22 @@ export default async function CodexLadderPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="px-0 pb-0">
-            <SeatTable seats={data.dormancyCandidates} columns={["user", "tier", "lastActivity", "idleDays", "mtdSpend"]} emptyText="No seats meet the 60-day dormancy threshold in the synthetic dataset." />
+            <SeatTable seats={data.dormancyCandidates} columns={["user", "tier", "lastActivity", "idleDays", "mtdSpend"]} emptyText="No seats meet the 60-day dormancy threshold." />
           </CardContent>
         </Card>
 
         <p className="text-xs text-slate-400">
-          v0.2 — <code className="font-mono">getOpenAIClient().listCodexSeats()</code>: synthetic mode uses
+          F9 loads via <code className="font-mono">loadCodexLadderSeats()</code>: synthetic mode uses
           Prisma <code className="font-mono">License</code> (<code className="font-mono">CODEX</code>) only.
-          With <code className="font-mono">INTEGRATION_OPENAI=real</code>, seats union OpenAI Admin org users
-          with licensed rows (tier/cap from Prisma). With{" "}
-          <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>, per-seat MTD and
-          last activity come from <code className="font-mono">api.chatgpt.com</code> Codex analytics (per-user
-          usage); otherwise from the gateway mirror. Cap utilisation is period-to-date since the plan
-          renews on the <strong>16th</strong> each month. Tier moves (F6) open a policy-repo PR via{" "}
+          With <code className="font-mono">INTEGRATION_OPENAI=real</code>, roster includes OpenAI Admin org
+          users. With{" "}
+          <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>, roster also
+          unions emails from the latest <code className="font-mono">CODEX_SESSIONS_JSON</code> snapshot.
+          Per-seat MTD comes from Codex analytics (live API + snapshot fallback); gateway mirror is a
+          secondary source. Cap utilisation is period-to-date since the plan renews on the{" "}
+          <strong>16th</strong> each month. Tier moves (F6) open a policy-repo PR via{" "}
           <code className="font-mono">POST /api/tier-moves/codex</code> — the dashboard mirror updates
-          after the PR merges; until then the ladder reflects the current license row.
+          after the PR merges.
         </p>
       </div>
     </>
@@ -408,3 +442,20 @@ const COLUMN_LABEL: Record<
   mtdSpend: "MTD spend",
   action: "",
 };
+
+function codexLadderSourceLabel(source: CodexLadderSource): string {
+  switch (source) {
+    case "openai_org":
+      return "OpenAI Admin GET /organization/users";
+    case "codex_analytics_snapshot":
+      return "Codex Enterprise Analytics snapshot (CODEX_SESSIONS_JSON)";
+    case "openai_org_and_analytics":
+      return "OpenAI org users + Codex analytics snapshot";
+    case "synthetic_prisma":
+      return "Dev Prisma License rows";
+    case "unavailable":
+      return "Live APIs returned no roster";
+    default:
+      return source;
+  }
+}

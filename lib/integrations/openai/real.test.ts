@@ -14,6 +14,9 @@ vi.mock("@/lib/prisma", () => ({
     user: {
       findMany: (...args: unknown[]) => mockUserFindMany(...args),
     },
+    programVendorExportSnapshot: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
   },
 }));
 
@@ -48,6 +51,7 @@ function makeMockFetch(
 const ENV = {
   OPENAI_ADMIN_API_KEY: "sk-admin-test",
   OPENAI_ORG_ID: "org-test",
+  INTEGRATION_OPENAI: "real",
 };
 
 describe("makeRealOpenAIClient", () => {
@@ -114,7 +118,7 @@ describe("makeRealOpenAIClient", () => {
     expect(calls[0].headers["openai-organization"]).toBe("org-test");
   });
 
-  it("listCodexSeats with empty org roster returns Prisma CODEX licenses only", async () => {
+  it("listCodexSeats with empty org roster returns no seats in real mode", async () => {
     mockCodexFromPrisma.mockResolvedValue([
       {
         userId: "uuid-1",
@@ -132,9 +136,7 @@ describe("makeRealOpenAIClient", () => {
       body: { data: [], has_more: false },
     }));
     const seats = await makeRealOpenAIClient({ fetchImpl, env: ENV }).listCodexSeats();
-    expect(seats).toHaveLength(1);
-    expect(seats[0]?.subTier).toBe("STANDARD");
-    expect(mockCodexFromPrisma).toHaveBeenCalledTimes(1);
+    expect(seats).toHaveLength(0);
   });
 
   it("listCodexSeats unions OpenAI org users with Prisma CODEX licenses", async () => {
@@ -169,7 +171,7 @@ describe("makeRealOpenAIClient", () => {
     expect(seats[1]?.subTier).toBe("STANDARD");
   });
 
-  it("listCodexSeats falls back to Prisma-only when org users API fails", async () => {
+  it("listCodexSeats returns no seats when org users API fails in real mode", async () => {
     mockCodexFromPrisma.mockResolvedValue([
       {
         userId: "uuid-1",
@@ -184,8 +186,7 @@ describe("makeRealOpenAIClient", () => {
     ]);
     const { fetchImpl } = makeMockFetch(() => ({ status: 503, body: { error: "no" } }));
     const seats = await makeRealOpenAIClient({ fetchImpl, env: ENV }).listCodexSeats();
-    expect(seats).toHaveLength(1);
-    expect(seats[0]?.userId).toBe("uuid-1");
+    expect(seats).toHaveLength(0);
   });
 
   it("throws IntegrationError when env vars are missing", async () => {
