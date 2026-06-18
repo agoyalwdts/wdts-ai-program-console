@@ -24,6 +24,7 @@ import type {
   CursorSeat as ApiCursorSeat,
   CursorSubTier,
 } from "@/lib/integrations";
+import { enrichCursorSeatsWithVendorSpend } from "@/lib/integrations/cursor/enrich-cursor-seats-vendor-spend";
 import { syntheticCursorClient } from "@/lib/integrations/cursor/synthetic";
 import { getIntegrationMode } from "@/lib/integrations/env";
 import { requireUser, userHasPermission } from "@/lib/auth";
@@ -55,10 +56,9 @@ const TIER_ORDER: readonly CursorSubTier[] = [
 ] as const;
 
 async function loadSeatBoard(cursor: CursorClient) {
-  const [seats, waitlist] = await Promise.all([
-    cursor.listSeats(),
-    cursor.listWaitlist(),
-  ]);
+  const rawSeats = await cursor.listSeats();
+  const seats = await enrichCursorSeatsWithVendorSpend(prisma, rawSeats);
+  const waitlist = await cursor.listWaitlist();
 
   function toCell(s: ApiCursorSeat): Cell {
     return {
@@ -315,7 +315,10 @@ export default async function CursorSeatsPage() {
                   — synthetic mode uses Prisma <code className="font-mono">License</code>{" "}
                   (<code className="font-mono">CURSOR</code>) only. Real mode unions{" "}
                   <strong>SCIM workspace members</strong> with those licenses (email match keeps
-                  tier / MTD from the DB; SCIM-only rows show as Standard until licensed).
+                  tier from the DB; SCIM-only rows show as Standard until licensed). MTD spend and
+                  idle days merge Cursor Team Admin{" "}
+                  <code className="font-mono">VendorUserDailySpend</code> when{" "}
+                  <code className="font-mono">INTEGRATION_CURSOR=real</code>.
                 </CardDescription>
               </div>
               <div className="flex items-center gap-3 text-xs">
