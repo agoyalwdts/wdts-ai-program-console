@@ -16,6 +16,7 @@
  *     "via email bootstrap" vs "default".
  */
 
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import type { DashboardRole, RoleSource } from "@/lib/auth-roles";
@@ -42,7 +43,7 @@ export type SessionUser = {
   disabled: boolean;
 };
 
-export async function getCurrentUser(): Promise<SessionUser | null> {
+export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   const session = await auth();
   const u = session?.user;
   if (!u?.email) return null;
@@ -62,13 +63,13 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     roleSource: v.roleSource ?? { kind: "default" },
     disabled: Boolean(v.disabled),
   };
-}
+});
 
-export async function requireUser(): Promise<SessionUser> {
+export const requireUser = cache(async (): Promise<SessionUser> => {
   const u = await getCurrentUser();
   if (!u) redirect("/api/auth/signin");
   return u;
-}
+});
 
 /**
  * Coarse, role-based gate. Kept for back-compat with v0.2 callsites.

@@ -20,6 +20,9 @@ import {
   mergeOrgUsersWithPrismaCodexSeats,
   type OrgMemberBrief,
 } from "./merge-org-prisma-codex-seats";
+import {
+  loadChatGptWorkspaceRosterMembers,
+} from "./chatgpt-workspace-roster";
 import { listOpenAiOrgMembers } from "./org-users";
 import {
   enrichCodexSeatsForDisplay,
@@ -30,9 +33,12 @@ import type { CodexSeat } from "./types";
 
 export type CodexLadderSource =
   | "synthetic_prisma"
+  | "chatgpt_scim"
+  | "chatgpt_workspace_export"
   | "openai_org"
   | "codex_analytics_snapshot"
   | "openai_org_and_analytics"
+  | "chatgpt_workspace_roster"
   | "unavailable";
 
 export type CodexLadderLoadResult = {
@@ -168,13 +174,24 @@ async function enrichCodexSeatsMtdFromSnapshot(
 }
 
 function resolveSource(args: {
+  scimCount: number;
+  workspaceExportCount: number;
   orgCount: number;
   analyticsCount: number;
 }): CodexLadderSource {
-  const { orgCount, analyticsCount } = args;
-  if (orgCount > 0 && analyticsCount > 0) return "openai_org_and_analytics";
-  if (orgCount > 0) return "openai_org";
-  if (analyticsCount > 0) return "codex_analytics_snapshot";
+  const { scimCount, workspaceExportCount, orgCount, analyticsCount } = args;
+  const hasWorkspace = scimCount > 0 || workspaceExportCount > 0;
+  const hasOrg = orgCount > 0;
+  const hasAnalytics = analyticsCount > 0;
+
+  if (scimCount > 0 && !hasOrg && !hasAnalytics) return "chatgpt_scim";
+  if (workspaceExportCount > 0 && !hasOrg && !hasAnalytics && scimCount === 0) {
+    return "chatgpt_workspace_export";
+  }
+  if (hasWorkspace && (hasOrg || hasAnalytics)) return "chatgpt_workspace_roster";
+  if (hasOrg && hasAnalytics) return "openai_org_and_analytics";
+  if (hasOrg) return "openai_org";
+  if (hasAnalytics) return "codex_analytics_snapshot";
   return "unavailable";
 }
 
@@ -200,24 +217,47 @@ export async function loadCodexLadderSeats(args?: {
   const warnings: string[] = [];
   let orgMembers: OrgMemberBrief[] = [];
   let analyticsMembers: OrgMemberBrief[] = [];
+  let workspaceRoster = {
+    members: [] as OrgMemberBrief[],
+    scimCount: 0,
+    csvSnapshotCount: 0,
+    analyticsSnapshotCount: 0,
+    warnings: [] as string[],
+  };
 
-  if (openAiReal) {
-    try {
-      orgMembers = await listOpenAiOrgMembers({ env, fetchImpl: args?.fetchImpl });
-    } catch (err) {
-      warnings.push(
-        `OpenAI org users failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+  const [workspaceLoaded, orgResult, analyticsLoaded] = await Promise.all([
+    loadChatGptWorkspaceRosterMembers({
+      prisma,
+      env,
+      fetchImpl: args?.fetchImpl,
+    }),
+    openAiReal
+      ? listOpenAiOrgMembers({ env, fetchImpl: args?.fetchImpl })
+          .then((members) => ({ members, error: null as string | null }))
+          .catch((err) => ({
+            members: [] as OrgMemberBrief[],
+            error: err instanceof Error ? err.message : String(err),
+          }))
+      : Promise.resolve({ members: [] as OrgMemberBrief[], error: null }),
+    codexAnalyticsReal
+      ? loadAnalyticsSnapshotMembers()
+      : Promise.resolve({ members: [] as OrgMemberBrief[], warnings: [] as string[] }),
+  ]);
+
+  workspaceRoster = workspaceLoaded;
+  warnings.push(...workspaceLoaded.warnings);
+  orgMembers = orgResult.members;
+  if (orgResult.error) {
+    warnings.push(`OpenAI org users failed: ${orgResult.error}`);
   }
+  analyticsMembers = analyticsLoaded.members;
+  warnings.push(...analyticsLoaded.warnings);
 
-  if (codexAnalyticsReal) {
-    const snap = await loadAnalyticsSnapshotMembers();
-    analyticsMembers = snap.members;
-    warnings.push(...snap.warnings);
-  }
-
-  const liveMembers = dedupeMembers([...orgMembers, ...analyticsMembers]);
+  const liveMembers = dedupeMembers([
+    ...workspaceRoster.members,
+    ...orgMembers,
+    ...analyticsMembers,
+  ]);
   if (liveMembers.length === 0) {
     return {
       seats: [],
@@ -245,7 +285,7 @@ export async function loadCodexLadderSeats(args?: {
     prismaSeats,
     dashboardUserIdByNormEmail,
     includePrismaOrphans: false,
-    workspaceOnlyUserIdPrefix: "openai-org:",
+    workspaceOnlyUserIdPrefix: "openai-workspace:",
   });
 
   const enriched = await enrichCodexSeatsForDisplay(merged);
@@ -254,6 +294,9 @@ export async function loadCodexLadderSeats(args?: {
   return {
     seats,
     source: resolveSource({
+      scimCount: workspaceRoster.scimCount,
+      workspaceExportCount:
+        workspaceRoster.csvSnapshotCount + workspaceRoster.analyticsSnapshotCount,
       orgCount: orgMembers.length,
       analyticsCount: analyticsMembers.length,
     }),
