@@ -13,7 +13,20 @@ export function readScimEnv(
   const token =
     env.CURSOR_ADMIN_TOKEN?.trim() || env.CURSOR_TEAM_ADMIN_API_KEY?.trim();
   if (!baseUrl || !token) return null;
+  if (!isConfiguredScimBaseUrl(baseUrl)) return null;
   return { baseUrl: baseUrl.replace(/\/$/, ""), token };
+}
+
+/** Reject Key Vault placeholders and non-URL values — prod had PLACEHOLDER-CURSOR-SCIM-BASE-URL. */
+export function isConfiguredScimBaseUrl(baseUrl: string): boolean {
+  const trimmed = baseUrl.trim();
+  if (!trimmed || /^PLACEHOLDER/i.test(trimmed)) return false;
+  try {
+    const u = new URL(trimmed);
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 type ScimUser = {

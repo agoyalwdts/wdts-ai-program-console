@@ -64,12 +64,12 @@ async function loadLiveWorkspaceMembers(args?: {
     try {
       scim = await listScimUsers(scimEnv, args?.fetchImpl);
     } catch (err) {
-      warnings.push(
-        `SCIM listUsers failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      if (teamAdmin.length === 0) {
+        warnings.push(
+          `SCIM listUsers failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
-  } else {
-    warnings.push("CURSOR_SCIM_BASE_URL unset — using Team Admin roster only.");
   }
 
   const members = dedupeMembers([...teamAdmin, ...scim]);

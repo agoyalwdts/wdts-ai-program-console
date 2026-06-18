@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { listScimUsers, readScimEnv } from "./scim-list-users";
+import { isConfiguredScimBaseUrl, listScimUsers, readScimEnv } from "./scim-list-users";
 
 type Recorded = { url: string; method: string; headers: Record<string, string> };
 
@@ -33,6 +33,16 @@ describe("readScimEnv", () => {
   it("returns null when URL or token missing", () => {
     expect(readScimEnv({ CURSOR_SCIM_BASE_URL: "x" })).toBeNull();
     expect(readScimEnv({ CURSOR_ADMIN_TOKEN: "t" })).toBeNull();
+  });
+
+  it("returns null for Key Vault placeholder URLs", () => {
+    expect(
+      readScimEnv({
+        CURSOR_SCIM_BASE_URL: "PLACEHOLDER-CURSOR-SCIM-BASE-URL",
+        CURSOR_ADMIN_TOKEN: "tok",
+      }),
+    ).toBeNull();
+    expect(isConfiguredScimBaseUrl("PLACEHOLDER-CURSOR-SCIM-BASE-URL")).toBe(false);
   });
 
   it("strips trailing slash from base URL", () => {
