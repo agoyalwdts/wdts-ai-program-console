@@ -6,7 +6,8 @@ import { Product, type PrismaClient } from "@prisma/client";
 import { DecisionType } from "@prisma/client";
 import {
   CURSOR_TEAM_ADMIN_VENDOR_KEY,
-  fetchCursorFilteredUsageByUtcDay,
+  aggregateCursorUsageEvents,
+  fetchCursorFilteredUsageEventsInRange,
   resolveCursorTeamAdminApiKey,
 } from "@/lib/integrations/cursor/team-admin-usage";
 
@@ -29,6 +30,7 @@ export type { CursorVendorSyncChunk } from "./cursor-vendor-sync-windows";
 
 export type CursorVendorSyncResult = {
   daysUpserted: number;
+  userDayRowsUpserted: number;
   totalEvents: number;
   windowStartMs: number;
   windowEndMs: number;
@@ -39,6 +41,7 @@ export type CursorVendorSyncResult = {
 export type CursorVendorBackfillResult = {
   chunksRun: number;
   daysUpserted: number;
+  userDayRowsUpserted: number;
   totalEvents: number;
   totalLookbackDays: number;
   chunkDays: number;
@@ -75,16 +78,18 @@ export async function syncCursorVendorDailySpendWindow(
     nowMs: args.nowMs,
   });
 
-  const buckets = await fetchCursorFilteredUsageByUtcDay({
+  const events = await fetchCursorFilteredUsageEventsInRange({
     startMs,
     endMs,
     opts: { apiKey: key },
   });
+  const { byDay: buckets, byDayUser } = aggregateCursorUsageEvents(events);
 
   let totalEvents = 0;
   for (const b of buckets.values()) totalEvents += b.eventCount;
 
   const now = new Date();
+  let userDayRowsUpserted = 0;
   for (const [ymd, b] of buckets) {
     const day = ymdToPrismaDate(ymd);
     await prisma.vendorDailySpend.upsert({
@@ -109,6 +114,29 @@ export async function syncCursorVendorDailySpendWindow(
         syncedAt: now,
       },
     });
+
+    await prisma.vendorUserDailySpend.deleteMany({
+      where: {
+        vendor: CURSOR_TEAM_ADMIN_VENDOR_KEY,
+        product: Product.CURSOR,
+        day,
+      },
+    });
+    const userMap = byDayUser.get(ymd);
+    if (userMap && userMap.size > 0) {
+      await prisma.vendorUserDailySpend.createMany({
+        data: [...userMap.entries()].map(([userEmail, ub]) => ({
+          vendor: CURSOR_TEAM_ADMIN_VENDOR_KEY,
+          product: Product.CURSOR,
+          day,
+          userEmail,
+          spendUsd: ub.spendUsd,
+          eventCount: ub.eventCount,
+          syncedAt: now,
+        })),
+      });
+      userDayRowsUpserted += userMap.size;
+    }
   }
 
   if (!args.skipDecision) {
@@ -118,6 +146,7 @@ export async function syncCursorVendorDailySpendWindow(
         beforeState: "{}",
         afterState: JSON.stringify({
           daysUpserted: buckets.size,
+          userDayRowsUpserted,
           totalEvents,
           windowStartMs: startMs,
           windowEndMs: endMs,
@@ -125,13 +154,14 @@ export async function syncCursorVendorDailySpendWindow(
           endOffsetDays,
         }),
         actorEmail: args.actorEmail,
-        justification: `Cursor Team Admin API: ${buckets.size} UTC day bucket(s), ${totalEvents} usage event(s), window endOffset ${endOffsetDays}d lookback ${lookbackDays}d`,
+        justification: `Cursor Team Admin API: ${buckets.size} UTC day bucket(s), ${userDayRowsUpserted} user-day row(s), ${totalEvents} usage event(s), window endOffset ${endOffsetDays}d lookback ${lookbackDays}d`,
       },
     });
   }
 
   return {
     daysUpserted: buckets.size,
+    userDayRowsUpserted,
     totalEvents,
     windowStartMs: startMs,
     windowEndMs: endMs,
@@ -171,6 +201,7 @@ export async function syncCursorVendorDailySpendBackfill(
 ): Promise<CursorVendorBackfillResult> {
   const chunks = cursorVendorBackfillChunks(args.totalLookbackDays, args.chunkDays);
   let daysUpserted = 0;
+  let userDayRowsUpserted = 0;
   let totalEvents = 0;
 
   for (let i = 0; i < chunks.length; i++) {
@@ -182,6 +213,7 @@ export async function syncCursorVendorDailySpendBackfill(
       skipDecision: true,
     });
     daysUpserted += result.daysUpserted;
+    userDayRowsUpserted += result.userDayRowsUpserted;
     totalEvents += result.totalEvents;
   }
 
@@ -199,18 +231,20 @@ export async function syncCursorVendorDailySpendBackfill(
         backfill: true,
         chunksRun: chunks.length,
         daysUpserted,
+        userDayRowsUpserted,
         totalEvents,
         totalLookbackDays,
         chunkDays,
       }),
       actorEmail: args.actorEmail,
-      justification: `Cursor Team Admin API backfill: ${chunks.length} chunk(s), ${daysUpserted} day bucket(s), ${totalEvents} event(s), ${totalLookbackDays}d history`,
+      justification: `Cursor Team Admin API backfill: ${chunks.length} chunk(s), ${daysUpserted} day bucket(s), ${userDayRowsUpserted} user-day row(s), ${totalEvents} event(s), ${totalLookbackDays}d history`,
     },
   });
 
   return {
     chunksRun: chunks.length,
     daysUpserted,
+    userDayRowsUpserted,
     totalEvents,
     totalLookbackDays,
     chunkDays,

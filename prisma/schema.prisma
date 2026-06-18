@@ -314,6 +314,24 @@ model VendorDailySpend {
   @@index([product, day])
 }
 
+/// Per-user daily USD from vendor admin APIs (Cursor Team Admin today).
+/// F1 Cursor top-10 reads these rows when `INTEGRATION_CURSOR=real`.
+model VendorUserDailySpend {
+  id         String   @id @default(cuid())
+  vendor     String
+  product    Product
+  day        DateTime @db.Date
+  /// Lowercase email from vendor payload; matched to `User.email` at read time.
+  userEmail  String
+  spendUsd   Float
+  eventCount Int      @default(0)
+  syncedAt   DateTime @default(now())
+
+  @@unique([vendor, product, day, userEmail])
+  @@index([product, day])
+  @@index([userEmail, day])
+}
+
 /// Normalised payload from an operator-uploaded vendor export (ChatGPT admin
 /// CSVs, Codex daily JSON, Cursor team analytics CSV). Used for Analytics UI;
 /// spend-driving kinds also upsert {@link VendorDailySpend} for F1 until live

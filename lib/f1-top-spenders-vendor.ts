@@ -4,8 +4,9 @@
  * - **CODEX_SESSIONS_JSON** (Codex sessions export — per email + summed credit_total)
  *
  * Codex **workspace** JSON stays program-level only (no per-user credits in file).
- * OpenAI org costs / Cursor Team Admin / Codex Enterprise Analytics sync are still
- * program-level `VendorDailySpend` only — they do not add rows here.
+ * OpenAI org costs / Codex Enterprise Analytics sync are program-level
+ * `VendorDailySpend` only. Cursor per-user rows live in `VendorUserDailySpend`
+ * (see {@link mergeCursorTopSpendersForF1}).
  */
 
 import type { PrismaClient } from "@prisma/client";

@@ -12,6 +12,7 @@ type SyncJson = {
   ok?: boolean;
   error?: string;
   daysUpserted?: number;
+  userDayRowsUpserted?: number;
   totalEvents?: number;
 };
 
@@ -63,7 +64,9 @@ export function SyncCursorVendorSpendButton() {
         skipDecision: false,
       });
       setStatus("ok");
-      setMsg(`Synced ${j.daysUpserted ?? 0} day bucket(s), ${j.totalEvents ?? 0} event(s).`);
+      setMsg(
+        `Synced ${j.daysUpserted ?? 0} day bucket(s), ${j.userDayRowsUpserted ?? 0} user-day row(s), ${j.totalEvents ?? 0} event(s).`,
+      );
     } catch (e) {
       setStatus("err");
       setMsg(e instanceof Error ? e.message : String(e));

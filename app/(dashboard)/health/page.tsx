@@ -33,6 +33,7 @@ import { getDeelClient, getGatewayClient } from "@/lib/integrations";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { loadCursorVendorSpendForF1, mergeCursorVendorIntoF1 } from "@/lib/f1-cursor-vendor";
+import { mergeCursorTopSpendersForF1 } from "@/lib/f1-cursor-top-spenders";
 import { OpenAiF1WindowSelector } from "@/components/dashboard/openai-f1-window-selector";
 import {
   f1PeriodSpendLabel,
@@ -81,6 +82,7 @@ async function getF1Data(
   plan: F1PeriodPlan;
   period: F1Period;
   cursorSpendSource: "gateway" | "vendor";
+  cursorLeaderboardSource: "gateway" | "vendor";
 }> {
   const gateway = getGatewayClient();
   const deel = getDeelClient();
@@ -147,11 +149,13 @@ async function getF1Data(
     }),
   ]);
 
-  const topCursor = await enrichLeaderboardRows(
-    prisma,
-    cursorMirror.slice(0, 10),
-    deelByEmail,
-  );
+  const cursorMerged = await mergeCursorTopSpendersForF1(prisma, {
+    planPeriodStart: plan.periodStart,
+    planPeriodEnd: plan.periodEnd,
+    gatewayTop: cursorMirror,
+    limit: 10,
+  });
+  const topCursor = await enrichLeaderboardRows(prisma, cursorMerged.rows, deelByEmail);
 
   const openAiMerged = await mergeTopSpendersWithVendorAttribution(prisma, {
     planPeriodStart: openAiSpendPlan.periodStart,
@@ -171,6 +175,7 @@ async function getF1Data(
     plan,
     period,
     cursorSpendSource,
+    cursorLeaderboardSource: cursorMerged.usedVendor ? "vendor" : "gateway",
   };
 }
 
@@ -584,10 +589,9 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
             <CardHeader>
               <CardTitle>Cursor — top 10 ({spendLabel.toLowerCase()})</CardTitle>
               <CardDescription>
-                Sum of <code className="font-mono text-xs">UsageRecord</code> where{" "}
-                <code className="font-mono text-xs">product = CURSOR</code> in this period. Cursor Team
-                Admin totals on the tiles are program-wide — they are not broken down per user here
-                until we persist per-user vendor rows.
+                {data.cursorLeaderboardSource === "vendor"
+                  ? "Per-user spend from Cursor Team Admin API (synced with Settings → Sync Cursor spend). Falls back to the gateway UsageRecord mirror when vendor rows are absent."
+                  : "Sum of UsageRecord where product = CURSOR in this period. Run Settings → Sync Cursor spend to populate per-user rows from Cursor Team Admin."}
               </CardDescription>
             </CardHeader>
             <CardContent className="px-0 pb-0">
@@ -618,8 +622,9 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
 
         <p className="text-xs text-slate-400">
           F1 reads gateway / Deel. With <code className="font-mono">INTEGRATION_CURSOR=real</code>{" "}
-          and a recent <code className="font-mono">VendorDailySpend</code> sync, CURSOR matches Cursor
-          Team Admin usage. With <code className="font-mono">INTEGRATION_OPENAI=real</code> and OpenAI
+          and a recent Cursor spend sync, CURSOR tiles and the top-10 leaderboard use Cursor Team
+          Admin per-user rows (<code className="font-mono">VendorUserDailySpend</code>). With{" "}
+          <code className="font-mono">INTEGRATION_OPENAI=real</code> and OpenAI
           costs sync, CHATGPT can track organization costs. With{" "}
           <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>, the CODEX
           tile loads workspace usage live from <code className="font-mono">api.chatgpt.com</code> on

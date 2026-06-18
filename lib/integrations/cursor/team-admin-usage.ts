@@ -117,6 +117,51 @@ export function calendarYmdFromMillis(ms: number): string {
 
 export type DailyBucket = { spendUsd: number; eventCount: number };
 
+export type CursorUsageAggregates = {
+  byDay: Map<string, DailyBucket>;
+  /** ymd → normalized email → bucket */
+  byDayUser: Map<string, Map<string, DailyBucket>>;
+};
+
+export function normCursorUserEmail(email: string | undefined): string | null {
+  if (!email?.trim()) return null;
+  const e = email.trim().toLowerCase();
+  return e.includes("@") ? e : null;
+}
+
+export function aggregateCursorUsageEvents(
+  events: CursorFilteredUsageEventFull[],
+): CursorUsageAggregates {
+  const byDay = new Map<string, DailyBucket>();
+  const byDayUser = new Map<string, Map<string, DailyBucket>>();
+
+  for (const ev of events) {
+    const ms = Number(ev.timestamp);
+    if (!Number.isFinite(ms)) continue;
+    const ymd = calendarYmdFromMillis(ms);
+    const usd = cursorChargedFieldToUsd(ev.chargedCents);
+
+    const dayPrev = byDay.get(ymd) ?? { spendUsd: 0, eventCount: 0 };
+    dayPrev.spendUsd += usd;
+    dayPrev.eventCount += 1;
+    byDay.set(ymd, dayPrev);
+
+    const email = normCursorUserEmail(ev.userEmail);
+    if (!email) continue;
+    let userMap = byDayUser.get(ymd);
+    if (!userMap) {
+      userMap = new Map();
+      byDayUser.set(ymd, userMap);
+    }
+    const userPrev = userMap.get(email) ?? { spendUsd: 0, eventCount: 0 };
+    userPrev.spendUsd += usd;
+    userPrev.eventCount += 1;
+    userMap.set(email, userPrev);
+  }
+
+  return { byDay, byDayUser };
+}
+
 async function postFilteredUsageEventsPage(args: {
   chunkStart: number;
   chunkEnd: number;
@@ -228,16 +273,5 @@ export async function fetchCursorFilteredUsageByUtcDay(args: {
   opts: CursorTeamAdminUsageOpts;
 }): Promise<Map<string, DailyBucket>> {
   const events = await fetchCursorFilteredUsageEventsInRange(args);
-  const out = new Map<string, DailyBucket>();
-  for (const ev of events) {
-    const ms = Number(ev.timestamp);
-    if (!Number.isFinite(ms)) continue;
-    const ymd = calendarYmdFromMillis(ms);
-    const usd = cursorChargedFieldToUsd(ev.chargedCents);
-    const prev = out.get(ymd) ?? { spendUsd: 0, eventCount: 0 };
-    prev.spendUsd += usd;
-    prev.eventCount += 1;
-    out.set(ymd, prev);
-  }
-  return out;
+  return aggregateCursorUsageEvents(events).byDay;
 }

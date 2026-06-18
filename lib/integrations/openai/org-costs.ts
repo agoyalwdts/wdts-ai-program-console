@@ -94,6 +94,9 @@ export type OpenAiCostsFetchResult = {
   sourceCostLines: number;
 };
 
+/** Default timeout for organization/costs (large orgs + line_item pagination). */
+const OPENAI_ORG_COSTS_TIMEOUT_MS = 60_000;
+
 export async function fetchOpenAiOrgCostsByLocalDay(args: {
   startTimeSec: number;
   endTimeSec: number;
@@ -124,6 +127,7 @@ export async function fetchOpenAiOrgCostsByLocalDay(args: {
       integration: "openai",
       headers,
       fetchImpl: args.fetchImpl,
+      timeoutMs: OPENAI_ORG_COSTS_TIMEOUT_MS,
     });
     const chunk = body.data ?? [];
     buckets.push(...chunk);
