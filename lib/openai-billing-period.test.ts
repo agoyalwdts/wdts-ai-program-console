@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   describeOpenAiBillingPeriodToDate,
   endOfOpenAiChatGptCodexBillingPeriod,
-  f1GatewayDailySinceForMonthView,
   openAiBillingPeriodStartSec,
-  openAiChatGptCodexPeriodStartForF1,
   startOfOpenAiChatGptCodexBillingPeriod,
 } from "./openai-billing-period";
 
@@ -42,32 +40,6 @@ describe("describeOpenAiBillingPeriodToDate", () => {
     const s = describeOpenAiBillingPeriodToDate(now);
     expect(s).toContain("2026");
     expect(s).toMatch(/May 16.*May 19/);
-  });
-});
-
-describe("openAiChatGptCodexPeriodStartForF1", () => {
-  it("uses billing anchor for month period only", () => {
-    const now = new Date(2026, 4, 20);
-    const planStart = new Date(2026, 4, 1);
-    expect(openAiChatGptCodexPeriodStartForF1(now, "month", planStart).getDate()).toBe(16);
-    expect(openAiChatGptCodexPeriodStartForF1(now, "quarter", planStart)).toBe(planStart);
-  });
-});
-
-describe("f1GatewayDailySinceForMonthView", () => {
-  it("extends the chart back to billing start when it precedes calendar month", () => {
-    const now = new Date(2026, 4, 10);
-    const planStart = new Date(2026, 4, 1);
-    const since = f1GatewayDailySinceForMonthView(planStart, now);
-    expect(since.getDate()).toBe(16);
-    expect(since.getMonth()).toBe(3);
-  });
-
-  it("uses calendar month start when billing start is later in the month", () => {
-    const now = new Date(2026, 4, 20);
-    const planStart = new Date(2026, 4, 1);
-    const since = f1GatewayDailySinceForMonthView(planStart, now);
-    expect(since.getTime()).toBe(planStart.getTime());
   });
 });
 

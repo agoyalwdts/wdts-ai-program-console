@@ -1,6 +1,7 @@
 /**
  * ChatGPT + Codex share one OpenAI Enterprise monthly plan; WDTS renews on the
- * 16th (not calendar month). Use these helpers for MTD, caps, and F1 month view.
+ * 16th (not calendar month). Used by Codex ladder, F2, and the F1 OpenAI card
+ * billing-cycle selector — not the page-level “This month” period.
  */
 
 import { formatF1DateRange } from "@/lib/f1-period";
@@ -30,34 +31,7 @@ export function openAiBillingPeriodStartSec(now: Date): number {
   return Math.floor(startOfOpenAiChatGptCodexBillingPeriod(now).getTime() / 1000);
 }
 
-/**
- * F1 “this month” uses calendar month for Cursor et al.; ChatGPT/Codex use the
- * billing anchor. Quarter/year/custom keep the selected plan start.
- */
-export function openAiChatGptCodexPeriodStartForF1(
-  now: Date,
-  period: "month" | "quarter" | "year" | "custom",
-  planPeriodStart: Date,
-): Date {
-  if (period === "month") return startOfOpenAiChatGptCodexBillingPeriod(now);
-  return planPeriodStart;
-}
-
-/** Earliest `since` for gateway daily series when F1 month view includes pre-anchor days. */
-export function f1GatewayDailySinceForMonthView(planPeriodStart: Date, now: Date): Date {
-  const billingStart = startOfOpenAiChatGptCodexBillingPeriod(now);
-  return new Date(Math.min(planPeriodStart.getTime(), billingStart.getTime()));
-}
-
-/** F1 / product cards: spend label for ChatGPT & Codex when the window is “this month”. */
-export function f1OpenAiSpendLabel(period: "month" | "quarter" | "year" | "custom", now: Date): string {
-  if (period === "month") return `Plan period · ${describeOpenAiBillingPeriodToDate(now)}`;
-  if (period === "quarter") return "Quarter to date";
-  if (period === "year") return "Year to date";
-  return "Custom range";
-}
-
-/** Billing period start through today (same dates as F1 OpenAI data + Codex API). */
+/** Billing period start through today (Codex ladder, F1 billing-cycle window). */
 export function describeOpenAiBillingPeriodToDate(now: Date): string {
   return formatF1DateRange(startOfOpenAiChatGptCodexBillingPeriod(now), now);
 }

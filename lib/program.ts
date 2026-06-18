@@ -19,7 +19,7 @@
  *   - ChatGPT + Codex (combined)    — **314** entitled seats; monthly plan renews on the **16th**
  *                                     (see {@link OPENAI_CHATGPT_CODEX_BILLING_ANCHOR_DAY} in
  *                                     `lib/openai-billing-period.ts`). **500** pooled credits per seat per month
- *                                     (= {@link OPENAI_POOLED_CREDITS_MONTH} monthly), **$35** per seat per month
+ *                                     (= {@link OPENAI_POOLED_CREDITS_MONTH} monthly), **$33** per seat per month
  *                                     license baseline ({@link OPENAI_POOLED_BASELINE_USD_MONTH} monthly),
  *                                     plus ~{@link OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH} overage credits per month
  *                                     at {@link OPENAI_CREDIT_OVERAGE_USD} per credit. Planning envelope
@@ -60,13 +60,13 @@ export const OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED = 304;
 export const OPENAI_POOLED_CREDITS_PER_USER_MONTH = 500;
 
 /** Monthly license line per entitled seat (pool included in subscription). */
-export const OPENAI_LICENSE_USD_PER_SEAT_MONTH = 35;
+export const OPENAI_LICENSE_USD_PER_SEAT_MONTH = 33;
 
 /** Pooled monthly credits across entitled seats. */
 export const OPENAI_POOLED_CREDITS_MONTH =
   OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * OPENAI_POOLED_CREDITS_PER_USER_MONTH;
 
-/** Fixed monthly USD for the pooled credit entitlement (314 × $35). */
+/** Fixed monthly USD for the pooled credit entitlement (314 × $33). */
 export const OPENAI_POOLED_BASELINE_USD_MONTH =
   OPENAI_CHATGPT_CODEX_ENTITLED_SEATS * OPENAI_LICENSE_USD_PER_SEAT_MONTH;
 
@@ -84,7 +84,7 @@ export const M365_COPILOT_ANNUAL_COMMIT_USD =
 export const M365_COPILOT_MONTHLY_COMMIT_USD = M365_COPILOT_ANNUAL_COMMIT_USD / 12;
 
 /** Typical additional monthly credits beyond pooled entitlement (planning average). */
-export const OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH = 200_000;
+export const OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH = 350_000;
 
 /** Planning envelope in credits/month (pooled + typical overage). */
 export const OPENAI_TARGET_CREDITS_MONTH =
@@ -93,7 +93,7 @@ export const OPENAI_TARGET_CREDITS_MONTH =
 /** USD per credit for usage above the pooled allocation (marginal / overage). */
 export const OPENAI_CREDIT_OVERAGE_USD = 0.07;
 
-/** Typical monthly overage charge at {@link OPENAI_CREDIT_OVERAGE_USD} (200k × rate). */
+/** Typical monthly overage charge at {@link OPENAI_CREDIT_OVERAGE_USD} (350k × rate). */
 export const OPENAI_PLANNED_OVERAGE_USD_MONTH =
   OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH * OPENAI_CREDIT_OVERAGE_USD;
 
@@ -104,7 +104,7 @@ export const OPENAI_COMBINED_MONTHLY_PLANNING_USD =
 /** Annual license baseline (pool). */
 export const OPENAI_ANNUAL_BASELINE_USD = OPENAI_POOLED_BASELINE_USD_MONTH * 12;
 
-/** Annual typical overage (200k credits/mo × 12 × rate). */
+/** Annual typical overage (350k credits/mo × 12 × rate). */
 export const OPENAI_ANNUAL_PLANNED_OVERAGE_USD = OPENAI_PLANNED_OVERAGE_USD_MONTH * 12;
 
 /**

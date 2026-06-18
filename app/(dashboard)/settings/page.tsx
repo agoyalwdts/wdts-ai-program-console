@@ -509,7 +509,7 @@ export default async function SettingsPage() {
             <Row
               k="ChatGPT + Codex monthly planning"
               v={formatUsd(OPENAI_COMBINED_MONTHLY_PLANNING_USD)}
-              note="314 × $35/mo pool license + ~200k overage credits × $0.07 (lib/program.ts)"
+              note="314 × $33/mo pool license + ~350k overage credits × $0.07 (lib/program.ts)"
             />
             <Row
               k="Cursor commitment"

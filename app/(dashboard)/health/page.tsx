@@ -37,26 +37,19 @@ import { getDeelClient, getGatewayClient } from "@/lib/integrations";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { loadCursorVendorSpendForF1, mergeCursorVendorIntoF1 } from "@/lib/f1-cursor-vendor";
-import { loadOpenAiVendorSpendForF1, mergeOpenAiVendorIntoF1 } from "@/lib/f1-openai-vendor";
-import {
-  loadCodexEnterpriseSpendForF1,
-  mergeCodexEnterpriseVendorIntoF1,
-} from "@/lib/f1-codex-enterprise-analytics";
-import {
-  loadManualVendorExportSpendForF1,
-  mergeManualVendorExportIntoF1,
-} from "@/lib/f1-manual-vendor-export";
+import { OpenAiF1WindowSelector } from "@/components/dashboard/openai-f1-window-selector";
 import {
   f1PeriodSpendLabel,
   resolveF1PlanFromSearchParams,
   type F1Period,
   type F1PeriodPlan,
 } from "@/lib/f1-period";
+import { mergeOpenAiSpendIntoPagePeriodF1, loadOpenAiSpendSnapshotForF1 } from "@/lib/f1-openai-spend";
 import {
-  f1GatewayDailySinceForMonthView,
-  f1OpenAiSpendLabel,
-  openAiChatGptCodexPeriodStartForF1,
-} from "@/lib/openai-billing-period";
+  parseOpenAiF1Window,
+  planOpenAiF1Spend,
+  type OpenAiF1SpendPlan,
+} from "@/lib/f1-openai-window";
 import { mergeTopSpendersWithVendorAttribution } from "@/lib/f1-top-spenders-vendor";
 import {
   enrichLeaderboardRows,
@@ -67,7 +60,7 @@ import { Product } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
-type SP = { period?: string; from?: string; to?: string };
+type SP = { period?: string; from?: string; to?: string; openaiWindow?: string };
 
 function formatCredits(n: number): string {
   return `${Math.max(n, 0).toLocaleString("en-US", { maximumFractionDigits: 0 })} credits`;
@@ -78,74 +71,41 @@ const OPENAI_CARD_SPLIT = {
   CODEX: 3,
 } as const;
 
-async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
+async function getF1Data(
+  period: F1Period,
+  plan: F1PeriodPlan,
+  openAiSpendPlan: OpenAiF1SpendPlan,
+): Promise<{
   mtdMap: Map<ProductKey, number>;
   days: SpendPoint[];
   topCursor: F1LeaderboardRow[];
   topChatGptCodex: F1LeaderboardRow[];
-  combinedChatGptCodexMtd: number;
+  openAiSpend: Awaited<ReturnType<typeof loadOpenAiSpendSnapshotForF1>>;
+  openAiSpendPlan: OpenAiF1SpendPlan;
   plan: F1PeriodPlan;
   period: F1Period;
   cursorSpendSource: "gateway" | "vendor";
-  openAiChatgptSpendSource: "gateway" | "vendor" | "manual_export";
-  codexSpendSource:
-    | "gateway"
-    | "openai_org_costs"
-    | "codex_enterprise_analytics_live"
-    | "codex_enterprise_analytics_sync"
-    | "manual_export";
 }> {
   const gateway = getGatewayClient();
   const deel = getDeelClient();
-  const now = plan.periodEnd;
-  const openAiPeriodStart = openAiChatGptCodexPeriodStartForF1(now, period, plan.periodStart);
-  const gatewayDailySince =
-    period === "month" ? f1GatewayDailySinceForMonthView(plan.periodStart, now) : plan.periodStart;
 
-  const [
-    programAgg,
-    openAiProgramAgg,
-    dailyAgg,
-    deelAll,
-    vendorCursor,
-    vendorManualExport,
-    vendorOpenAi,
-    vendorCodexEnterprise,
-  ] = await Promise.all([
+  const [programAgg, dailyAgg, deelAll, vendorCursor, openAiSpend] = await Promise.all([
     gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
-    period === "month"
-      ? gateway.aggregateByProgram({ periodStart: openAiPeriodStart, periodEnd: plan.periodEnd })
-      : Promise.resolve([]),
-    gateway.aggregateByProgramDaily({ since: gatewayDailySince, until: plan.periodEnd }),
+    gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
     deel.listEmployees(),
     loadCursorVendorSpendForF1(prisma, {
       periodStart: plan.periodStart,
       periodEnd: plan.periodEnd,
     }),
-    loadManualVendorExportSpendForF1(prisma, {
-      periodStart: openAiPeriodStart,
-      periodEnd: plan.periodEnd,
-    }),
-    loadOpenAiVendorSpendForF1(prisma, {
-      periodStart: openAiPeriodStart,
-      periodEnd: plan.periodEnd,
-    }),
-    loadCodexEnterpriseSpendForF1(prisma, {
-      periodStart: openAiPeriodStart,
-      periodEnd: plan.periodEnd,
+    loadOpenAiSpendSnapshotForF1(prisma, {
+      periodStart: openAiSpendPlan.periodStart,
+      periodEnd: openAiSpendPlan.periodEnd,
     }),
   ]);
 
   const mtdMap = new Map<ProductKey, number>(
     programAgg.map((r) => [r.product, r.totalUsd]),
   );
-  if (period === "month") {
-    for (const r of openAiProgramAgg) {
-      if (r.product === "CHATGPT" || r.product === "CODEX") {
-        mtdMap.set(r.product, r.totalUsd);
-      }
-    }
-  }
 
   const days: SpendPoint[] = dailyAgg.map((d) => ({
     day: d.day,
@@ -156,18 +116,6 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
     M365_COPILOT: d.byProduct.M365_COPILOT,
   }));
 
-  if (period === "month" && openAiPeriodStart.getTime() > plan.periodStart.getTime()) {
-    const cursor = new Date(plan.periodStart);
-    cursor.setHours(0, 0, 0, 0);
-    for (const row of days) {
-      if (cursor.getTime() < openAiPeriodStart.getTime()) {
-        row.CHATGPT = 0;
-        row.CODEX = 0;
-      }
-      cursor.setDate(cursor.getDate() + 1);
-    }
-  }
-
   mergeCursorVendorIntoF1({
     mtdMap,
     days,
@@ -175,50 +123,16 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
     cursorByChartDay: vendorCursor.byChartDay,
     useVendor: vendorCursor.usedVendor,
   });
-  mergeManualVendorExportIntoF1({
+  await mergeOpenAiSpendIntoPagePeriodF1(prisma, {
+    periodStart: plan.periodStart,
+    periodEnd: plan.periodEnd,
     mtdMap,
     days,
-    chatgpt: vendorManualExport.chatgpt,
-    codex: vendorManualExport.codex,
   });
-  mergeOpenAiVendorIntoF1({
-    mtdMap,
-    days,
-    chatgptVendorTotal: vendorOpenAi.chatgpt.periodTotalUsd,
-    chatgptByChartDay: vendorOpenAi.chatgpt.byChartDay,
-    useChatgptVendor: vendorOpenAi.chatgpt.usedVendor,
-    codexVendorTotal: vendorOpenAi.codex.periodTotalUsd,
-    codexByChartDay: vendorOpenAi.codex.byChartDay,
-    useCodexVendor: vendorOpenAi.codex.usedVendor,
-  });
-  mergeCodexEnterpriseVendorIntoF1({
-    mtdMap,
-    days,
-    codexVendorTotal: vendorCodexEnterprise.periodTotalUsd,
-    codexByChartDay: vendorCodexEnterprise.byChartDay,
-    useVendor: vendorCodexEnterprise.usedVendor,
-  });
+
   const cursorSpendSource: "gateway" | "vendor" = vendorCursor.usedVendor
     ? "vendor"
     : "gateway";
-  let openAiChatgptSpendSource: "gateway" | "vendor" | "manual_export" = "gateway";
-  if (vendorManualExport.chatgpt.used) openAiChatgptSpendSource = "manual_export";
-  if (vendorOpenAi.chatgpt.usedVendor) openAiChatgptSpendSource = "vendor";
-
-  let codexSpendSource:
-    | "gateway"
-    | "openai_org_costs"
-    | "codex_enterprise_analytics_live"
-    | "codex_enterprise_analytics_sync"
-    | "manual_export" = "gateway";
-  if (vendorManualExport.codex.used) codexSpendSource = "manual_export";
-  if (vendorOpenAi.codex.usedVendor) codexSpendSource = "openai_org_costs";
-  if (vendorCodexEnterprise.usedVendor) {
-    codexSpendSource =
-      vendorCodexEnterprise.source === "live"
-        ? "codex_enterprise_analytics_live"
-        : "codex_enterprise_analytics_sync";
-  }
 
   const deelByEmail = new Map(deelAll.map((d) => [d.email, d]));
 
@@ -231,8 +145,8 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
     }),
     mirrorTopSpendersByProducts(prisma, {
       products: [Product.CHATGPT, Product.CODEX],
-      periodStart: openAiPeriodStart,
-      periodEnd: plan.periodEnd,
+      periodStart: openAiSpendPlan.periodStart,
+      periodEnd: openAiSpendPlan.periodEnd,
       candidateLimit: 80,
     }),
   ]);
@@ -244,8 +158,8 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
   );
 
   const openAiMerged = await mergeTopSpendersWithVendorAttribution(prisma, {
-    planPeriodStart: openAiPeriodStart,
-    planPeriodEnd: plan.periodEnd,
+    planPeriodStart: openAiSpendPlan.periodStart,
+    planPeriodEnd: openAiSpendPlan.periodEnd,
     gatewayTop: openAiMirror,
     limit: 10,
   });
@@ -256,13 +170,11 @@ async function getF1Data(period: F1Period, plan: F1PeriodPlan): Promise<{
     days,
     topCursor,
     topChatGptCodex,
-    combinedChatGptCodexMtd:
-      (mtdMap.get("CHATGPT") ?? 0) + (mtdMap.get("CODEX") ?? 0),
+    openAiSpend,
+    openAiSpendPlan,
     plan,
     period,
     cursorSpendSource,
-    openAiChatgptSpendSource,
-    codexSpendSource,
   };
 }
 
@@ -313,23 +225,28 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const sp = await props.searchParams;
   const now = new Date();
   const { plan, period } = resolveF1PlanFromSearchParams(now, sp);
-  const data = await getF1Data(period, plan);
+  const openAiWindow = parseOpenAiF1Window(sp.openaiWindow);
+  const openAiSpendPlan = planOpenAiF1Spend({ now, period, pagePlan: plan, window: openAiWindow });
+  const data = await getF1Data(period, plan, openAiSpendPlan);
   const m = data.plan.budgetMonthMultiplier;
-  const combinedCreditsCap = OPENAI_TARGET_CREDITS_MONTH * m;
-  const combinedUsd = data.combinedChatGptCodexMtd;
+  const openAiM = data.openAiSpendPlan.budgetMonthMultiplier;
+  const combinedCreditsCap = OPENAI_TARGET_CREDITS_MONTH * openAiM;
+  const combinedUsd = data.openAiSpend.combinedUsd;
   const combinedCreditsMtd = openAiCombinedCreditsUsedEstimate({
     periodSpendUsd: combinedUsd,
-    budgetMonthMultiplier: m,
+    budgetMonthMultiplier: openAiM,
   });
-  const openAiChatgptUsd = data.mtdMap.get("CHATGPT") ?? 0;
+  const openAiChatgptUsd = data.openAiSpend.chatgptUsd;
   const openAiChatgptCreditsMtd =
     combinedUsd <= 0 ? 0 : combinedCreditsMtd * (openAiChatgptUsd / combinedUsd);
   /** Remainder so ChatGPT + Codex credit bars sum to the combined card (no float drift). */
   const openAiCodexCreditsMtd = combinedUsd <= 0 ? 0 : combinedCreditsMtd - openAiChatgptCreditsMtd;
-  const openAiBaselineUsdPeriod = OPENAI_POOLED_BASELINE_USD_MONTH * m;
+  const openAiBaselineUsdPeriod = OPENAI_POOLED_BASELINE_USD_MONTH * openAiM;
   const openAiOverageUsdPeriod = Math.max(0, combinedUsd - openAiBaselineUsdPeriod);
   const spendLabel = f1PeriodSpendLabel(period);
-  const openAiSpendLabel = f1OpenAiSpendLabel(period, now);
+  const openAiSpendLabel = data.openAiSpendPlan.spendLabel;
+  const openAiChatgptSpendSource = data.openAiSpend.sources.chatgpt;
+  const codexSpendSource = data.openAiSpend.sources.codex;
   const programPlanningPeriodUsd = PROGRAM_MONTHLY_PLANNING_USD_TOTAL * m;
   /** Copilot is EA prepaid — economic outlay follows commit, not gateway “usage USD”. */
   const observedProgramPeriodUsd = PRODUCTS.reduce((acc, { key }) => {
@@ -346,7 +263,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
         subtitle="F1 — Are we on track vs the program-level budgets?"
       />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-6 py-2.5">
-        <F1PeriodRangeLine plan={data.plan} period={period} />
+        <F1PeriodRangeLine plan={data.plan} />
         <Suspense
           fallback={
             <span className="text-sm text-slate-500" aria-hidden>
@@ -424,6 +341,20 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
             </div>
 
             <div className="border-t border-amber-200/70 pt-6 space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+                  <Suspense
+                    fallback={
+                      <span className="text-sm text-slate-500" aria-hidden>
+                        Window…
+                      </span>
+                    }
+                  >
+                    <OpenAiF1WindowSelector />
+                  </Suspense>
+                  <p className="text-xs text-slate-500 sm:pb-2">{openAiSpendPlan.rangeDescription}</p>
+                </div>
+              </div>
               <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h3 className="text-base font-semibold text-slate-900">This period — credits vs planning</h3>
@@ -588,7 +519,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                 : openAiCodexCreditsMtd
               : mtd;
             const openAiCardTotalWeight = OPENAI_CARD_SPLIT.CHATGPT + OPENAI_CARD_SPLIT.CODEX;
-            const openAiPlanningCreditsPeriod = OPENAI_TARGET_CREDITS_MONTH * m;
+            const openAiPlanningCreditsPeriod = OPENAI_TARGET_CREDITS_MONTH * openAiM;
             const openAiCardBudgetCredits =
               key === "CHATGPT"
                 ? openAiPlanningCreditsPeriod * (OPENAI_CARD_SPLIT.CHATGPT / openAiCardTotalWeight)
@@ -629,32 +560,32 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                       Cursor Team Admin API (synced daily buckets)
                     </p>
                   ) : null}
-                  {key === "CHATGPT" && data.openAiChatgptSpendSource === "vendor" ? (
+                  {key === "CHATGPT" && openAiChatgptSpendSource === "vendor" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
                       OpenAI organization costs API (line-item split)
                     </p>
                   ) : null}
-                  {key === "CHATGPT" && data.openAiChatgptSpendSource === "manual_export" ? (
+                  {key === "CHATGPT" && openAiChatgptSpendSource === "manual_export" ? (
                     <p className="text-[11px] text-amber-800 mt-1">
                       ChatGPT Business users CSV (credits spread evenly per export day)
                     </p>
                   ) : null}
-                  {key === "CODEX" && data.codexSpendSource === "codex_enterprise_analytics_live" ? (
+                  {key === "CODEX" && codexSpendSource === "codex_enterprise_analytics_live" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
                       Codex Enterprise Analytics — live on page load (api.chatgpt.com)
                     </p>
                   ) : null}
-                  {key === "CODEX" && data.codexSpendSource === "codex_enterprise_analytics_sync" ? (
+                  {key === "CODEX" && codexSpendSource === "codex_enterprise_analytics_sync" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
                       Codex Enterprise Analytics — cached sync (live API unavailable)
                     </p>
                   ) : null}
-                  {key === "CODEX" && data.codexSpendSource === "openai_org_costs" ? (
+                  {key === "CODEX" && codexSpendSource === "openai_org_costs" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
                       OpenAI organization costs API (line-item split)
                     </p>
                   ) : null}
-                  {key === "CODEX" && data.codexSpendSource === "manual_export" ? (
+                  {key === "CODEX" && codexSpendSource === "manual_export" ? (
                     <p className="text-[11px] text-amber-800 mt-1">
                       Codex daily JSON export (workspace totals, or sessions aggregate)
                     </p>
@@ -699,36 +630,31 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           <CardHeader>
             <CardTitle>{data.plan.chartTitle}</CardTitle>
             <CardDescription>
-              {period === "month" && data.plan.openAiRangeDescription ? (
-                <>
-                  ChatGPT & Codex: {data.plan.openAiRangeDescription}. Other products:{" "}
-                  {data.plan.rangeDescription}.{" "}
-                </>
-              ) : (
-                <>{data.plan.rangeDescription}. </>
-              )}
-              Stacked across all 5 products. Gateway:{" "}
+              {data.plan.rangeDescription}. Stacked across all 5 products. Gateway:{" "}
               <code className="font-mono">getGatewayClient().aggregateByProgramDaily()</code>
               . CURSOR uses{" "}
               {data.cursorSpendSource === "vendor"
                 ? "Cursor Team Admin sync when VendorDailySpend rows exist."
                 : "that mirror (Settings → sync Cursor spend for vendor totals). "}
               CHATGPT uses{" "}
-              {data.openAiChatgptSpendSource === "vendor"
+              {openAiChatgptSpendSource === "vendor"
                 ? "OpenAI organization/costs when vendor rows exist; otherwise the gateway mirror."
-                : data.openAiChatgptSpendSource === "manual_export"
+                : openAiChatgptSpendSource === "manual_export"
                   ? "uploaded ChatGPT users CSV (Settings → Data imports) when no OpenAI vendor rows override it."
                   : "the gateway mirror unless you run OpenAI vendor sync in Settings."}{" "}
               CODEX uses{" "}
-              {data.codexSpendSource === "codex_enterprise_analytics_live"
+              {codexSpendSource === "codex_enterprise_analytics_live"
                 ? "Codex Enterprise Analytics live from api.chatgpt.com on each Health load (overrides org costs)."
-                : data.codexSpendSource === "codex_enterprise_analytics_sync"
+                : codexSpendSource === "codex_enterprise_analytics_sync"
                   ? "Codex Enterprise Analytics from the last VendorDailySpend sync (live API failed)."
-                  : data.codexSpendSource === "openai_org_costs"
+                  : codexSpendSource === "openai_org_costs"
                   ? "OpenAI organization/costs when vendor rows exist."
-                  : data.codexSpendSource === "manual_export"
+                  : codexSpendSource === "manual_export"
                     ? "uploaded Codex daily JSON (workspace preferred; sessions JSON fills spend if workspace is absent)."
                     : "the gateway mirror unless you run vendor sync in Settings."}
+              {" "}
+              Chart uses the page period; the OpenAI card above can switch to the billing cycle
+              (16th–today) without changing Cursor or other tiles.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -781,11 +707,10 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
           costs sync, CHATGPT can track organization costs. With{" "}
           <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>, the CODEX
           tile loads workspace usage live from <code className="font-mono">api.chatgpt.com</code> on
-          each Health view (VendorDailySpend sync is a fallback). The ChatGPT &amp; Codex
-          leaderboard adds prorated ChatGPT Business users CSV and Codex sessions JSON (when payloads
-          include per-user credits) for imports that overlap the selected period. When F1 period is
-          “This month”, ChatGPT and Codex tiles use the plan billing window (renews on the 16th), not
-          calendar month; Cursor and other products stay calendar-based.
+          each Health view (VendorDailySpend sync is a fallback).           The ChatGPT &amp; Codex leaderboard uses the OpenAI card window (page period or billing
+          cycle). Page period “This month” is calendar month for all products; pick{" "}
+          <span className="font-medium text-slate-500">Current billing cycle</span> on the OpenAI
+          card to align ChatGPT/Codex tiles with the 16th-renewal invoice window.
         </p>
       </div>
     </>
