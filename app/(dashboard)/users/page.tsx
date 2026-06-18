@@ -34,6 +34,12 @@ import {
 import { formatLocalYmd } from "@/lib/f1-period";
 import { summarizeEntraAiSignInIpsForEmail } from "@/lib/integrations/azuread/sign-in-logs";
 import { summarizeComplianceAuthLogIpsForEmail } from "@/lib/integrations/openai-compliance";
+import {
+  mergeUserMtdSpendFromVendors,
+  projectUserEom,
+  sumUserMtd,
+  type UserMtdSpendSource,
+} from "@/lib/users/merge-user-mtd-spend";
 import { Search, ChevronRight, AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +47,7 @@ export const dynamic = "force-dynamic";
 const PAGE_SIZE = 50;
 const DIRECTORY_VENDOR_TIMEOUT_MS = 2500;
 const DIRECTORY_IDENTITY_TIMEOUT_MS = 1800;
-const FOOTPRINT_TIMEOUT_MS = 2500;
+const FOOTPRINT_TIMEOUT_MS = 12_000;
 
 type SP = { q?: string; user?: string; page?: string };
 
@@ -190,13 +196,12 @@ async function getUserDetail(selection: string) {
   const since = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); // 90 days
   const uid = user.id;
   const footprintLookbackDays = 30;
-  const [openAiAggs, otherAggs, recent, deelEmp, cursorFootprint, codexFootprint, entraFootprint, complianceFootprint]: [
+  const [openAiAggs, otherAggs, recent, deelEmp, cursorFootprint, entraFootprint, complianceFootprint]: [
     Awaited<ReturnType<typeof gateway.aggregateByUser>>,
     Awaited<ReturnType<typeof gateway.aggregateByUser>>,
     UsageRecord[],
     DeelEmployee | null,
     Awaited<ReturnType<typeof summarizeCursorLoginIpsForEmail>>,
-    Awaited<ReturnType<typeof summarizeCodexClientsForEmail>>,
     Awaited<ReturnType<typeof summarizeEntraAiSignInIpsForEmail>>,
     Awaited<ReturnType<typeof summarizeComplianceAuthLogIpsForEmail>>,
   ] = await Promise.all([
@@ -218,15 +223,6 @@ async function getUserDetail(selection: string) {
           lookbackDays: footprintLookbackDays,
         }),
       "Cursor footprint",
-    ),
-    safeFootprint(
-      () =>
-        summarizeCodexClientsForEmail({
-          email: user.email,
-          lookbackDays: footprintLookbackDays,
-          now,
-        }),
-      "Codex footprint",
     ),
     safeFootprint(
       () =>
@@ -277,10 +273,11 @@ async function getUserDetail(selection: string) {
     totalMtd,
     projectedEom,
     cursorFootprint,
-    codexFootprint,
     entraFootprint,
     complianceFootprint,
     openAiPeriodStart,
+    calendarMonthStart,
+    spendSources: {} as Partial<Record<ProductKey, UserMtdSpendSource>>,
   };
 }
 
@@ -316,6 +313,32 @@ async function safeFootprint<T extends { available: boolean; reason?: string }>(
   }
 }
 
+/** Prefer synced snapshot posture over a live Analytics API fan-out (often >2.5s in prod). */
+async function resolveCodexClientFootprint(args: {
+  email: string;
+  posture: CodexUserUsagePosture | null;
+  now: Date;
+}): Promise<Awaited<ReturnType<typeof summarizeCodexClientsForEmail>>> {
+  if (args.posture && args.posture.credits_used > 0) {
+    return {
+      available: true,
+      distinctClients: [],
+      lookbackDays: 30,
+      ipNote:
+        "Per-user client_id values are not stored in CODEX_SESSIONS_JSON snapshots. Credits and model mix appear in Codex usage posture below. Live Analytics lookup is skipped here to keep the page responsive.",
+    };
+  }
+  return safeFootprint(
+    () =>
+      summarizeCodexClientsForEmail({
+        email: args.email,
+        lookbackDays: 30,
+        now: args.now,
+      }),
+    "Codex footprint",
+  );
+}
+
 export default async function UsersPage(props: { searchParams: Promise<SP> }) {
   await requireUser();
   const sp = await props.searchParams;
@@ -345,6 +368,35 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
           clip: codexClip,
         })
       : null;
+
+  let enrichedDetail = detail;
+  let codexFootprint: Awaited<ReturnType<typeof summarizeCodexClientsForEmail>> | null = null;
+  if (detail) {
+    const [spendSources, resolvedCodexFootprint] = await Promise.all([
+      mergeUserMtdSpendFromVendors({
+        prisma,
+        userEmail: detail.user.email,
+        mtdMap: detail.mtdMap,
+        calendarMonthStart: detail.calendarMonthStart,
+        openAiPeriodStart: detail.openAiPeriodStart,
+        periodEnd: now,
+        codexCredits: detailCodexPosture?.credits_used,
+      }),
+      resolveCodexClientFootprint({
+        email: detail.user.email,
+        posture: detailCodexPosture,
+        now,
+      }),
+    ]);
+    codexFootprint = resolvedCodexFootprint;
+    const totalMtd = sumUserMtd(detail.mtdMap);
+    enrichedDetail = {
+      ...detail,
+      spendSources,
+      totalMtd,
+      projectedEom: projectUserEom(totalMtd, now),
+    };
+  }
 
   return (
     <>
@@ -477,9 +529,10 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
 
           {/* Detail */}
           <div className="lg:col-span-2 space-y-4">
-            {detail ? (
+            {enrichedDetail ? (
               <UserDetail
-                detail={detail}
+                detail={enrichedDetail}
+                codexFootprint={codexFootprint}
                 codexUsagePosture={detailCodexPosture}
                 codexSnapshotMeta={
                   codexSnapshot
@@ -514,10 +567,12 @@ export default async function UsersPage(props: { searchParams: Promise<SP> }) {
 
 function UserDetail({
   detail,
+  codexFootprint,
   codexUsagePosture,
   codexSnapshotMeta,
 }: {
   detail: NonNullable<Awaited<ReturnType<typeof getUserDetail>>>;
+  codexFootprint: Awaited<ReturnType<typeof summarizeCodexClientsForEmail>> | null;
   codexUsagePosture: CodexUserUsagePosture | null;
   codexSnapshotMeta: { periodStart: string | null; periodEnd: string | null } | null;
 }) {
@@ -529,9 +584,9 @@ function UserDetail({
     totalMtd,
     projectedEom,
     cursorFootprint,
-    codexFootprint,
     entraFootprint,
     complianceFootprint,
+    spendSources,
   } = detail;
   const licensesByProduct = new Map(user.licenses.map((l) => [l.product, l]));
   const isMacau = (deelEmp?.region ?? user.region) === "apac-mo";
@@ -561,6 +616,17 @@ function UserDetail({
               <div className="text-xs text-slate-500">
                 MTD · projected EOM {formatUsd(projectedEom, { decimals: 0 })}
               </div>
+              {Object.keys(spendSources).length > 0 ? (
+                <p className="mt-1 text-[10px] text-slate-500 max-w-[14rem]">
+                  Includes vendor-synced spend (Cursor / OpenAI analytics). Gateway mirror may
+                  be stale — see tier table for sources.
+                </p>
+              ) : totalMtd === 0 ? (
+                <p className="mt-1 text-[10px] text-amber-700 max-w-[14rem]">
+                  Gateway mirror has no recent usage rows. Run vendor syncs or check Program
+                  Health for live spend.
+                </p>
+              ) : null}
             </div>
           </div>
         </CardHeader>
@@ -584,7 +650,9 @@ function UserDetail({
           <CardDescription>
             Distinct IPs from Cursor Team Admin audit logs, Microsoft Entra sign-in logs (ChatGPT /
             Codex / OpenAI SSO), and OpenAI Compliance AUTH_LOG (ChatGPT Enterprise workspace).
-            Codex Analytics shows client surfaces only — not IP addresses.
+            Codex Analytics shows client surfaces only — not IP addresses. Lookups may take up to
+            12s; Entra requires <code className="font-mono text-xs">AuditLog.Read.All</code> on
+            the prod app registration.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
@@ -614,7 +682,9 @@ function UserDetail({
           </div>
           <div>
             <div className="font-medium text-slate-900">Codex</div>
-            {codexFootprint.available ? (
+            {!codexFootprint ? (
+              <p className="mt-1 text-xs text-slate-500">Loading Codex footprint…</p>
+            ) : codexFootprint.available ? (
               <div className="mt-1 text-slate-700">
                 <span className="font-mono text-base font-semibold">
                   {codexFootprint.distinctClients.length}
@@ -767,8 +837,8 @@ function UserDetail({
         <CardHeader>
           <CardTitle>Tier &amp; spend per product</CardTitle>
           <CardDescription>
-            One row per product; tiers from §4.6. MTD aggregates via{" "}
-            <code className="font-mono">getGatewayClient().aggregateByUser()</code>.
+            One row per product; tiers from §4.6. MTD merges gateway mirror with vendor-synced
+            Cursor spend and OpenAI analytics where available.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0 pb-0">
@@ -804,7 +874,12 @@ function UserDetail({
                           ? "seat-priced"
                           : "—"}
                     </TD>
-                    <TD className="font-mono">{formatUsd(usage.sum, { decimals: 2 })}</TD>
+                    <TD className="font-mono">
+                      {formatUsd(usage.sum, { decimals: 2 })}
+                      {spendSources[key as ProductKey] === "vendor" ? (
+                        <span className="ml-1 text-[10px] font-sans text-sky-700">vendor</span>
+                      ) : null}
+                    </TD>
                     <TD className="text-slate-600">{usage.count.toLocaleString()}</TD>
                     <TD>
                       {lic?.flag ? (

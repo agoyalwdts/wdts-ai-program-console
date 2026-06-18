@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { DecisionType, Product, type PrismaClient } from "@prisma/client";
 import {
+  COMPLEXITY_SCORE_THRESHOLD_NON_COMPLEX,
   DAY_ONE_DEFAULT_MODEL,
   DISABLED_MODE_MARKERS,
   MODEL_ALLOWLIST,
@@ -75,6 +76,9 @@ function pushUsageCandidates(args: {
     costUsd: number | null;
     userEmail: string | null;
     maxMode?: boolean;
+    usageKind?: string | null;
+    totalTokens?: number | null;
+    cacheReadTokens?: number | null;
   };
   environment: string;
   source: string;
@@ -150,9 +154,20 @@ function pushUsageCandidates(args: {
         context: {
           complexityScore: advisor.complexityScore,
           complexityClass: advisor.complexityClass,
+          complexityThreshold: COMPLEXITY_SCORE_THRESHOLD_NON_COMPLEX,
           tokensIn: args.row.tokensIn,
           tokensOut: args.row.tokensOut,
+          totalTokens: args.row.totalTokens ?? null,
+          cacheReadTokens: args.row.cacheReadTokens ?? null,
+          tokenDataMissing:
+            (args.row.tokensIn == null || args.row.tokensIn <= 0) &&
+            (args.row.tokensOut == null || args.row.tokensOut <= 0),
           costUsd: args.row.costUsd,
+          maxMode: args.row.maxMode ?? args.row.model.toLowerCase().includes("max"),
+          heavyModel: advisor.heavyModel,
+          defaultModel: advisor.defaultModel,
+          usageKind: args.row.usageKind ?? null,
+          source: args.source,
         },
         dedupeKey: dedupe([
           ruleCode,
