@@ -42,7 +42,7 @@ export async function listCursorSeatsFromPrisma(): Promise<CursorSeat[]> {
 
   const userIds = licenses.map((l) => l.userId);
   const now = new Date();
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const mtd =
     userIds.length === 0
       ? []
