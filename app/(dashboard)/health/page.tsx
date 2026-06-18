@@ -28,7 +28,7 @@ import {
   type ProductKey,
 } from "@/lib/program";
 import { formatUsd } from "@/lib/utils";
-import { getDeelClient, getGatewayClient } from "@/lib/integrations";
+import { getGatewayClient } from "@/lib/integrations";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { loadCursorVendorSpendForF1, mergeCursorVendorIntoF1 } from "@/lib/f1-cursor-vendor";
@@ -84,12 +84,10 @@ async function getF1Data(
   cursorLeaderboardSource: "gateway" | "vendor";
 }> {
   const gateway = getGatewayClient();
-  const deel = getDeelClient();
 
-  const [programAgg, dailyAgg, deelAll, vendorCursor, openAiSpend] = await Promise.all([
+  const [programAgg, dailyAgg, vendorCursor, openAiSpend] = await Promise.all([
     gateway.aggregateByProgram({ periodStart: plan.periodStart, periodEnd: plan.periodEnd }),
     gateway.aggregateByProgramDaily({ since: plan.periodStart, until: plan.periodEnd }),
-    deel.listEmployees(),
     loadCursorVendorSpendForF1(prisma, {
       periodStart: plan.periodStart,
       periodEnd: plan.periodEnd,
@@ -132,8 +130,6 @@ async function getF1Data(
     ? "vendor"
     : "gateway";
 
-  const deelByEmail = new Map(deelAll.map((d) => [d.email, d]));
-
   const [cursorMirror, openAiMirror] = await Promise.all([
     mirrorTopSpendersByProducts(prisma, {
       products: [Product.CURSOR],
@@ -155,7 +151,10 @@ async function getF1Data(
     gatewayTop: cursorMirror,
     limit: 10,
   });
-  const topCursor = await enrichLeaderboardRows(prisma, cursorMerged.rows, deelByEmail);
+  const topCursor = await enrichLeaderboardRows(prisma, cursorMerged.rows, {
+    products: [Product.CURSOR],
+    budgetMonthMultiplier: plan.budgetMonthMultiplier,
+  });
 
   const openAiMerged = await mergeTopSpendersWithVendorAttribution(prisma, {
     planPeriodStart: openAiSpendPlan.periodStart,
@@ -163,7 +162,10 @@ async function getF1Data(
     gatewayTop: openAiMirror,
     limit: 10,
   });
-  const topChatGptCodex = await enrichLeaderboardRows(prisma, openAiMerged, deelByEmail);
+  const topChatGptCodex = await enrichLeaderboardRows(prisma, openAiMerged, {
+    products: [Product.CHATGPT, Product.CODEX],
+    budgetMonthMultiplier: openAiSpendPlan.budgetMonthMultiplier,
+  });
 
   return {
     mtdMap,
@@ -195,8 +197,8 @@ function LeaderboardTable({
         <TR>
           <TH className="px-5">User</TH>
           <TH>Email</TH>
-          <TH>Role tag</TH>
-          <TH>Region</TH>
+          <TH>Sub-tier</TH>
+          <TH className="text-right">vs cap</TH>
           <TH className="text-right pr-5">Period spend</TH>
         </TR>
       </THead>
@@ -206,10 +208,20 @@ function LeaderboardTable({
             <TD className="pl-5 font-medium text-slate-900">{u.displayName}</TD>
             <TD className="text-slate-600">{u.email}</TD>
             <TD>
-              <Badge variant="secondary">{u.roleTag}</Badge>
+              {u.subTier ? (
+                <code className="font-mono text-xs text-slate-700">{u.subTier}</code>
+              ) : (
+                <span className="text-slate-400">—</span>
+              )}
             </TD>
-            <TD>
-              <Badge variant={u.region === "apac-mo" ? "warning" : "outline"}>{u.region}</Badge>
+            <TD className="text-right">
+              {u.pctOfCap != null ? (
+                <Badge variant={u.pctOfCap >= 100 ? "warning" : "outline"}>
+                  {u.pctOfCap.toFixed(0)}%
+                </Badge>
+              ) : (
+                <span className="text-slate-400">—</span>
+              )}
             </TD>
             <TD className="text-right pr-5 font-mono text-slate-900">
               {formatUsd(u.total, { decimals: 2 })}
