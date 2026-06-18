@@ -25,7 +25,19 @@ describe("guardrails advisor", () => {
       maxMode: true,
     });
     expect(out.disabledModeHit).toBe(true);
-    expect(out.recommendation).toBe("claude-4.6-sonnet");
+    expect(out.recommendation).toBe("composer-2.5-fast");
+  });
+
+  it("allows composer default without advisor nudge", () => {
+    const out = evaluateModelAdvisor({
+      product: "CURSOR",
+      selectedModel: "composer-2.5-fast",
+      tokensIn: 350,
+      tokensOut: 120,
+      maxMode: false,
+    });
+    expect(out.allowedModel).toBe(true);
+    expect(out.message).toBeNull();
   });
 
   it("estimates complexity from tokens when explicit score missing", () => {

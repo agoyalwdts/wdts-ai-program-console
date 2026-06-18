@@ -9,7 +9,7 @@ export type ProductKey = Extract<
 export const DAY_ONE_DEFAULT_MODEL: Record<ProductKey, string> = {
   CHATGPT: "gpt-5.3",
   CODEX: "gpt-5-codex-medium",
-  CURSOR: "claude-4.6-sonnet",
+  CURSOR: "composer-2.5-fast",
   CLAUDE_AI: "claude-4.6-sonnet",
   M365_COPILOT: "m365-copilot-default",
 };
@@ -41,7 +41,7 @@ export const HEAVY_MODEL_MARKERS = [
 export const MODEL_ALLOWLIST: Record<ProductKey, RegExp> = {
   CHATGPT: /^(gpt-4\.1|gpt-5|gpt-5\.\d|o1|o3|o4|chatgpt-)/i,
   CODEX: /^(gpt-5-codex|codex|gpt-5|o3)/i,
-  CURSOR: /^(claude|gpt-4\.1|gpt-5|gemini)/i,
+  CURSOR: /^(claude|gpt-4\.1|gpt-5|gemini|composer|auto|default)/i,
   CLAUDE_AI: /^(claude)/i,
   M365_COPILOT: /^(m365|copilot)/i,
 };

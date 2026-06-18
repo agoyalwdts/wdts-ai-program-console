@@ -6,6 +6,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { guardrailCategoryLabel } from "@/lib/guardrails/categories";
+import {
+  GUARDRAIL_ACK_FILTER_ALL,
+  GUARDRAIL_ACK_FILTER_OPEN,
+  GUARDRAIL_SEVERITY_FILTER_ALL,
+  GUARDRAIL_SEVERITY_FILTER_MEDIUM_UP,
+  guardrailListFilterSearchParams,
+  parseGuardrailListFilter,
+} from "@/lib/guardrails/alert-list-filter";
 import { ChevronDown, ChevronRight, Info, Loader2 } from "lucide-react";
 
 export type GuardrailAlertRow = {
@@ -45,6 +53,8 @@ export type GuardrailProductCount = { value: string; count: number };
 export function GuardrailsAlertsTable({
   initial,
   productFilter,
+  severityFilter,
+  ackFilter,
   productCounts,
   alertTotal,
   canManageUsers,
@@ -54,6 +64,8 @@ export function GuardrailsAlertsTable({
   initial: GuardrailAlertRow[];
   /** Server-driven filter (`ALL`, `CODEX`, `OTHER`, …). */
   productFilter: string;
+  severityFilter: string;
+  ackFilter: string;
   productCounts: GuardrailProductCount[];
   /** Total alerts in DB for the active product filter. */
   alertTotal: number;
@@ -73,9 +85,25 @@ export function GuardrailsAlertsTable({
   const [sortBy, setSortBy] = React.useState<"when" | "product" | "user">("when");
   const [sortDir, setSortDir] = React.useState<"asc" | "desc">("desc");
 
-  function onProductFilterChange(value: string) {
-    const params = new URLSearchParams();
-    if (value !== "ALL") params.set("product", value);
+  function onListFilterChange(patch: { product?: string; severity?: string; ack?: string }) {
+    const current = parseGuardrailListFilter({
+      product: productFilter,
+      severity: severityFilter,
+      ack: ackFilter,
+    });
+    const next = {
+      ...current,
+      ...(patch.product !== undefined
+        ? { product: parseGuardrailListFilter({ product: patch.product }).product }
+        : {}),
+      ...(patch.severity !== undefined
+        ? { severity: parseGuardrailListFilter({ severity: patch.severity }).severity }
+        : {}),
+      ...(patch.ack !== undefined
+        ? { ack: parseGuardrailListFilter({ ack: patch.ack }).ack }
+        : {}),
+    };
+    const params = guardrailListFilterSearchParams(next);
     const q = params.toString();
     router.push(q ? `${pathname}?${q}` : pathname);
   }
@@ -303,7 +331,7 @@ export function GuardrailsAlertsTable({
           <select
             className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
             value={productFilter}
-            onChange={(e) => onProductFilterChange(e.target.value)}
+            onChange={(e) => onListFilterChange({ product: e.target.value })}
           >
             <option value="ALL">
               All products
@@ -316,6 +344,29 @@ export function GuardrailsAlertsTable({
                 {p.value} ({p.count.toLocaleString()})
               </option>
             ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2">
+          <span className="text-xs font-medium text-slate-500">Severity</span>
+          <select
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
+            value={severityFilter}
+            onChange={(e) => onListFilterChange({ severity: e.target.value })}
+          >
+            <option value={GUARDRAIL_SEVERITY_FILTER_MEDIUM_UP}>Medium+</option>
+            <option value="HIGH">High only</option>
+            <option value={GUARDRAIL_SEVERITY_FILTER_ALL}>All severities</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2">
+          <span className="text-xs font-medium text-slate-500">Status</span>
+          <select
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
+            value={ackFilter}
+            onChange={(e) => onListFilterChange({ ack: e.target.value })}
+          >
+            <option value={GUARDRAIL_ACK_FILTER_OPEN}>Open</option>
+            <option value={GUARDRAIL_ACK_FILTER_ALL}>All</option>
           </select>
         </label>
         <label className="flex items-center gap-2">

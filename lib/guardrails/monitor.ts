@@ -12,6 +12,11 @@ import { notifyGuardrailAlertUsers } from "@/lib/notify/notify-end-users";
 import { pushCodexAnalyticsGuardrailCandidates } from "./codex-analytics-guardrail-rules";
 import { loadCodexUsageForGuardrailMonitor } from "./load-codex-usage-for-guardrail-monitor";
 import { loadCursorUsageForGuardrailMonitor } from "./load-cursor-usage-for-monitor";
+import {
+  passesGuardrailCostFloor,
+  resolveGuardrailMinCostUsd,
+  shouldSkipRegionAllowlistCheck,
+} from "./monitor-thresholds";
 import type { GuardrailCandidate } from "./types";
 
 export type { GuardrailCandidate } from "./types";
@@ -73,9 +78,12 @@ function pushUsageCandidates(args: {
   };
   environment: string;
   source: string;
+  minCostUsd?: number;
 }): void {
   const product = productFromUsageProduct(args.row.product);
   if (!product) return;
+
+  const minCostUsd = args.minCostUsd ?? resolveGuardrailMinCostUsd();
 
   const advisor = evaluateModelAdvisor({
     product,
@@ -116,38 +124,45 @@ function pushUsageCandidates(args: {
   }
 
   if (advisor.message && advisor.recommendation) {
-    args.candidates.push({
-      occurredAt: args.row.ts,
-      category: "COMPLEXITY_ADVISOR",
-      severity: advisor.heavyModel ? "MEDIUM" : "LOW",
-      ruleCode: advisor.heavyModel
-        ? "NON_COMPLEX_HEAVY_MODEL_SELECTED"
-        : "NON_COMPLEX_NON_DEFAULT_MODEL",
-      title: "Complexity-aware advisor recommends lower-cost model",
-      rationale: advisor.message,
-      recommendation: advisor.recommendation,
-      environment: args.environment,
-      product,
-      userEmail: args.row.userEmail,
-      model: args.row.model,
-      source: args.source,
-      context: {
-        complexityScore: advisor.complexityScore,
-        complexityClass: advisor.complexityClass,
-        tokensIn: args.row.tokensIn,
-        tokensOut: args.row.tokensOut,
+    const ruleCode = advisor.heavyModel
+      ? "NON_COMPLEX_HEAVY_MODEL_SELECTED"
+      : "NON_COMPLEX_NON_DEFAULT_MODEL";
+    if (
+      passesGuardrailCostFloor({
+        ruleCode,
         costUsd: args.row.costUsd,
-      },
-      dedupeKey: dedupe([
-        advisor.heavyModel
-          ? "NON_COMPLEX_HEAVY_MODEL_SELECTED"
-          : "NON_COMPLEX_NON_DEFAULT_MODEL",
+        minCostUsd,
+      })
+    ) {
+      args.candidates.push({
+        occurredAt: args.row.ts,
+        category: "COMPLEXITY_ADVISOR",
+        severity: advisor.heavyModel ? "MEDIUM" : "LOW",
+        ruleCode,
+        title: "Complexity-aware advisor recommends lower-cost model",
+        rationale: advisor.message,
+        recommendation: advisor.recommendation,
+        environment: args.environment,
         product,
-        args.row.userEmail ?? "",
-        args.row.model,
-        args.row.ts.toISOString().slice(0, 10),
-      ]),
-    });
+        userEmail: args.row.userEmail,
+        model: args.row.model,
+        source: args.source,
+        context: {
+          complexityScore: advisor.complexityScore,
+          complexityClass: advisor.complexityClass,
+          tokensIn: args.row.tokensIn,
+          tokensOut: args.row.tokensOut,
+          costUsd: args.row.costUsd,
+        },
+        dedupeKey: dedupe([
+          ruleCode,
+          product,
+          args.row.userEmail ?? "",
+          args.row.model,
+          args.row.ts.toISOString().slice(0, 10),
+        ]),
+      });
+    }
   }
 
   const allowed = MODEL_ALLOWLIST[product].test(args.row.model);
@@ -181,6 +196,7 @@ function pushUsageCandidates(args: {
   if (
     (args.environment === "staging" || args.environment === "prod") &&
     region &&
+    !shouldSkipRegionAllowlistCheck(args.source, args.row.region) &&
     !STRICT_REGION_ALLOWLIST.includes(region as (typeof STRICT_REGION_ALLOWLIST)[number])
   ) {
     args.candidates.push({
@@ -287,6 +303,7 @@ export async function runGuardrailMonitor(
   const windowHours = Math.max(1, Math.min(args?.windowHours ?? 24, 24 * 30));
   const since = new Date(Date.now() - windowHours * 60 * 60 * 1000);
   const env = envMode();
+  const minCostUsd = resolveGuardrailMinCostUsd();
 
   let cursorFeed: Awaited<ReturnType<typeof loadCursorUsageForGuardrailMonitor>>;
   try {
@@ -394,6 +411,7 @@ export async function runGuardrailMonitor(
       },
       environment: env,
       source: "USAGE_RECORD",
+      minCostUsd,
     });
   }
 
@@ -404,6 +422,7 @@ export async function runGuardrailMonitor(
         row: r,
         environment: env,
         source: "CURSOR_ADMIN_API",
+        minCostUsd,
       });
     }
   }
@@ -416,6 +435,7 @@ export async function runGuardrailMonitor(
         row: r,
         environment: env,
         source: "CODEX_ENTERPRISE_ANALYTICS",
+        minCostUsd,
       });
       pushCodexAnalyticsGuardrailCandidates({
         candidates,

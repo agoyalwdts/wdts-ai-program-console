@@ -54,7 +54,9 @@ export function evaluateModelAdvisor(input: AdvisorInput): AdvisorOutcome {
   const complexityClass: ComplexityClass =
     complexityScore < COMPLEXITY_SCORE_THRESHOLD_NON_COMPLEX ? "NON_COMPLEX" : "COMPLEX";
   const heavyModel = includesAny(selectedLower, HEAVY_MODEL_MARKERS);
-  const disabledModeHit = includesAny(selectedLower, DISABLED_MODE_MARKERS[input.product]);
+  const disabledModeHit =
+    selectedLower !== defaultModel.toLowerCase() &&
+    includesAny(selectedLower, DISABLED_MODE_MARKERS[input.product]);
   const allowedModel = MODEL_ALLOWLIST[input.product].test(selected);
 
   let recommendation: string | null = null;

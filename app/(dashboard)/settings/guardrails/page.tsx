@@ -17,9 +17,11 @@ import { GuardrailsAlertsTable } from "./guardrails-alerts-table";
 import {
   GUARDRAIL_PRODUCT_FILTER_ALL,
   guardrailProductFilterParam,
-  parseGuardrailProductFilter,
-  prismaWhereForGuardrailProductFilter,
 } from "@/lib/guardrails/alert-product-filter";
+import {
+  parseGuardrailListFilter,
+  prismaWhereForGuardrailListFilter,
+} from "@/lib/guardrails/alert-list-filter";
 import {
   guardrailAlertSubjectLabel,
   guardrailAlertSubjectTitle,
@@ -27,16 +29,19 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type SP = { product?: string };
+type SP = { product?: string; severity?: string; ack?: string };
 
 export default async function GuardrailsSettingsPage(props: { searchParams: Promise<SP> }) {
   const user = await requirePermission(PERMISSIONS.GUARDRAILS_MONITOR);
   const canManageUsers = userHasPermission(user, PERMISSIONS.USERS_MANAGE);
 
   const sp = await props.searchParams;
-  const productFilter = parseGuardrailProductFilter(sp.product);
-  const alertWhere = prismaWhereForGuardrailProductFilter(productFilter);
-  const productFilterKey = guardrailProductFilterParam(productFilter) ?? GUARDRAIL_PRODUCT_FILTER_ALL;
+  const listFilter = parseGuardrailListFilter(sp);
+  const alertWhere = prismaWhereForGuardrailListFilter(listFilter);
+  const productFilterKey =
+    guardrailProductFilterParam(listFilter.product) ?? GUARDRAIL_PRODUCT_FILTER_ALL;
+  const severityFilterKey = listFilter.severity;
+  const ackFilterKey = listFilter.ack;
 
   const [alerts, alertTotal, productGroups, usageMirror] = await Promise.all([
     prisma.guardrailPolicyAlert.findMany({
@@ -94,8 +99,8 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
 
   const tableKey =
     alerts.length > 0
-      ? `${productFilterKey}:${alerts.length}:${alerts[0]!.id}:${alerts[0]!.occurredAt.toISOString()}`
-      : `${productFilterKey}:empty`;
+      ? `${productFilterKey}:${severityFilterKey}:${ackFilterKey}:${alerts.length}:${alerts[0]!.id}:${alerts[0]!.occurredAt.toISOString()}`
+      : `${productFilterKey}:${severityFilterKey}:${ackFilterKey}:empty`;
 
   const initial = alerts.map((a) => {
     const email = a.userEmail?.trim().toLowerCase() ?? null;
@@ -200,6 +205,8 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
               key={tableKey}
               initial={initial}
               productFilter={productFilterKey}
+              severityFilter={severityFilterKey}
+              ackFilter={ackFilterKey}
               productCounts={productCounts}
               alertTotal={alertTotal}
               canManageUsers={canManageUsers}
