@@ -12,14 +12,21 @@ function normEmail(e: string): string {
 }
 
 /**
- * One seat per active SCIM workspace member. When the same email exists in
- * Prisma (program `License`), that row wins for tier / MTD / idle; otherwise
- * emit a placeholder STANDARD seat so F4 "filled" matches workspace size.
+ * One seat per live workspace member. When the same email exists in Prisma
+ * (program `License`), that row wins for tier / MTD / idle. Prisma-only
+ * licenses are omitted unless `includePrismaOrphans` is true (synthetic dev).
  */
 export function mergeScimMembersWithPrismaSeats(
   scimMembers: ScimMemberBrief[],
   prismaSeats: CursorSeat[],
+  opts?: {
+    includePrismaOrphans?: boolean;
+    workspaceOnlyUserIdPrefix?: string;
+  },
 ): CursorSeat[] {
+  const includePrismaOrphans = opts?.includePrismaOrphans ?? true;
+  const orphanPrefix = opts?.workspaceOnlyUserIdPrefix ?? "scim:";
+
   const byEmail = new Map<string, CursorSeat>();
   for (const s of prismaSeats) {
     byEmail.set(normEmail(s.email), s);
@@ -36,7 +43,7 @@ export function mergeScimMembersWithPrismaSeats(
     } else {
       const defaultTier: CursorSubTier = "STANDARD";
       out.push({
-        userId: `scim:${m.id}`,
+        userId: `${orphanPrefix}${m.id}`,
         email: m.email,
         displayName: m.displayName,
         subTier: defaultTier,
@@ -47,9 +54,10 @@ export function mergeScimMembersWithPrismaSeats(
     }
   }
 
-  // Licensed users not returned by SCIM (e.g. SCIM outage or shadow rows).
-  for (const s of byEmail.values()) {
-    out.push(s);
+  if (includePrismaOrphans) {
+    for (const s of byEmail.values()) {
+      out.push(s);
+    }
   }
 
   return out;

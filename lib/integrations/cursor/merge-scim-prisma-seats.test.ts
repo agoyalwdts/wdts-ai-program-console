@@ -38,7 +38,7 @@ describe("mergeScimMembersWithPrismaSeats", () => {
     expect(merged.find((x) => x.email === "alice@w.com")?.userId).toBe("uuid-a");
   });
 
-  it("appends Prisma seats missing from SCIM", () => {
+  it("appends Prisma seats missing from SCIM by default", () => {
     const extra: CursorSeat = {
       ...prismaSeat,
       userId: "uuid-b",
@@ -51,5 +51,21 @@ describe("mergeScimMembersWithPrismaSeats", () => {
       [prismaSeat, extra],
     );
     expect(merged.map((x) => x.email).sort()).toEqual(["alice@w.com", "carol@w.com"]);
+  });
+
+  it("omits Prisma orphans when includePrismaOrphans is false", () => {
+    const extra: CursorSeat = {
+      ...prismaSeat,
+      userId: "uuid-b",
+      email: "carol@w.com",
+      displayName: "Carol",
+      subTier: "LIGHT",
+    };
+    const merged = mergeScimMembersWithPrismaSeats(
+      [{ id: "s1", email: "alice@w.com", displayName: "A", active: true }],
+      [prismaSeat, extra],
+      { includePrismaOrphans: false },
+    );
+    expect(merged.map((x) => x.email)).toEqual(["alice@w.com"]);
   });
 });
