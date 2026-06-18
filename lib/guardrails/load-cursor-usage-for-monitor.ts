@@ -23,6 +23,10 @@ export type GuardrailMonitorUsageRow = {
   costUsd: number | null;
   userEmail: string | null;
   maxMode?: boolean;
+  /** Cursor filtered-usage-events `kind` (e.g. chat, composer). */
+  usageKind?: string | null;
+  totalTokens?: number | null;
+  cacheReadTokens?: number | null;
 };
 
 export type CursorGuardrailFeedResult =
@@ -55,6 +59,9 @@ export function mapCursorParsedRowToGuardrailUsage(
     costUsd: row.costUsd,
     userEmail: row.userEmail,
     maxMode: row.maxMode,
+    usageKind: row.kind || null,
+    totalTokens: row.totalTokens > 0 ? row.totalTokens : null,
+    cacheReadTokens: row.cacheRead > 0 ? row.cacheRead : null,
   };
 }
 

@@ -16,6 +16,8 @@ import {
 } from "@/lib/guardrails/alert-list-filter";
 import { ChevronDown, ChevronRight, Info, Loader2 } from "lucide-react";
 
+export type GuardrailEvidenceLine = { label: string; value: string };
+
 export type GuardrailAlertRow = {
   id: string;
   occurredAt: string;
@@ -40,6 +42,8 @@ export type GuardrailAlertRow = {
   subjectConsoleBlocked: boolean;
   canBlockConsole: boolean;
   canAllowConsole: boolean;
+  source: string | null;
+  evidenceLines: GuardrailEvidenceLine[];
 };
 
 type PendingAction =
@@ -645,6 +649,27 @@ export function GuardrailsAlertsTable({
                             <p className="mt-0.5 whitespace-pre-wrap break-words text-sky-900">
                               {r.recommendation}
                             </p>
+                          </div>
+                        ) : null}
+                        {r.evidenceLines.length > 0 ? (
+                          <div>
+                            <span className="font-medium text-slate-900">Usage signals</span>
+                            <p className="mt-0.5 text-[10px] text-slate-500">
+                              What the monitor saw when this alert was created (vendor APIs do not
+                              include prompt text).
+                            </p>
+                            <dl className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                              {r.evidenceLines.map((line, i) => (
+                                <div key={`${i}:${line.label}`} className="min-w-0">
+                                  <dt className="text-[10px] font-medium text-slate-500">
+                                    {line.label}
+                                  </dt>
+                                  <dd className="text-[11px] text-slate-800 break-words font-mono">
+                                    {line.value}
+                                  </dd>
+                                </div>
+                              ))}
+                            </dl>
                           </div>
                         ) : null}
                         <p className="text-[10px] text-slate-500 font-mono">Alert id: {r.id}</p>

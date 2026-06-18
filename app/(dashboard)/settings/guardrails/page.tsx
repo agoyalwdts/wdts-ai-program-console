@@ -29,6 +29,7 @@ import {
   guardrailAlertSubjectLabel,
   guardrailAlertSubjectTitle,
 } from "@/lib/guardrails/alert-subject-display";
+import { guardrailAlertEvidenceLines } from "@/lib/guardrails/alert-evidence-display";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,7 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
         acknowledgedAt: true,
         userEmailNotifiedAt: true,
         context: true,
+        source: true,
         dedupeKey: true,
       },
     }),
@@ -152,6 +154,14 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
       subjectConsoleBlocked: access.consoleBlocked,
       canBlockConsole: access.canBlockConsole,
       canAllowConsole: access.canAllowConsole,
+      source: a.source,
+      evidenceLines: guardrailAlertEvidenceLines({
+        ruleCode: a.ruleCode,
+        product: a.product,
+        model: a.model,
+        source: a.source,
+        context: a.context,
+      }),
     };
   });
 
