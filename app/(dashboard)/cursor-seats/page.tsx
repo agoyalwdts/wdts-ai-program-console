@@ -15,8 +15,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { CURSOR_RECLAMATION_IDLE_DAYS, CURSOR_SEATS, CURSOR_TIERS, CURSOR_TOTAL_SEATS } from "@/lib/program";
-import { cn, formatUsd, initials } from "@/lib/utils";
+import { CURSOR_RECLAMATION_IDLE_DAYS, CURSOR_TIERS } from "@/lib/program";
+import { cn, formatPct, formatUsd, initials } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
 import { getCursorClient } from "@/lib/integrations";
 import type {
@@ -32,22 +32,18 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 export const dynamic = "force-dynamic";
 
-type Cell =
-  | {
-      kind: "filled";
-      tier: CursorSubTier;
-      userId: string;
-      displayName: string;
-      email: string;
-      idleDays: number;
-      mtdSpend: number;
-      capUsd: number;
-    }
-  | { kind: "empty"; tier: CursorSubTier };
+type SeatRow = {
+  tier: CursorSubTier;
+  userId: string;
+  displayName: string;
+  email: string;
+  idleDays: number;
+  mtdSpend: number;
+  capUsd: number;
+  /** False for SCIM workspace members without a dashboard License row. */
+  hasProgramLicense: boolean;
+};
 
-// Render order for the seat board — top tier first, Discovery last,
-// matching §4.6.1's "Discovery → Light → Standard → Power" promotion ladder
-// (rendered top-down, so heaviest at the top).
 const TIER_ORDER: readonly CursorSubTier[] = [
   "POWER",
   "STANDARD",
@@ -55,44 +51,43 @@ const TIER_ORDER: readonly CursorSubTier[] = [
   "DISCOVERY",
 ] as const;
 
+function isScimOnlySeat(userId: string): boolean {
+  return userId.startsWith("scim:");
+}
+
+function toSeatRow(s: ApiCursorSeat): SeatRow {
+  return {
+    tier: s.subTier,
+    userId: s.userId,
+    displayName: s.displayName,
+    email: s.email,
+    idleDays: s.idleDays ?? 999,
+    mtdSpend: s.mtdSpendUsd,
+    capUsd: CURSOR_TIERS[s.subTier].capUsdMonth,
+    hasProgramLicense: !isScimOnlySeat(s.userId),
+  };
+}
+
 async function loadSeatBoard(cursor: CursorClient) {
   const rawSeats = await cursor.listSeats();
   const seats = await enrichCursorSeatsWithVendorSpend(prisma, rawSeats);
   const waitlist = await cursor.listWaitlist();
+  const rows = seats.map(toSeatRow);
 
-  function toCell(s: ApiCursorSeat): Cell {
-    return {
-      kind: "filled",
-      tier: s.subTier,
-      userId: s.userId,
-      displayName: s.displayName,
-      email: s.email,
-      idleDays: s.idleDays ?? 999,
-      mtdSpend: s.mtdSpendUsd,
-      capUsd: CURSOR_TIERS[s.subTier].capUsdMonth,
-    };
-  }
-
-  const cellsByTier: Record<CursorSubTier, Cell[]> = {
+  const byTier: Record<CursorSubTier, SeatRow[]> = {
     POWER: [],
     STANDARD: [],
     LIGHT: [],
     DISCOVERY: [],
   };
-  for (const s of seats) cellsByTier[s.subTier].push(toCell(s));
-
-  // Pad to the design quotas in §4.6.1 so the board always renders the full
-  // 120-cell shape, even when only a subset of seats are filled.
+  for (const row of rows) {
+    byTier[row.tier].push(row);
+  }
   for (const tier of TIER_ORDER) {
-    const target = CURSOR_SEATS[tier];
-    while (cellsByTier[tier].length < target) {
-      cellsByTier[tier].push({ kind: "empty", tier });
-    }
+    byTier[tier].sort((a, b) => b.mtdSpend - a.mtdSpend);
   }
 
-  const all: Cell[] = TIER_ORDER.flatMap((t) => cellsByTier[t]);
-
-  return { all, cellsByTier, waitlist };
+  return { rows, byTier, waitlist };
 }
 
 async function getSeatBoard() {
@@ -122,12 +117,13 @@ async function loadOpenReclamations() {
   });
 }
 
-function filledCells(all: Cell[]): Extract<Cell, { kind: "filled" }>[] {
-  return all.filter((c): c is Extract<Cell, { kind: "filled" }> => c.kind === "filled");
+function utilPct(row: SeatRow) {
+  return row.capUsd > 0 ? (row.mtdSpend / row.capUsd) * 100 : 0;
 }
 
-function utilPct(cell: Extract<Cell, { kind: "filled" }>) {
-  return cell.capUsd > 0 ? (cell.mtdSpend / cell.capUsd) * 100 : 0;
+function tierLabel(tier: CursorSubTier, hasProgramLicense: boolean): string {
+  if (hasProgramLicense) return tier;
+  return "Workspace";
 }
 
 export default async function CursorSeatsPage() {
@@ -136,25 +132,27 @@ export default async function CursorSeatsPage() {
     userHasPermission(user, PERMISSIONS.DECISIONS_APPROVE) &&
     userHasPermission(user, PERMISSIONS.POLICY_EDIT);
 
+  const cursorMode = getIntegrationMode("cursor", process.env);
   const [data, openReclamations] = await Promise.all([
     getSeatBoard(),
     loadOpenReclamations(),
   ]);
 
-  const filled = filledCells(data.all);
+  const { rows, byTier, waitlist } = data;
+  const managedRows = rows.filter((r) => r.hasProgramLicense);
   const openReclamationUserIds = new Set(openReclamations.map((e) => e.subjectUserId));
 
-  const reclamationCandidates = filled
+  const reclamationCandidates = managedRows
     .filter((s) => s.idleDays >= CURSOR_RECLAMATION_IDLE_DAYS && !openReclamationUserIds.has(s.userId))
     .sort((a, b) => b.idleDays - a.idleDays)
     .slice(0, 10);
 
-  const promotionCandidates = filled
+  const promotionCandidates = managedRows
     .filter((s) => s.tier === "DISCOVERY" && utilPct(s) >= 50)
     .sort((a, b) => utilPct(b) - utilPct(a))
     .slice(0, 10);
 
-  const demotionCandidates = filled
+  const demotionCandidates = managedRows
     .filter(
       (s) =>
         (s.tier === "POWER" || s.tier === "STANDARD" || s.tier === "LIGHT") && utilPct(s) < 10,
@@ -180,38 +178,49 @@ export default async function CursorSeatsPage() {
     };
   });
 
-  const filledCount = filled.length;
-  const idle = filled.filter((s) => s.idleDays >= 14).length;
+  const memberCount = rows.length;
+  const idle = rows.filter((s) => s.idleDays >= 14).length;
+  const totalMtd = rows.reduce((acc, r) => acc + r.mtdSpend, 0);
+  const scimOnlyCount = rows.filter((r) => !r.hasProgramLicense).length;
+
+  const sortedMembers = [...rows].sort((a, b) => b.mtdSpend - a.mtdSpend);
 
   return (
     <>
       <Topbar
-        title="Cursor Seat Board"
-        subtitle={`F4 — visualise the ${CURSOR_TOTAL_SEATS} seats; track holders, idle days, and the waitlist.`}
+        title="Cursor workspace"
+        subtitle="F4 — live workspace members from Cursor SCIM + program licenses; MTD from Team Admin sync."
       />
       <div className="p-6 space-y-6">
-        {/* Stats row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard
-            label="Allocated seats"
-            value={CURSOR_TOTAL_SEATS}
-            sub="120-seat plan, four sub-tiers (§4.6.1)"
+            label="Workspace members"
+            value={memberCount}
+            sub={
+              cursorMode === "real"
+                ? "SCIM members unioned with dashboard licenses"
+                : "Synthetic — Prisma License rows (dev)"
+            }
           />
           <StatCard
-            label="Filled"
-            value={filledCount}
-            sub={`${CURSOR_TOTAL_SEATS - filledCount} open / waitlist eligible`}
+            label="Program-licensed"
+            value={managedRows.length}
+            sub={
+              scimOnlyCount > 0
+                ? `${scimOnlyCount} in workspace without dashboard tier`
+                : "All members have a program License row"
+            }
           />
           <StatCard
             label="Idle ≥ 14 days"
             value={idle}
-            sub="candidates for §4.6.4 review"
+            sub="No Cursor usage in lookback window"
             tone="amber"
           />
           <StatCard
-            label="Credit envelope"
-            value={formatUsd(500_000)}
-            sub="$41,667/mo · binding constraint (§4.6.1)"
+            label="MTD spend (all members)"
+            value={formatUsd(totalMtd, { decimals: 0 })}
+            sub="Team Admin VendorUserDailySpend when real"
           />
         </div>
 
@@ -298,108 +307,160 @@ export default async function CursorSeatsPage() {
           </div>
         )}
 
-        {/* Seat board */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <CardTitle>The {CURSOR_TOTAL_SEATS} seats</CardTitle>
-                <CardDescription>
-                  Vendor confirmed (April 2026) that Cursor is{" "}
-                  <em>credit-capped, not seat-capped</em> — the binding constraint
-                  is the $500K/yr envelope, not a seat count. The {CURSOR_TOTAL_SEATS}-seat
-                  shape below is WDTS&apos;s allocation plan that fits inside the
-                  envelope (~$41,400/mo cap-sum). Hover a cell for the holder + idle
-                  days; empty cells are unallocated / reclaimable per §4.6.4. Source:{" "}
-                  <code className="font-mono">getCursorClient().listSeats()</code>
-                  — synthetic mode uses Prisma <code className="font-mono">License</code>{" "}
-                  (<code className="font-mono">CURSOR</code>) only. Real mode unions{" "}
-                  <strong>SCIM workspace members</strong> with those licenses (email match keeps
-                  tier from the DB; SCIM-only rows show as Standard until licensed). MTD spend and
-                  idle days merge Cursor Team Admin{" "}
-                  <code className="font-mono">VendorUserDailySpend</code> when{" "}
-                  <code className="font-mono">INTEGRATION_CURSOR=real</code>.
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-3 text-xs">
-                <LegendDot color="bg-violet-500" label={`Power ${CURSOR_SEATS.POWER}`} />
-                <LegendDot color="bg-sky-500" label={`Standard ${CURSOR_SEATS.STANDARD}`} />
-                <LegendDot color="bg-slate-400" label={`Light ${CURSOR_SEATS.LIGHT}`} />
-                <LegendDot color="bg-stone-300" label={`Discovery ${CURSOR_SEATS.DISCOVERY}`} />
-                <LegendDot
-                  color="bg-slate-200 border border-dashed border-slate-400"
-                  label="Empty"
-                />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {TIER_ORDER.map((tier, i) => (
-              <div key={tier}>
-                {i > 0 ? <div className="h-3" /> : null}
-                <SeatGrid
-                  title={CURSOR_TIERS[tier].label}
-                  tier={tier}
-                  seats={data.cellsByTier[tier]}
-                />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        {/* Waitlist */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Waitlist</CardTitle>
+            <CardTitle>All members</CardTitle>
             <CardDescription>
-              Drawn from §4.6.4 priority order: Discovery-tier users whose
-              consumption justifies a Light promotion, Light → Standard, Standard
-              → Power, then new joiners with manager attestation, then Steering
-              exceptions. Source:{" "}
-              <code className="font-mono">getCursorClient().listWaitlist()</code>.
+              One row per person returned by{" "}
+              <code className="font-mono">getCursorClient().listSeats()</code>. Real mode lists
+              active SCIM workspace members; email match attaches program sub-tier and cap from
+              dashboard <code className="font-mono">License</code> rows. Members without a license
+              show tier <strong>Workspace</strong> (in Cursor, not yet tiered in the console).
+              MTD and idle merge Team Admin{" "}
+              <code className="font-mono">VendorUserDailySpend</code> when{" "}
+              <code className="font-mono">INTEGRATION_CURSOR=real</code>.
             </CardDescription>
           </CardHeader>
           <CardContent className="px-0 pb-0">
-            <Table>
-              <THead>
-                <TR>
-                  <TH className="pl-5">#</TH>
-                  <TH>User</TH>
-                  <TH>Email</TH>
-                  <TH>Role tag</TH>
-                  <TH>Requested tier</TH>
-                  <TH className="pr-5">Reason</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {data.waitlist.map((w) => (
-                  <TR key={w.email}>
-                    <TD className="pl-5 font-mono text-slate-500">{w.position}</TD>
-                    <TD className="font-medium text-slate-900">{w.displayName}</TD>
-                    <TD className="text-slate-600">{w.email}</TD>
-                    <TD>
-                      {w.roleTag ? (
-                        <Badge variant="secondary">{w.roleTag}</Badge>
-                      ) : (
-                        <span className="text-xs text-slate-400">—</span>
-                      )}
-                    </TD>
-                    <TD>
-                      <Badge variant={waitlistBadge(w.requestedTier)}>
-                        {w.requestedTier}
-                      </Badge>
-                    </TD>
-                    <TD className="pr-5 text-slate-600 text-xs">{w.rationale}</TD>
+            {sortedMembers.length === 0 ? (
+              <p className="px-5 pb-6 text-sm text-slate-500">
+                No workspace members returned. Check{" "}
+                <code className="font-mono">CURSOR_SCIM_BASE_URL</code> and{" "}
+                <code className="font-mono">CURSOR_ADMIN_TOKEN</code>, or run a roster import with
+                Cursor licenses.
+              </p>
+            ) : (
+              <Table>
+                <THead>
+                  <TR>
+                    <TH className="pl-5">Member</TH>
+                    <TH>Tier</TH>
+                    <TH>MTD spend</TH>
+                    <TH>Cap util</TH>
+                    <TH className="pr-5">Idle</TH>
                   </TR>
-                ))}
-              </TBody>
-            </Table>
+                </THead>
+                <TBody>
+                  {sortedMembers.map((r) => (
+                    <TR key={r.userId}>
+                      <TD className="pl-5">
+                        <div className="font-medium text-slate-900">{r.displayName}</div>
+                        <div className="text-xs text-slate-500">{r.email}</div>
+                      </TD>
+                      <TD>
+                        <Badge variant={r.hasProgramLicense ? tierBadge(r.tier) : "secondary"}>
+                          {tierLabel(r.tier, r.hasProgramLicense)}
+                        </Badge>
+                      </TD>
+                      <TD className="font-mono text-sm">{formatUsd(r.mtdSpend, { decimals: 2 })}</TD>
+                      <TD className="text-sm">
+                        {r.hasProgramLicense ? (
+                          capUtilBadge(utilPct(r) / 100)
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </TD>
+                      <TD className="pr-5">{idleBadge(r.idleDays)}</TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 
+        {TIER_ORDER.some((t) => byTier[t].length > 0) ? (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <CardTitle>By program tier</CardTitle>
+                  <CardDescription>
+                    Compact view of licensed members only — counts reflect actual workspace data,
+                    not a fixed allocation plan.
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs">
+                  {TIER_ORDER.map((tier) =>
+                    byTier[tier].length > 0 ? (
+                      <LegendDot
+                        key={tier}
+                        color={TIER_DOT[tier]}
+                        label={`${CURSOR_TIERS[tier].label} (${byTier[tier].length})`}
+                      />
+                    ) : null,
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {TIER_ORDER.map((tier, i) =>
+                byTier[tier].length > 0 ? (
+                  <div key={tier}>
+                    {i > 0 ? <div className="h-3" /> : null}
+                    <SeatGrid
+                      title={CURSOR_TIERS[tier].label}
+                      tier={tier}
+                      seats={byTier[tier]}
+                    />
+                  </div>
+                ) : null,
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {waitlist.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Waitlist</CardTitle>
+              <CardDescription>
+                Synthetic waitlist (dev only). Cursor does not expose a waitlist API — real mode
+                returns an empty list.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="px-0 pb-0">
+              <Table>
+                <THead>
+                  <TR>
+                    <TH className="pl-5">#</TH>
+                    <TH>User</TH>
+                    <TH>Email</TH>
+                    <TH>Role tag</TH>
+                    <TH>Requested tier</TH>
+                    <TH className="pr-5">Reason</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {waitlist.map((w) => (
+                    <TR key={w.email}>
+                      <TD className="pl-5 font-mono text-slate-500">{w.position}</TD>
+                      <TD className="font-medium text-slate-900">{w.displayName}</TD>
+                      <TD className="text-slate-600">{w.email}</TD>
+                      <TD>
+                        {w.roleTag ? (
+                          <Badge variant="secondary">{w.roleTag}</Badge>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </TD>
+                      <TD>
+                        <Badge variant={waitlistBadge(w.requestedTier)}>
+                          {w.requestedTier}
+                        </Badge>
+                      </TD>
+                      <TD className="pr-5 text-slate-600 text-xs">{w.rationale}</TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </CardContent>
+          </Card>
+        ) : null}
+
         <p className="text-xs text-slate-400">
-          F6 tier moves and F7 reclamation open policy-repo PRs — the seat board mirror updates after
-          merge. Synthetic mode uses example PR URLs when{" "}
+          F6 tier moves and F7 reclamation require a dashboard License row (not SCIM-only members).
+          Synthetic mode uses example PR URLs when{" "}
           <code className="font-mono">INTEGRATION_POLICYREPO=synthetic</code>.
         </p>
       </div>
@@ -445,14 +506,18 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   );
 }
 
-// Per-tier visuals — kept in sync with §4.6.1's Discovery → Light → Standard
-// → Power gradient. Discovery is the lightest because it's the floor of the
-// promotion ladder and the lowest-cap tier.
 const TIER_COLOURS: Record<CursorSubTier, string> = {
   POWER: "bg-violet-500 text-white",
   STANDARD: "bg-sky-500 text-white",
   LIGHT: "bg-slate-400 text-white",
   DISCOVERY: "bg-stone-300 text-stone-800",
+};
+
+const TIER_DOT: Record<CursorSubTier, string> = {
+  POWER: "bg-violet-500",
+  STANDARD: "bg-sky-500",
+  LIGHT: "bg-slate-400",
+  DISCOVERY: "bg-stone-300",
 };
 
 const WAITLIST_BADGE: Record<CursorSubTier, "violet" | "blue" | "slate" | "secondary"> = {
@@ -464,6 +529,22 @@ const WAITLIST_BADGE: Record<CursorSubTier, "violet" | "blue" | "slate" | "secon
 
 function waitlistBadge(t: CursorSubTier) {
   return WAITLIST_BADGE[t];
+}
+
+function tierBadge(t: CursorSubTier): "violet" | "blue" | "slate" | "secondary" {
+  return WAITLIST_BADGE[t];
+}
+
+function capUtilBadge(util: number) {
+  if (util >= 1.0) return <Badge variant="danger">{formatPct(util)}</Badge>;
+  if (util >= 0.8) return <Badge variant="warning">{formatPct(util)}</Badge>;
+  return <Badge variant="success">{formatPct(util)}</Badge>;
+}
+
+function idleBadge(days: number) {
+  if (days >= 30) return <Badge variant="danger">{days}d</Badge>;
+  if (days >= 14) return <Badge variant="warning">{days}d</Badge>;
+  return <span className="text-slate-600 font-mono text-xs">{days}d</span>;
 }
 
 function ActionQueueCard({
@@ -515,7 +596,7 @@ function SeatGrid({
 }: {
   title: string;
   tier: CursorSubTier;
-  seats: Cell[];
+  seats: SeatRow[];
 }) {
   const colourFilled = TIER_COLOURS[tier];
   return (
@@ -527,23 +608,10 @@ function SeatGrid({
             · cap {formatUsd(CURSOR_TIERS[tier].capUsdMonth)}/mo
           </span>
         </div>
-        <div className="text-xs text-slate-500">
-          {seats.filter((s) => s.kind === "filled").length} / {seats.length} filled
-        </div>
+        <div className="text-xs text-slate-500">{seats.length} members</div>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {seats.map((s, i) => {
-          if (s.kind === "empty") {
-            return (
-              <span
-                key={`e-${tier}-${i}`}
-                className="inline-flex h-9 w-9 items-center justify-center rounded text-[10px] text-slate-400 border border-dashed border-slate-300 bg-slate-50"
-                title={`Empty ${tier} seat`}
-              >
-                —
-              </span>
-            );
-          }
+        {seats.map((s) => {
           const idleHot = s.idleDays >= 30;
           const idleWarn = !idleHot && s.idleDays >= 14;
           const ring = idleHot
@@ -559,7 +627,7 @@ function SeatGrid({
                 colourFilled,
                 ring,
               )}
-              title={`${s.displayName} · ${s.email}\nIdle: ${s.idleDays} day${s.idleDays === 1 ? "" : "s"}\nMTD: ${formatUsd(s.mtdSpend, { decimals: 2 })} of ${formatUsd(s.capUsd)} cap`}
+              title={`${s.displayName} · ${s.email}\nIdle: ${s.idleDays} day${s.idleDays === 1 ? "" : "s"}\nMTD: ${formatUsd(s.mtdSpend, { decimals: 2 })}${s.hasProgramLicense ? ` of ${formatUsd(s.capUsd)} cap` : ""}`}
             >
               {initials(s.displayName)}
             </span>

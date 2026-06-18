@@ -1,8 +1,7 @@
 /**
  * Shared F4 seat board builder — reads `License` rows where product is CURSOR
- * and joins usage for MTD + idle hints. Used by both synthetic and real
- * CursorClient implementations so the dashboard shows the program-shaped board
- * (120 cells) from dashboard state, not only SCIM workspace membership.
+ * and joins usage for MTD + idle hints. Used by synthetic mode and as the
+ * program-tier overlay when real mode unions SCIM workspace members.
  */
 
 import { prisma } from "@/lib/prisma";
