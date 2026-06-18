@@ -27,7 +27,8 @@
     "db:push": "prisma db push",
     "reconcile:azuread": "tsx prisma/scripts/reconcile-azuread.ts",
     "reconcile:azuread:dry": "tsx prisma/scripts/reconcile-azuread.ts --dry-run",
-    "db:disable-non-allowlist": "tsx scripts/disable-users-not-on-allowlist.ts"
+    "db:disable-non-allowlist": "tsx scripts/disable-users-not-on-allowlist.ts",
+    "db:ack-cursor-global-region-alerts": "tsx scripts/ack-cursor-global-region-alerts.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

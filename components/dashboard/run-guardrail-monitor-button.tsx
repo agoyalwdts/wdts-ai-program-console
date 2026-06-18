@@ -25,7 +25,11 @@ type MonitorSummary = {
   userEmailError: string | null;
 };
 
-export function RunGuardrailMonitorButton() {
+export function RunGuardrailMonitorButton({
+  vendorFeedsActive = false,
+}: {
+  vendorFeedsActive?: boolean;
+}) {
   const router = useRouter();
   const [status, setStatus] = useState<"idle" | "loading" | "ok" | "err">("idle");
   const [msg, setMsg] = useState("");
@@ -86,8 +90,12 @@ export function RunGuardrailMonitorButton() {
               : s.codexFeedSkipReason
                 ? `Codex analytics off (${s.codexFeedSkipReason}), `
                 : "";
+            const mirrorPart =
+              s.cursorFeedActive || s.codexFeedActive || vendorFeedsActive
+                ? `gateway mirror (optional) ${s.scannedUsageRows} row(s), `
+                : `gateway mirror ${s.scannedUsageRows} row(s), `;
             setMsg(
-              `${cursorPart}${codexPart}mirror ${s.scannedUsageRows} row(s), ${s.inserted} new alert(s), ` +
+              `${cursorPart}${codexPart}${mirrorPart}${s.inserted} new alert(s), ` +
                 `FinOps digest ${s.emailed}, user coaching ${s.userEmailed}/${s.userEmailAttempted}` +
                 (s.emailError ? ` · digest err: ${s.emailError}` : "") +
                 (s.userEmailError ? ` · user err: ${s.userEmailError}` : ""),

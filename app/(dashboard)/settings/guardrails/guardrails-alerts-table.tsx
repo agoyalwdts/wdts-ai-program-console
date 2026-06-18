@@ -33,11 +33,13 @@ export type GuardrailAlertRow = {
   recommendation: string | null;
   acknowledgedAt: string | null;
   userEmailNotifiedAt: string | null;
-  /** Dashboard User.disabled for alert.userEmail, if a row exists. */
-  subjectDisabled: boolean | null;
   subjectHasUserRow: boolean;
-  /** Invited user (has role) who is currently console-blocked — Allow console is valid. */
-  subjectCanReenable: boolean;
+  /** Entra mirror row without dashboard role — not console enforcement. */
+  subjectNotInvited: boolean;
+  /** Invited user with console sign-in blocked. */
+  subjectConsoleBlocked: boolean;
+  canBlockConsole: boolean;
+  canAllowConsole: boolean;
 };
 
 type PendingAction =
@@ -240,8 +242,11 @@ export function GuardrailsAlertsTable({
         row.id === r.id
           ? {
               ...row,
-              subjectDisabled: disabled,
               subjectHasUserRow: true,
+              subjectNotInvited: false,
+              subjectConsoleBlocked: disabled,
+              canBlockConsole: !disabled,
+              canAllowConsole: disabled,
             }
           : row,
       ),
@@ -452,8 +457,8 @@ export function GuardrailsAlertsTable({
           visible.map((r) => {
             const dim = Boolean(r.acknowledgedAt);
             const canEmail = Boolean(r.userEmail);
-            const canDisable = canManageUsers && Boolean(r.userEmail) && !r.subjectDisabled;
-            const canEnable = canManageUsers && Boolean(r.userEmail) && r.subjectCanReenable;
+            const canDisable = r.canBlockConsole;
+            const canEnable = r.canAllowConsole;
             const canSeatRemoval = Boolean(r.userEmail);
             const removalId = seatRemovalLogged[r.id];
 
@@ -537,7 +542,8 @@ export function GuardrailsAlertsTable({
                   <div className="space-y-2 min-w-0">
                     {(r.acknowledgedAt ||
                       r.userEmailNotifiedAt ||
-                      r.subjectDisabled ||
+                      r.subjectConsoleBlocked ||
+                      r.subjectNotInvited ||
                       removalId) ? (
                       <div className="flex flex-wrap gap-1">
                         {r.acknowledgedAt ? (
@@ -550,9 +556,14 @@ export function GuardrailsAlertsTable({
                             Emailed
                           </Badge>
                         ) : null}
-                        {r.subjectDisabled ? (
+                        {r.subjectNotInvited ? (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+                            Not invited
+                          </Badge>
+                        ) : null}
+                        {r.subjectConsoleBlocked ? (
                           <Badge variant="warning" className="text-[10px] px-1.5 py-0 shrink-0">
-                            Console off
+                            Console blocked
                           </Badge>
                         ) : null}
                         {removalId ? (
@@ -588,12 +599,12 @@ export function GuardrailsAlertsTable({
                         <option value="email" disabled={!canEmail}>
                           Email user
                         </option>
-                        {canManageUsers ? (
+                        {canManageUsers && !r.subjectNotInvited ? (
                           <option value="disable" disabled={!canDisable}>
                             Block console
                           </option>
                         ) : null}
-                        {canManageUsers ? (
+                        {canManageUsers && !r.subjectNotInvited ? (
                           <option value="enable" disabled={!canEnable}>
                             Allow console
                           </option>

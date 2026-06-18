@@ -10,8 +10,11 @@ import {
   DISABLED_MODE_MARKERS,
 } from "@/lib/guardrails/day-one-defaults";
 import { RunGuardrailMonitorButton } from "@/components/dashboard/run-guardrail-monitor-button";
-import { UsageMirrorStatusPanel } from "@/components/dashboard/usage-mirror-status-panel";
+import { GuardrailDataSourcesPanel } from "@/components/dashboard/usage-mirror-status-panel";
 import { getUsageMirrorSnapshot } from "@/lib/gateway-mirror/usage-mirror-snapshot";
+import { getIntegrationMode } from "@/lib/integrations/env";
+import { resolveAlertSubjectAccess } from "@/lib/guardrails/alert-subject-access";
+import { resolveGuardrailFeedStatus } from "@/lib/guardrails/feed-status";
 import { emailProvider, isEmailConfigured } from "@/lib/notify/send-email";
 import { GuardrailsAlertsTable } from "./guardrails-alerts-table";
 import {
@@ -42,6 +45,12 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
     guardrailProductFilterParam(listFilter.product) ?? GUARDRAIL_PRODUCT_FILTER_ALL;
   const severityFilterKey = listFilter.severity;
   const ackFilterKey = listFilter.ack;
+
+  const feedStatus = resolveGuardrailFeedStatus({
+    cursorMode: getIntegrationMode("cursor"),
+    codexMode: getIntegrationMode("codexenterprise"),
+    gatewayMode: getIntegrationMode("gateway"),
+  });
 
   const [alerts, alertTotal, productGroups, usageMirror] = await Promise.all([
     prisma.guardrailPolicyAlert.findMany({
@@ -105,6 +114,13 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
   const initial = alerts.map((a) => {
     const email = a.userEmail?.trim().toLowerCase() ?? null;
     const subject = email ? usersByEmail.get(email) : undefined;
+    const access = resolveAlertSubjectAccess({
+      hasUserRow: Boolean(subject),
+      dashboardRoleId: subject?.dashboardRoleId,
+      disabled: subject?.disabled,
+      canManageUsers,
+      hasEmail: Boolean(a.userEmail),
+    });
     return {
       id: a.id,
       occurredAt: a.occurredAt.toISOString(),
@@ -131,11 +147,11 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
       recommendation: a.recommendation,
       acknowledgedAt: a.acknowledgedAt?.toISOString() ?? null,
       userEmailNotifiedAt: a.userEmailNotifiedAt?.toISOString() ?? null,
-      subjectHasUserRow: Boolean(subject),
-      subjectDisabled: subject ? subject.disabled : null,
-      subjectCanReenable: subject
-        ? Boolean(subject.dashboardRoleId) && subject.disabled
-        : false,
+      subjectHasUserRow: access.hasUserRow,
+      subjectNotInvited: access.notInvited,
+      subjectConsoleBlocked: access.consoleBlocked,
+      canBlockConsole: access.canBlockConsole,
+      canAllowConsole: access.canAllowConsole,
     };
   });
 
@@ -181,24 +197,15 @@ export default async function GuardrailsSettingsPage(props: { searchParams: Prom
               Active alerts
             </CardTitle>
             <CardDescription>
-              Hourly cron + manual run. Per-row actions: acknowledge, email user, block console
-              sign-in (<code className="font-mono text-xs">users.manage</code>), or log a seat-removal
-              Decision (no vendor API). <strong>Cursor</strong> uses Team Admin{" "}
-              <code className="font-mono text-xs">filtered-usage-events</code> when{" "}
-              <code className="font-mono text-xs">INTEGRATION_CURSOR=real</code>. Automated + manual
-              email use <code className="font-mono text-xs">EMAIL_PROVIDER=graph</code> (Microsoft
-              Graph sendMail) or <code className="font-mono text-xs">resend</code>; hourly cron does
-              not require the dashboard to be open. <strong>Codex</strong> uses Enterprise
-              Analytics per-user usage when{" "}
-              <code className="font-mono text-xs">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>
-              ; user identity is resolved from org roster + Workspace Analytics snapshots (email
-              when matched, otherwise <span className="font-mono text-xs">codex user …</span>).
-              Block console requires a resolved email (no vendor API).
+              Hourly cron + manual run. Per-row actions: acknowledge, email user, block or allow
+              console sign-in for <strong>invited</strong> dashboard users (
+              <code className="font-mono text-xs">users.manage</code>), or log a seat-removal
+              Decision (no vendor API). Data sources and optional gateway mirror are shown below.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 px-6 pb-4">
-            <UsageMirrorStatusPanel snapshot={usageMirror} />
-            <RunGuardrailMonitorButton />
+            <GuardrailDataSourcesPanel feeds={feedStatus} mirror={usageMirror} />
+            <RunGuardrailMonitorButton vendorFeedsActive={feedStatus.vendorFeedsActive} />
           </CardContent>
           <CardContent className="px-0 pb-0 pt-0">
             <GuardrailsAlertsTable
