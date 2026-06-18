@@ -15,13 +15,9 @@ import {
   OPENAI_CHATGPT_CODEX_ENTITLED_SEATS,
   OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED,
   OPENAI_CREDIT_OVERAGE_USD,
-  OPENAI_POOLED_CREDITS_PER_USER_MONTH,
   OPENAI_LICENSE_USD_PER_SEAT_MONTH,
   OPENAI_POOLED_BASELINE_USD_MONTH,
-  OPENAI_PLANNED_OVERAGE_USD_MONTH,
   OPENAI_COMBINED_MONTHLY_PLANNING_USD,
-  OPENAI_ANNUAL_BASELINE_USD,
-  OPENAI_ANNUAL_PLANNED_OVERAGE_USD,
   openAiCombinedCreditsUsedEstimate,
   PROGRAM_MONTHLY_PLANNING_USD_TOTAL,
   PROGRAM_ANNUAL_PLANNING_USD_TOTAL,
@@ -276,144 +272,64 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
       </div>
       <div className="p-6 space-y-6">
         <Card className="border-amber-200 bg-amber-50/40">
-          <CardHeader>
-            <CardTitle>OpenAI — ChatGPT and Codex</CardTitle>
-            <CardDescription>
-              Contract and usage in one place. Policy inventory:{" "}
-              <span className="font-medium text-slate-800">
-                {OPENAI_CHATGPT_CODEX_ENTITLED_SEATS.toLocaleString()} entitled seats
-              </span>{" "}
-              (ChatGPT + Codex),{" "}
-              <span className="font-medium text-slate-800">
-                {OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED.toLocaleString()} licenses allotted
-              </span>
-              . Pooled credits:{" "}
-              <span className="font-medium text-slate-800">
-                {OPENAI_POOLED_CREDITS_PER_USER_MONTH.toLocaleString()} credits per seat per month
-              </span>{" "}
-              (= {formatCredits(OPENAI_POOLED_CREDITS_MONTH)}/mo org-wide). License line:{" "}
-              <span className="font-medium text-slate-800">
-                {formatUsd(OPENAI_LICENSE_USD_PER_SEAT_MONTH, { decimals: 0 })} per seat per month
-              </span>{" "}
-              ({formatUsd(OPENAI_POOLED_BASELINE_USD_MONTH)}/mo for {OPENAI_CHATGPT_CODEX_ENTITLED_SEATS}{" "}
-              seats). Overage credits bill at{" "}
-              <span className="font-medium text-slate-800">
-                {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })} per credit
-              </span>
-              .
-            </CardDescription>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-1">
+                <CardTitle>OpenAI — ChatGPT and Codex</CardTitle>
+                <CardDescription>
+                  {OPENAI_CHATGPT_CODEX_ENTITLED_SEATS.toLocaleString()} entitled seats (
+                  {OPENAI_CHATGPT_CODEX_LICENSES_ALLOTTED.toLocaleString()} allotted) ·{" "}
+                  {formatCredits(OPENAI_POOLED_CREDITS_MONTH)} pooled +{" "}
+                  {formatCredits(OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH)} typical overage ={" "}
+                  {formatCredits(OPENAI_TARGET_CREDITS_MONTH)}/mo ceiling ·{" "}
+                  {formatUsd(OPENAI_LICENSE_USD_PER_SEAT_MONTH, { decimals: 0 })}/seat/mo license ·{" "}
+                  {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit overage
+                </CardDescription>
+              </div>
+              <Suspense
+                fallback={
+                  <span className="text-sm text-slate-500 shrink-0" aria-hidden>
+                    Window…
+                  </span>
+                }
+              >
+                <OpenAiF1WindowSelector className="shrink-0" />
+              </Suspense>
+            </div>
+            <p className="text-xs text-slate-500 pt-1">{openAiSpendPlan.rangeDescription}</p>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-3">
-              <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-700">
-                <p className="font-medium text-slate-900">Pooled credits (policy basis)</p>
-                <p className="mt-1 font-mono text-slate-800">
-                  {OPENAI_CHATGPT_CODEX_ENTITLED_SEATS.toLocaleString()} ×{" "}
-                  {OPENAI_POOLED_CREDITS_PER_USER_MONTH.toLocaleString()} ={" "}
-                  {OPENAI_POOLED_CREDITS_MONTH.toLocaleString()}{" "}
-                  credits / month (before overage)
-                </p>
-              </div>
-              <div className="rounded-lg border border-amber-300/80 bg-white/80 px-4 py-3 text-sm text-slate-800">
-                <p className="font-medium text-slate-900">Planning envelope (credits + USD)</p>
-                <p className="mt-1 text-slate-700">
-                  Typical overage:{" "}
-                  <span className="font-mono font-medium">
-                    {OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH.toLocaleString()}
-                  </span>{" "}
-                  credits/mo × {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })} ={" "}
-                  <span className="font-semibold text-slate-900">
-                    {formatUsd(OPENAI_PLANNED_OVERAGE_USD_MONTH)}/mo
-                  </span>{" "}
-                  (~{formatUsd(OPENAI_ANNUAL_PLANNED_OVERAGE_USD)}/yr). With the pool:{" "}
-                  <span className="font-mono font-medium">
-                    {OPENAI_TARGET_CREDITS_MONTH.toLocaleString()}
-                  </span>{" "}
-                  credits/mo planning ceiling and{" "}
-                  <span className="font-semibold text-slate-900">
-                    {formatUsd(OPENAI_COMBINED_MONTHLY_PLANNING_USD)}/mo
-                  </span>{" "}
-                  total ({formatUsd(OPENAI_POOLED_BASELINE_USD_MONTH)} baseline +{" "}
-                  {formatUsd(OPENAI_PLANNED_OVERAGE_USD_MONTH)} typical overage). Annual baseline:{" "}
-                  <span className="font-semibold">{formatUsd(OPENAI_ANNUAL_BASELINE_USD)}</span>.
-                </p>
+          <CardContent className="space-y-4 pt-0">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <p className="text-sm font-medium text-slate-700">{openAiSpendLabel}</p>
+              <div className="text-left sm:text-right">
+                <div className="text-2xl font-semibold tabular-nums text-slate-900">
+                  {formatCredits(combinedCreditsMtd)}
+                </div>
+                <div className="text-xs text-slate-500">
+                  of {formatCredits(combinedCreditsCap)} planning credits
+                </div>
               </div>
             </div>
-
-            <div className="border-t border-amber-200/70 pt-6 space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
-                  <Suspense
-                    fallback={
-                      <span className="text-sm text-slate-500" aria-hidden>
-                        Window…
-                      </span>
-                    }
-                  >
-                    <OpenAiF1WindowSelector />
-                  </Suspense>
-                  <p className="text-xs text-slate-500 sm:pb-2">{openAiSpendPlan.rangeDescription}</p>
-                </div>
-              </div>
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h3 className="text-base font-semibold text-slate-900">This period — credits vs planning</h3>
-                  <p className="text-sm text-slate-600 mt-1">
-                    {formatCredits(OPENAI_POOLED_CREDITS_MONTH)} pooled +{" "}
-                    {formatCredits(OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH)} typical overage ={" "}
-                    {formatCredits(OPENAI_TARGET_CREDITS_MONTH)}/mo ceiling. Usage credits from observed
-                    spend (in-pool scales within the pool; above {formatUsd(OPENAI_POOLED_BASELINE_USD_MONTH)}{" "}
-                    adds credits at {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit).
-                  </p>
-                </div>
-                <div className="text-left sm:text-right shrink-0">
-                  <div className="text-2xl font-semibold tabular-nums text-slate-900">
-                    {formatCredits(combinedCreditsMtd)}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    of {formatCredits(combinedCreditsCap)} · {openAiSpendLabel}
-                  </div>
-                </div>
-              </div>
-              <BudgetBar
-                spend={combinedCreditsMtd}
-                budget={combinedCreditsCap}
-                unit="credits"
-                warnAt={0.9}
-              />
-              <div className="rounded-lg border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-800 space-y-2">
-                <p className="font-medium text-slate-900">USD view ({openAiSpendLabel.toLowerCase()})</p>
-                <ul className="space-y-1 text-slate-700 list-disc pl-5">
-                  <li>
-                    License baseline (prorated):{" "}
-                    <span className="font-mono font-medium text-slate-900">
-                      {formatUsd(openAiBaselineUsdPeriod, { decimals: 0 })}
-                    </span>{" "}
-                    ({OPENAI_CHATGPT_CODEX_ENTITLED_SEATS} ×{" "}
-                    {formatUsd(OPENAI_LICENSE_USD_PER_SEAT_MONTH, { decimals: 0 })}
-                    /mo × period)
-                  </li>
-                  <li>
-                    Spend above baseline (overage at{" "}
-                    {formatUsd(OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}/credit):{" "}
-                    <span className="font-mono font-medium text-slate-900">
-                      {formatUsd(openAiOverageUsdPeriod, { decimals: 0 })}
-                    </span>
-                  </li>
-                  <li>
-                    <span className="font-medium text-slate-900">Observed total</span> (gateway / vendor):{" "}
-                    <span className="font-mono font-semibold text-slate-900">
-                      {formatUsd(combinedUsd, { decimals: 0 })}
-                    </span>
-                  </li>
-                </ul>
-                <p className="text-xs text-slate-500 pt-1 border-t border-slate-200">
-                  Annual planning: {formatUsd(OPENAI_ANNUAL_BASELINE_USD)} baseline + ~{" "}
-                  {formatUsd(OPENAI_ANNUAL_PLANNED_OVERAGE_USD)} typical overage ≈{" "}
-                  {formatUsd(OPENAI_ANNUAL_BASELINE_USD + OPENAI_ANNUAL_PLANNED_OVERAGE_USD)} combined.
-                </p>
-              </div>
-            </div>
+            <BudgetBar
+              spend={combinedCreditsMtd}
+              budget={combinedCreditsCap}
+              unit="credits"
+              warnAt={0.9}
+            />
+            <p className="text-sm text-slate-600 tabular-nums">
+              <span className="font-medium text-slate-800">
+                {formatUsd(combinedUsd, { decimals: 0 })}
+              </span>{" "}
+              observed
+              <span className="text-slate-400 mx-1.5" aria-hidden>
+                ·
+              </span>
+              {formatUsd(openAiBaselineUsdPeriod, { decimals: 0 })} license baseline
+              <span className="text-slate-400 mx-1.5" aria-hidden>
+                ·
+              </span>
+              {formatUsd(openAiOverageUsdPeriod, { decimals: 0 })} overage
+            </p>
           </CardContent>
         </Card>
 
