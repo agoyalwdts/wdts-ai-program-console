@@ -1,4 +1,5 @@
 import { Topbar } from "@/components/dashboard/topbar";
+import { CodexTierMoveButton } from "@/components/dashboard/codex-tier-move-button";
 import {
   Card,
   CardContent,
@@ -12,7 +13,8 @@ import { CODEX_TIERS } from "@/lib/program";
 import { cn, formatUsd } from "@/lib/utils";
 import { getOpenAIClient } from "@/lib/integrations";
 import type { CodexSeat, CodexSubTier } from "@/lib/integrations/openai";
-import { requireUser } from "@/lib/auth";
+import { requireUser, userHasPermission } from "@/lib/auth";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +78,10 @@ async function getLadder() {
 }
 
 export default async function CodexLadderPage() {
-  await requireUser();
+  const user = await requireUser();
+  const canManageTiers =
+    userHasPermission(user, PERMISSIONS.DECISIONS_APPROVE) &&
+    userHasPermission(user, PERMISSIONS.POLICY_EDIT);
   const data = await getLadder();
   const total = data.all.length;
   const totalSpend = data.all.reduce((s, x) => s + x.mtdSpendUsd, 0);
@@ -166,12 +171,16 @@ export default async function CodexLadderPage() {
             description="Discovery seats at ≥50% of MTD cap. v0.2 proxy for §4.6.2 'two consecutive months ≥50%' once the time series is long enough."
             tone="emerald"
             seats={data.promotionCandidates}
+            canManageTiers={canManageTiers}
+            moveDirection="promote"
           />
           <QueueCard
             title="Demotion queue"
             description="Power/Standard/Light seats at <10% of MTD cap. v0.2 proxy for §4.6.2 'three consecutive months <10%'."
             tone="amber"
             seats={data.demotionCandidates}
+            canManageTiers={canManageTiers}
+            moveDirection="demote"
           />
         </div>
 
@@ -198,8 +207,9 @@ export default async function CodexLadderPage() {
           <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>, per-seat MTD and
           last activity come from <code className="font-mono">api.chatgpt.com</code> Codex analytics (per-user
           usage); otherwise from the gateway mirror. Cap utilisation is period-to-date since the plan
-          renews on the <strong>16th</strong> each month. Promote/demote thresholds land in v1.1 once the
-          consecutive-month window is real.
+          renews on the <strong>16th</strong> each month. Tier moves (F6) open a policy-repo PR via{" "}
+          <code className="font-mono">POST /api/tier-moves/codex</code> — the dashboard mirror updates
+          after the PR merges; until then the ladder reflects the current license row.
         </p>
       </div>
     </>
@@ -244,11 +254,15 @@ function QueueCard({
   description,
   tone,
   seats,
+  canManageTiers,
+  moveDirection,
 }: {
   title: string;
   description: string;
   tone: "emerald" | "amber";
   seats: CodexSeat[];
+  canManageTiers: boolean;
+  moveDirection: "promote" | "demote";
 }) {
   return (
     <Card>
@@ -266,12 +280,14 @@ function QueueCard({
       <CardContent className="px-0 pb-0">
         <SeatTable
           seats={seats}
-          columns={["user", "tier", "utilisation", "mtdSpend"]}
+          columns={["user", "tier", "utilisation", "mtdSpend", ...(canManageTiers ? (["action"] as const) : [])]}
           emptyText={
             tone === "emerald"
               ? "No promotion candidates in the current window."
               : "No demotion candidates in the current window."
           }
+          canManageTiers={canManageTiers}
+          moveDirection={moveDirection}
         />
       </CardContent>
     </Card>
@@ -282,10 +298,16 @@ function SeatTable({
   seats,
   columns,
   emptyText,
+  canManageTiers,
+  moveDirection,
 }: {
   seats: CodexSeat[];
-  columns: ReadonlyArray<"user" | "tier" | "utilisation" | "lastActivity" | "idleDays" | "mtdSpend">;
+  columns: ReadonlyArray<
+    "user" | "tier" | "utilisation" | "lastActivity" | "idleDays" | "mtdSpend" | "action"
+  >;
   emptyText: string;
+  canManageTiers?: boolean;
+  moveDirection?: "promote" | "demote";
 }) {
   if (seats.length === 0) {
     return <div className="px-5 py-8 text-sm text-slate-500">{emptyText}</div>;
@@ -295,7 +317,7 @@ function SeatTable({
       <THead>
         <TR>
           {columns.map((col) => (
-            <TH key={col} className={col === "user" ? "pl-5" : col === "mtdSpend" ? "text-right pr-5" : ""}>
+            <TH key={col} className={col === "user" ? "pl-5" : col === "mtdSpend" && !columns.includes("action") ? "text-right pr-5" : col === "mtdSpend" ? "text-right" : col === "action" ? "text-right pr-5" : ""}>
               {COLUMN_LABEL[col]}
             </TH>
           ))}
@@ -343,11 +365,25 @@ function SeatTable({
                     );
                   case "mtdSpend":
                     return (
-                      <TD key="mtd" className="text-right pr-5 font-mono">
+                      <TD key="mtd" className="text-right font-mono">
                         {formatUsd(s.mtdSpendUsd, { decimals: 2 })}{" "}
                         <span className="text-slate-400">
                           / {formatUsd(s.capUsdMonth)}
                         </span>
+                      </TD>
+                    );
+                  case "action":
+                    return (
+                      <TD key="action" className="text-right pr-5">
+                        {canManageTiers && moveDirection ? (
+                          <CodexTierMoveButton
+                            userId={s.userId}
+                            email={s.email}
+                            displayName={s.displayName}
+                            currentTier={s.subTier}
+                            direction={moveDirection}
+                          />
+                        ) : null}
                       </TD>
                     );
                 }
@@ -361,7 +397,7 @@ function SeatTable({
 }
 
 const COLUMN_LABEL: Record<
-  "user" | "tier" | "utilisation" | "lastActivity" | "idleDays" | "mtdSpend",
+  "user" | "tier" | "utilisation" | "lastActivity" | "idleDays" | "mtdSpend" | "action",
   string
 > = {
   user: "User",
@@ -370,4 +406,5 @@ const COLUMN_LABEL: Record<
   lastActivity: "Last activity",
   idleDays: "Idle days",
   mtdSpend: "MTD spend",
+  action: "",
 };

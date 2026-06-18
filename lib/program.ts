@@ -213,6 +213,12 @@ export const CURSOR_TOTAL_SEATS =
   CURSOR_SEATS.LIGHT +
   CURSOR_SEATS.DISCOVERY; // 120
 
+/** §4.6.4 — idle days before a Cursor seat enters reclamation review. */
+export const CURSOR_RECLAMATION_IDLE_DAYS = 45;
+
+/** §4.6.4 — dispute window length after NOTIFY reclamation (business days). */
+export const RECLAMATION_DISPUTE_BUSINESS_DAYS = 5;
+
 /** Codex sub-tiers (§4.6.2, v2.3 expansion).
  *  Active footprint 150 (Power 18 / Standard 50 / Light 82) plus 164
  *  Discovery — every other ChatGPT user gets a $75/mo Codex floor.

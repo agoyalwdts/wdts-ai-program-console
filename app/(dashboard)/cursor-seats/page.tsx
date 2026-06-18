@@ -1,4 +1,11 @@
+import type { ReactNode } from "react";
 import { Topbar } from "@/components/dashboard/topbar";
+import { CursorTierMoveButton } from "@/components/dashboard/cursor-tier-move-button";
+import {
+  ActiveReclamationsPanel,
+  ReclamationTriggerButton,
+  type ReclamationRow,
+} from "@/components/dashboard/reclamation-actions";
 import {
   Card,
   CardContent,
@@ -8,8 +15,9 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { CURSOR_SEATS, CURSOR_TIERS, CURSOR_TOTAL_SEATS } from "@/lib/program";
+import { CURSOR_RECLAMATION_IDLE_DAYS, CURSOR_SEATS, CURSOR_TIERS, CURSOR_TOTAL_SEATS } from "@/lib/program";
 import { cn, formatUsd, initials } from "@/lib/utils";
+import { prisma } from "@/lib/prisma";
 import { getCursorClient } from "@/lib/integrations";
 import type {
   CursorClient,
@@ -18,7 +26,8 @@ import type {
 } from "@/lib/integrations";
 import { syntheticCursorClient } from "@/lib/integrations/cursor/synthetic";
 import { getIntegrationMode } from "@/lib/integrations/env";
-import { requireUser } from "@/lib/auth";
+import { requireUser, userHasPermission } from "@/lib/auth";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -102,12 +111,77 @@ async function getSeatBoard() {
   }
 }
 
-export default async function CursorSeatsPage() {
-  await requireUser();
-  const data = await getSeatBoard();
+async function loadOpenReclamations() {
+  return prisma.reclamationEvent.findMany({
+    where: { state: { in: ["NOTIFIED", "IN_DISPUTE"] } },
+    include: {
+      subject: { include: { manager: true } },
+      license: true,
+    },
+    orderBy: { triggeredAt: "desc" },
+  });
+}
 
-  const filled = data.all.filter((s) => s.kind === "filled").length;
-  const idle = data.all.filter((s) => s.kind === "filled" && s.idleDays >= 14).length;
+function filledCells(all: Cell[]): Extract<Cell, { kind: "filled" }>[] {
+  return all.filter((c): c is Extract<Cell, { kind: "filled" }> => c.kind === "filled");
+}
+
+function utilPct(cell: Extract<Cell, { kind: "filled" }>) {
+  return cell.capUsd > 0 ? (cell.mtdSpend / cell.capUsd) * 100 : 0;
+}
+
+export default async function CursorSeatsPage() {
+  const user = await requireUser();
+  const canManage =
+    userHasPermission(user, PERMISSIONS.DECISIONS_APPROVE) &&
+    userHasPermission(user, PERMISSIONS.POLICY_EDIT);
+
+  const [data, openReclamations] = await Promise.all([
+    getSeatBoard(),
+    loadOpenReclamations(),
+  ]);
+
+  const filled = filledCells(data.all);
+  const openReclamationUserIds = new Set(openReclamations.map((e) => e.subjectUserId));
+
+  const reclamationCandidates = filled
+    .filter((s) => s.idleDays >= CURSOR_RECLAMATION_IDLE_DAYS && !openReclamationUserIds.has(s.userId))
+    .sort((a, b) => b.idleDays - a.idleDays)
+    .slice(0, 10);
+
+  const promotionCandidates = filled
+    .filter((s) => s.tier === "DISCOVERY" && utilPct(s) >= 50)
+    .sort((a, b) => utilPct(b) - utilPct(a))
+    .slice(0, 10);
+
+  const demotionCandidates = filled
+    .filter(
+      (s) =>
+        (s.tier === "POWER" || s.tier === "STANDARD" || s.tier === "LIGHT") && utilPct(s) < 10,
+    )
+    .sort((a, b) => utilPct(a) - utilPct(b))
+    .slice(0, 10);
+
+  const actorEmailLower = user.email.toLowerCase();
+  const reclamationRows: ReclamationRow[] = openReclamations.map((e) => {
+    const subjectEmail = e.subject.email.toLowerCase();
+    const managerEmail = e.subject.manager?.email.toLowerCase();
+    const isSubjectOrManager =
+      actorEmailLower === subjectEmail || actorEmailLower === managerEmail;
+    return {
+      id: e.id,
+      state: e.state,
+      subjectUserId: e.subjectUserId,
+      subjectEmail: e.subject.email,
+      subjectDisplayName: e.subject.displayName,
+      disputeWindowEndsAt: e.disputeWindowEndsAt?.toISOString() ?? null,
+      canDispute: e.state === "NOTIFIED" && isSubjectOrManager,
+      canResolve: canManage,
+    };
+  });
+
+  const filledCount = filled.length;
+  const idle = filled.filter((s) => s.idleDays >= 14).length;
 
   return (
     <>
@@ -125,8 +199,8 @@ export default async function CursorSeatsPage() {
           />
           <StatCard
             label="Filled"
-            value={filled}
-            sub={`${CURSOR_TOTAL_SEATS - filled} open / waitlist eligible`}
+            value={filledCount}
+            sub={`${CURSOR_TOTAL_SEATS - filledCount} open / waitlist eligible`}
           />
           <StatCard
             label="Idle ≥ 14 days"
@@ -140,6 +214,89 @@ export default async function CursorSeatsPage() {
             sub="$41,667/mo · binding constraint (§4.6.1)"
           />
         </div>
+
+        {reclamationRows.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Active reclamations (F7)</CardTitle>
+              <CardDescription>
+                Open dispute windows and in-review disputes. Cron{" "}
+                <code className="font-mono">POST /api/cron/reconcile-reclamations</code> auto-reclaims
+                when the window expires.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ActiveReclamationsPanel rows={reclamationRows} />
+            </CardContent>
+          </Card>
+        )}
+
+        {(canManage && (reclamationCandidates.length > 0 || promotionCandidates.length > 0 || demotionCandidates.length > 0)) && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {reclamationCandidates.length > 0 && (
+              <ActionQueueCard
+                title="Reclamation candidates"
+                description={`Idle ≥ ${CURSOR_RECLAMATION_IDLE_DAYS} days — opens a 5-business-day dispute window.`}
+                rows={reclamationCandidates.map((s) => ({
+                  key: s.userId,
+                  name: s.displayName,
+                  email: s.email,
+                  meta: `${s.idleDays}d idle · ${s.tier}`,
+                  action: (
+                    <ReclamationTriggerButton
+                      userId={s.userId}
+                      email={s.email}
+                      displayName={s.displayName}
+                      idleDays={s.idleDays}
+                    />
+                  ),
+                }))}
+              />
+            )}
+            {promotionCandidates.length > 0 && (
+              <ActionQueueCard
+                title="Promotion queue (F6)"
+                description="Discovery seats at ≥50% MTD cap."
+                rows={promotionCandidates.map((s) => ({
+                  key: s.userId,
+                  name: s.displayName,
+                  email: s.email,
+                  meta: `${utilPct(s).toFixed(1)}% of cap`,
+                  action: (
+                    <CursorTierMoveButton
+                      userId={s.userId}
+                      email={s.email}
+                      displayName={s.displayName}
+                      currentTier={s.tier}
+                      direction="promote"
+                    />
+                  ),
+                }))}
+              />
+            )}
+            {demotionCandidates.length > 0 && (
+              <ActionQueueCard
+                title="Demotion queue (F6)"
+                description="Power / Standard / Light seats below 10% MTD cap."
+                rows={demotionCandidates.map((s) => ({
+                  key: s.userId,
+                  name: s.displayName,
+                  email: s.email,
+                  meta: `${utilPct(s).toFixed(1)}% of cap · ${s.tier}`,
+                  action: (
+                    <CursorTierMoveButton
+                      userId={s.userId}
+                      email={s.email}
+                      displayName={s.displayName}
+                      currentTier={s.tier}
+                      direction="demote"
+                    />
+                  ),
+                }))}
+              />
+            )}
+          </div>
+        )}
 
         {/* Seat board */}
         <Card>
@@ -238,7 +395,9 @@ export default async function CursorSeatsPage() {
         </Card>
 
         <p className="text-xs text-slate-400">
-          v0.2 — write actions (seat grant / reclaim) deferred to v1.1 per scoping §5.
+          F6 tier moves and F7 reclamation open policy-repo PRs — the seat board mirror updates after
+          merge. Synthetic mode uses example PR URLs when{" "}
+          <code className="font-mono">INTEGRATION_POLICYREPO=synthetic</code>.
         </p>
       </div>
     </>
@@ -302,6 +461,48 @@ const WAITLIST_BADGE: Record<CursorSubTier, "violet" | "blue" | "slate" | "secon
 
 function waitlistBadge(t: CursorSubTier) {
   return WAITLIST_BADGE[t];
+}
+
+function ActionQueueCard({
+  title,
+  description,
+  rows,
+}: {
+  title: string;
+  description: string;
+  rows: { key: string; name: string; email: string; meta: string; action: ReactNode }[];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="px-0 pb-0">
+        <Table>
+          <THead>
+            <TR>
+              <TH className="pl-5">User</TH>
+              <TH>Detail</TH>
+              <TH className="text-right pr-5">Action</TH>
+            </TR>
+          </THead>
+          <TBody>
+            {rows.map((r) => (
+              <TR key={r.key}>
+                <TD className="pl-5">
+                  <div className="font-medium text-slate-900">{r.name}</div>
+                  <div className="text-xs text-slate-500">{r.email}</div>
+                </TD>
+                <TD className="text-sm text-slate-600 font-mono">{r.meta}</TD>
+                <TD className="text-right pr-5">{r.action}</TD>
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
 }
 
 function SeatGrid({

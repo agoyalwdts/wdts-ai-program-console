@@ -1,0 +1,52 @@
+# Daily reclamation dispute-window sweep — expires NOTIFIED events whose
+# 5-business-day window has elapsed and opens policy-repo reclaim PRs.
+#
+# Same HMAC contract as cron-reconcile-azuread.yml (CRON_SHARED_SECRET).
+
+name: Cron — reconcile reclamations
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cron-reconcile-reclamations
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    name: POST /api/cron/reconcile-reclamations
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      CRON_URL: https://wdts-ai-program-console.azurewebsites.net/api/cron/reconcile-reclamations
+
+    steps:
+      - name: Verify secret is configured
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          if [ -z "$CRON_SHARED_SECRET" ]; then
+            echo "::error::Repository secret CRON_SHARED_SECRET is not set."
+            exit 1
+          fi
+
+      - name: Expire due reclamation dispute windows
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          BODY='{}'
+          SIG=$(printf '%s' "$BODY" \
+            | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" \
+            | awk '{print $2}')
+          echo "## Reclamation reconcile response" >> "$GITHUB_STEP_SUMMARY"
+          curl -fsS -X POST \
+            -H "x-cron-signature: sha256=${SIG}" \
+            -H "content-type: application/json" \
+            --data "$BODY" \
+            "$CRON_URL" | tee -a "$GITHUB_STEP_SUMMARY"
