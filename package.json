@@ -29,6 +29,7 @@
     "reconcile:azuread:dry": "tsx prisma/scripts/reconcile-azuread.ts --dry-run",
     "db:disable-non-allowlist": "tsx scripts/disable-users-not-on-allowlist.ts",
     "db:ack-cursor-global-region-alerts": "tsx scripts/ack-cursor-global-region-alerts.ts",
+    "db:ack-vendor-global-region-alerts": "tsx scripts/ack-vendor-global-region-alerts.ts",
     "db:ack-cursor-default-model-alerts": "tsx scripts/ack-cursor-default-model-alerts.ts",
     "db:ack-cursor-allowlist-false-positives": "tsx scripts/ack-cursor-allowlist-false-positives.ts"
   },
