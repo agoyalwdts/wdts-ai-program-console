@@ -3,6 +3,7 @@ import { loadCodexLadderSeats } from "./codex-ladder-seats";
 
 const mockPrismaSeats = vi.fn();
 const mockOrgMembers = vi.fn();
+const mockWorkspaceRoster = vi.fn();
 const mockSyntheticList = vi.fn();
 const mockSnapshotFindFirst = vi.fn();
 const mockUserFindMany = vi.fn();
@@ -14,6 +15,10 @@ vi.mock("./prisma-codex-seats", () => ({
 
 vi.mock("./org-users", () => ({
   listOpenAiOrgMembers: (...args: unknown[]) => mockOrgMembers(...args),
+}));
+
+vi.mock("./chatgpt-workspace-roster", () => ({
+  loadChatGptWorkspaceRosterMembers: (...args: unknown[]) => mockWorkspaceRoster(...args),
 }));
 
 vi.mock("./synthetic", () => ({
@@ -37,10 +42,18 @@ describe("loadCodexLadderSeats", () => {
   beforeEach(() => {
     mockPrismaSeats.mockReset();
     mockOrgMembers.mockReset();
+    mockWorkspaceRoster.mockReset();
     mockSyntheticList.mockReset();
     mockSnapshotFindFirst.mockReset();
     mockUserFindMany.mockReset();
     mockUserFindMany.mockResolvedValue([]);
+    mockWorkspaceRoster.mockResolvedValue({
+      members: [],
+      scimCount: 0,
+      csvSnapshotCount: 0,
+      analyticsSnapshotCount: 0,
+      warnings: [],
+    });
   });
 
   it("returns synthetic prisma seats when integrations are not real", async () => {
@@ -75,9 +88,16 @@ describe("loadCodexLadderSeats", () => {
         idleDays: 99,
       },
     ]);
-    mockOrgMembers.mockResolvedValue([
-      { id: "ou_1", email: "real@wdtablesystems.com", displayName: "Real User" },
-    ]);
+    mockWorkspaceRoster.mockResolvedValue({
+      members: [
+        { id: "scim-1", email: "real@wdtablesystems.com", displayName: "Real User" },
+      ],
+      scimCount: 1,
+      csvSnapshotCount: 0,
+      analyticsSnapshotCount: 0,
+      warnings: [],
+    });
+    mockOrgMembers.mockResolvedValue([]);
 
     const out = await loadCodexLadderSeats({
       env: {
@@ -87,7 +107,7 @@ describe("loadCodexLadderSeats", () => {
       },
     });
 
-    expect(out.source).toBe("openai_org");
+    expect(out.source).toBe("chatgpt_scim");
     expect(out.seats).toHaveLength(1);
     expect(out.seats[0]?.email).toBe("real@wdtablesystems.com");
     expect(out.seats.find((s) => s.email === "seed@wdts.com")).toBeUndefined();

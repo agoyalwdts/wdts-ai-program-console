@@ -1,4 +1,7 @@
+import { Suspense } from "react";
 import { Sidebar } from "@/components/dashboard/sidebar";
+import { DashboardAuthShell } from "@/components/dashboard/dashboard-auth-shell";
+import { DashboardLoading } from "@/components/dashboard/dashboard-loading";
 
 export default function DashboardLayout({
   children,
@@ -8,7 +11,9 @@ export default function DashboardLayout({
   return (
     <div className="flex min-h-screen">
       <Sidebar />
-      <main className="flex-1 min-w-0 flex flex-col">{children}</main>
+      <Suspense fallback={<DashboardLoading />}>
+        <DashboardAuthShell>{children}</DashboardAuthShell>
+      </Suspense>
     </div>
   );
 }

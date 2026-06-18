@@ -235,8 +235,10 @@ export default async function CodexLadderPage() {
         <p className="text-xs text-slate-400">
           F9 loads via <code className="font-mono">loadCodexLadderSeats()</code>: synthetic mode uses
           Prisma <code className="font-mono">License</code> (<code className="font-mono">CODEX</code>) only.
-          With <code className="font-mono">INTEGRATION_OPENAI=real</code>, roster includes OpenAI Admin org
-          users. With{" "}
+          With <code className="font-mono">INTEGRATION_OPENAI=real</code>, roster unions OpenAI Admin org
+          users with ChatGPT workspace members (SCIM when{" "}
+          <code className="font-mono">OPENAI_SCIM_API_TOKEN</code> is set, else{" "}
+          <code className="font-mono">CHATGPT_USERS_CSV</code> / analytics snapshots). With{" "}
           <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>, roster also
           unions emails from the latest <code className="font-mono">CODEX_SESSIONS_JSON</code> snapshot.
           Per-seat MTD comes from Codex analytics (live API + snapshot fallback); gateway mirror is a
@@ -445,6 +447,12 @@ const COLUMN_LABEL: Record<
 
 function codexLadderSourceLabel(source: CodexLadderSource): string {
   switch (source) {
+    case "chatgpt_scim":
+      return "ChatGPT Enterprise SCIM GET /Users";
+    case "chatgpt_workspace_export":
+      return "ChatGPT Business users export (CHATGPT_USERS_CSV / analytics snapshots)";
+    case "chatgpt_workspace_roster":
+      return "ChatGPT workspace roster (SCIM and/or exports) + OpenAI org / Codex analytics";
     case "openai_org":
       return "OpenAI Admin GET /organization/users";
     case "codex_analytics_snapshot":
