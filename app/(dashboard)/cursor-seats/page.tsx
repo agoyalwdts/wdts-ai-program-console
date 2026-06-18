@@ -18,15 +18,12 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { CURSOR_RECLAMATION_IDLE_DAYS, CURSOR_TIERS } from "@/lib/program";
 import { cn, formatPct, formatUsd, initials } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
-import { getCursorClient } from "@/lib/integrations";
-import type {
-  CursorClient,
-  CursorSeat as ApiCursorSeat,
-  CursorSubTier,
-} from "@/lib/integrations";
+import type { CursorSeat as ApiCursorSeat, CursorSubTier } from "@/lib/integrations";
 import { enrichCursorSeatsWithVendorSpend } from "@/lib/integrations/cursor/enrich-cursor-seats-vendor-spend";
-import { syntheticCursorClient } from "@/lib/integrations/cursor/synthetic";
-import { getIntegrationMode } from "@/lib/integrations/env";
+import {
+  loadCursorWorkspaceSeats,
+  type CursorWorkspaceSource,
+} from "@/lib/integrations/cursor/workspace-seats";
 import { requireUser, userHasPermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 
@@ -51,8 +48,8 @@ const TIER_ORDER: readonly CursorSubTier[] = [
   "DISCOVERY",
 ] as const;
 
-function isScimOnlySeat(userId: string): boolean {
-  return userId.startsWith("scim:");
+function isWorkspaceOnlySeat(userId: string): boolean {
+  return userId.startsWith("scim:") || userId.startsWith("cursor:");
 }
 
 function toSeatRow(s: ApiCursorSeat): SeatRow {
@@ -64,14 +61,13 @@ function toSeatRow(s: ApiCursorSeat): SeatRow {
     idleDays: s.idleDays ?? 999,
     mtdSpend: s.mtdSpendUsd,
     capUsd: CURSOR_TIERS[s.subTier].capUsdMonth,
-    hasProgramLicense: !isScimOnlySeat(s.userId),
+    hasProgramLicense: !isWorkspaceOnlySeat(s.userId),
   };
 }
 
-async function loadSeatBoard(cursor: CursorClient) {
-  const rawSeats = await cursor.listSeats();
-  const seats = await enrichCursorSeatsWithVendorSpend(prisma, rawSeats);
-  const waitlist = await cursor.listWaitlist();
+async function getSeatBoard() {
+  const loaded = await loadCursorWorkspaceSeats();
+  const seats = await enrichCursorSeatsWithVendorSpend(prisma, loaded.seats);
   const rows = seats.map(toSeatRow);
 
   const byTier: Record<CursorSubTier, SeatRow[]> = {
@@ -87,23 +83,13 @@ async function loadSeatBoard(cursor: CursorClient) {
     byTier[tier].sort((a, b) => b.mtdSpend - a.mtdSpend);
   }
 
-  return { rows, byTier, waitlist };
-}
-
-async function getSeatBoard() {
-  const primary = getCursorClient();
-  try {
-    return await loadSeatBoard(primary);
-  } catch (err) {
-    if (getIntegrationMode("cursor", process.env) === "real") {
-      console.error(
-        "[cursor-seats] Primary Cursor client failed; falling back to synthetic (Prisma) board",
-        err,
-      );
-      return await loadSeatBoard(syntheticCursorClient);
-    }
-    throw err;
-  }
+  return {
+    rows,
+    byTier,
+    waitlist: loaded.waitlist,
+    source: loaded.source,
+    warnings: loaded.warnings,
+  };
 }
 
 async function loadOpenReclamations() {
@@ -132,13 +118,12 @@ export default async function CursorSeatsPage() {
     userHasPermission(user, PERMISSIONS.DECISIONS_APPROVE) &&
     userHasPermission(user, PERMISSIONS.POLICY_EDIT);
 
-  const cursorMode = getIntegrationMode("cursor", process.env);
   const [data, openReclamations] = await Promise.all([
     getSeatBoard(),
     loadOpenReclamations(),
   ]);
 
-  const { rows, byTier, waitlist } = data;
+  const { rows, byTier, waitlist, source, warnings } = data;
   const managedRows = rows.filter((r) => r.hasProgramLicense);
   const openReclamationUserIds = new Set(openReclamations.map((e) => e.subjectUserId));
 
@@ -192,14 +177,34 @@ export default async function CursorSeatsPage() {
         subtitle="F4 — live workspace members from Cursor SCIM + program licenses; MTD from Team Admin sync."
       />
       <div className="p-6 space-y-6">
+        {warnings.length > 0 ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 space-y-1">
+            <p className="font-medium">Data source: {workspaceSourceLabel(source)}</p>
+            {warnings.map((w) => (
+              <p key={w} className="text-xs text-amber-800">
+                {w}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">
+            Data source: {workspaceSourceLabel(source)}
+            {source === "synthetic_prisma"
+              ? " — set INTEGRATION_CURSOR=real in prod for live Cursor roster."
+              : null}
+          </p>
+        )}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard
             label="Workspace members"
             value={memberCount}
             sub={
-              cursorMode === "real"
-                ? "SCIM members unioned with dashboard licenses"
-                : "Synthetic — Prisma License rows (dev)"
+              source === "synthetic_prisma"
+                ? "Dev Prisma License rows"
+                : source === "unavailable"
+                  ? "Live APIs returned no members"
+                  : "Cursor Team Admin / SCIM"
             }
           />
           <StatCard
@@ -466,6 +471,23 @@ export default async function CursorSeatsPage() {
       </div>
     </>
   );
+}
+
+function workspaceSourceLabel(source: CursorWorkspaceSource): string {
+  switch (source) {
+    case "team_admin":
+      return "Cursor Team Admin GET /teams/members";
+    case "scim":
+      return "Cursor SCIM workspace roster";
+    case "team_admin_and_scim":
+      return "Cursor Team Admin + SCIM (deduped by email)";
+    case "synthetic_prisma":
+      return "Synthetic — Prisma License rows (dev)";
+    case "unavailable":
+      return "Unavailable — live Cursor APIs returned no members";
+    default:
+      return source;
+  }
 }
 
 function StatCard({
