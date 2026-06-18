@@ -18,7 +18,6 @@ import {
   OPENAI_LICENSE_USD_PER_SEAT_MONTH,
   OPENAI_POOLED_BASELINE_USD_MONTH,
   OPENAI_COMBINED_MONTHLY_PLANNING_USD,
-  openAiCombinedCreditsUsedEstimate,
   PROGRAM_MONTHLY_PLANNING_USD_TOTAL,
   PROGRAM_ANNUAL_PLANNING_USD_TOTAL,
   M365_COPILOT_LICENSES_ENTITLED,
@@ -98,6 +97,7 @@ async function getF1Data(
     loadOpenAiSpendSnapshotForF1(prisma, {
       periodStart: openAiSpendPlan.periodStart,
       periodEnd: openAiSpendPlan.periodEnd,
+      budgetMonthMultiplier: openAiSpendPlan.budgetMonthMultiplier,
     }),
   ]);
 
@@ -233,15 +233,10 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const openAiM = data.openAiSpendPlan.budgetMonthMultiplier;
   const combinedCreditsCap = OPENAI_TARGET_CREDITS_MONTH * openAiM;
   const combinedUsd = data.openAiSpend.combinedUsd;
-  const combinedCreditsMtd = openAiCombinedCreditsUsedEstimate({
-    periodSpendUsd: combinedUsd,
-    budgetMonthMultiplier: openAiM,
-  });
-  const openAiChatgptUsd = data.openAiSpend.chatgptUsd;
-  const openAiChatgptCreditsMtd =
-    combinedUsd <= 0 ? 0 : combinedCreditsMtd * (openAiChatgptUsd / combinedUsd);
-  /** Remainder so ChatGPT + Codex credit bars sum to the combined card (no float drift). */
-  const openAiCodexCreditsMtd = combinedUsd <= 0 ? 0 : combinedCreditsMtd - openAiChatgptCreditsMtd;
+  const combinedCreditsMtd = data.openAiSpend.credits.combinedCredits;
+  const openAiChatgptCreditsMtd = data.openAiSpend.credits.chatgptCredits;
+  const openAiCodexCreditsMtd = data.openAiSpend.credits.codexCredits;
+  const openAiCreditsMode = data.openAiSpend.credits.mode;
   const openAiBaselineUsdPeriod = OPENAI_POOLED_BASELINE_USD_MONTH * openAiM;
   const openAiOverageUsdPeriod = Math.max(0, combinedUsd - openAiBaselineUsdPeriod);
   const spendLabel = f1PeriodSpendLabel(period);
@@ -472,8 +467,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                       {key === "CHATGPT"
                         ? "Planning cap: 1:4 of org credit envelope. "
                         : "Planning cap: 3:4 of org credit envelope. "}
-                      Used credits = this product&apos;s USD share × combined estimate (pool + overage
-                      model above).
+                      {openAiCreditsMode === "direct"
+                        ? key === "CHATGPT"
+                          ? "Used credits = org pool (Workspace Analytics) minus Codex Enterprise usage."
+                          : "Used credits = Codex Enterprise Analytics for this period."
+                        : "Used credits estimated from observed USD (pool + overage model)."}
                     </p>
                   ) : null}
                   {key === "CURSOR" && data.cursorSpendSource === "vendor" ? (

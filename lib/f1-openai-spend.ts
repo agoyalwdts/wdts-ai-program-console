@@ -20,6 +20,7 @@ import {
 } from "@/lib/f1-manual-vendor-export";
 import { loadOpenAiVendorSpendForF1, mergeOpenAiVendorIntoF1 } from "@/lib/f1-openai-vendor";
 import type { ProductKey } from "@/lib/program";
+import { resolveOpenAiF1Credits, type OpenAiF1Credits } from "@/lib/f1-openai-credits";
 
 export type OpenAiF1SpendSources = {
   chatgpt: "gateway" | "vendor" | "manual_export" | "workspace_analytics";
@@ -35,6 +36,7 @@ export type OpenAiF1SpendSnapshot = {
   chatgptUsd: number;
   codexUsd: number;
   combinedUsd: number;
+  credits: OpenAiF1Credits;
   sources: OpenAiF1SpendSources;
 };
 
@@ -68,7 +70,7 @@ function resolveOpenAiSources(args: {
 /** Totals only — for the OpenAI card, per-product tiles, and leaderboard. */
 export async function loadOpenAiSpendSnapshotForF1(
   prisma: PrismaClient,
-  args: { periodStart: Date; periodEnd: Date },
+  args: { periodStart: Date; periodEnd: Date; budgetMonthMultiplier?: number },
 ): Promise<OpenAiF1SpendSnapshot> {
   const gateway = getGatewayClient();
   const [programAgg, vendorManualExport, vendorOpenAi, vendorCodexEnterprise, workspaceChatgpt] =
@@ -118,19 +120,34 @@ export async function loadOpenAiSpendSnapshotForF1(
   const chatgptUsd = mtdMap.get("CHATGPT") ?? 0;
   const codexUsd = mtdMap.get("CODEX") ?? 0;
 
+  const sources = resolveOpenAiSources({
+    manualChatgptUsed: vendorManualExport.chatgpt.used,
+    workspaceAnalyticsChatgptUsed: workspaceChatgpt.used,
+    manualCodexUsed: vendorManualExport.codex.used,
+    openAiChatgptVendor: vendorOpenAi.chatgpt.usedVendor,
+    openAiCodexVendor: vendorOpenAi.codex.usedVendor,
+    codexEnterpriseUsed: vendorCodexEnterprise.usedVendor,
+    codexEnterpriseSource: vendorCodexEnterprise.source,
+  });
+
+  const credits = resolveOpenAiF1Credits({
+    chatgptUsd,
+    codexUsd,
+    budgetMonthMultiplier: args.budgetMonthMultiplier ?? 1,
+    workspaceChatgptUsed: workspaceChatgpt.used,
+    workspaceChatgptUsd: workspaceChatgpt.periodTotalUsd,
+    manualChatgptUsed: vendorManualExport.chatgpt.used,
+    manualChatgptUsd: vendorManualExport.chatgpt.periodTotalUsd,
+    codexEnterpriseUsed: vendorCodexEnterprise.usedVendor,
+    codexEnterpriseUsd: vendorCodexEnterprise.periodTotalUsd,
+  });
+
   return {
     chatgptUsd,
     codexUsd,
     combinedUsd: chatgptUsd + codexUsd,
-    sources: resolveOpenAiSources({
-      manualChatgptUsed: vendorManualExport.chatgpt.used,
-      workspaceAnalyticsChatgptUsed: workspaceChatgpt.used,
-      manualCodexUsed: vendorManualExport.codex.used,
-      openAiChatgptVendor: vendorOpenAi.chatgpt.usedVendor,
-      openAiCodexVendor: vendorOpenAi.codex.usedVendor,
-      codexEnterpriseUsed: vendorCodexEnterprise.usedVendor,
-      codexEnterpriseSource: vendorCodexEnterprise.source,
-    }),
+    credits,
+    sources,
   };
 }
 
