@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { Topbar } from "@/components/dashboard/topbar";
 import { CursorTierMoveButton } from "@/components/dashboard/cursor-tier-move-button";
@@ -28,6 +29,10 @@ import { requireUser, userHasPermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 export const dynamic = "force-dynamic";
+
+const IDLE_STAT_DAYS = 14;
+
+type SP = { idle?: string };
 
 type SeatRow = {
   tier: CursorSubTier;
@@ -112,8 +117,17 @@ function tierLabel(tier: CursorSubTier, hasProgramLicense: boolean): string {
   return "Workspace";
 }
 
-export default async function CursorSeatsPage() {
+function parseIdleFilter(raw?: string): number | null {
+  if (!raw?.trim()) return null;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return n;
+}
+
+export default async function CursorSeatsPage(props: { searchParams: Promise<SP> }) {
   const user = await requireUser();
+  const sp = await props.searchParams;
+  const idleFilterDays = parseIdleFilter(sp.idle);
   const canManage =
     userHasPermission(user, PERMISSIONS.DECISIONS_APPROVE) &&
     userHasPermission(user, PERMISSIONS.POLICY_EDIT);
@@ -164,17 +178,24 @@ export default async function CursorSeatsPage() {
   });
 
   const memberCount = rows.length;
-  const idle = rows.filter((s) => s.idleDays >= 14).length;
+  const idleRows = rows.filter((s) => s.idleDays >= IDLE_STAT_DAYS);
+  const idle = idleRows.length;
   const totalMtd = rows.reduce((acc, r) => acc + r.mtdSpend, 0);
   const scimOnlyCount = rows.filter((r) => !r.hasProgramLicense).length;
 
   const sortedMembers = [...rows].sort((a, b) => b.mtdSpend - a.mtdSpend);
+  const tableMembers =
+    idleFilterDays != null
+      ? [...rows]
+          .filter((r) => r.idleDays >= idleFilterDays)
+          .sort((a, b) => b.idleDays - a.idleDays)
+      : sortedMembers;
 
   return (
     <>
       <Topbar
         title="Cursor workspace"
-        subtitle="F4 — live workspace members from Cursor SCIM + program licenses; MTD from Team Admin sync."
+        subtitle="F4 — live workspace members from Cursor Team Admin; MTD and idle from vendor sync."
       />
       <div className="p-6 space-y-6">
         {warnings.length > 0 ? (
@@ -186,14 +207,14 @@ export default async function CursorSeatsPage() {
               </p>
             ))}
           </div>
-        ) : (
+        ) : memberCount > 0 ? (
           <p className="text-xs text-slate-500">
             Data source: {workspaceSourceLabel(source)}
             {source === "synthetic_prisma"
               ? " — set INTEGRATION_CURSOR=real in prod for live Cursor roster."
               : null}
           </p>
-        )}
+        ) : null}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard
@@ -217,10 +238,11 @@ export default async function CursorSeatsPage() {
             }
           />
           <StatCard
-            label="Idle ≥ 14 days"
+            label={`Idle ≥ ${IDLE_STAT_DAYS} days`}
             value={idle}
-            sub="No Cursor usage in lookback window"
+            sub="Click to list idle members"
             tone="amber"
+            href={`/cursor-seats?idle=${IDLE_STAT_DAYS}#members`}
           />
           <StatCard
             label="MTD spend (all members)"
@@ -312,27 +334,48 @@ export default async function CursorSeatsPage() {
           </div>
         )}
 
-        <Card>
+        <Card id="members">
           <CardHeader>
-            <CardTitle>All members</CardTitle>
-            <CardDescription>
-              One row per person returned by{" "}
-              <code className="font-mono">getCursorClient().listSeats()</code>. Real mode lists
-              active SCIM workspace members; email match attaches program sub-tier and cap from
-              dashboard <code className="font-mono">License</code> rows. Members without a license
-              show tier <strong>Workspace</strong> (in Cursor, not yet tiered in the console).
-              MTD and idle merge Team Admin{" "}
-              <code className="font-mono">VendorUserDailySpend</code> when{" "}
-              <code className="font-mono">INTEGRATION_CURSOR=real</code>.
-            </CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle>
+                  {idleFilterDays != null
+                    ? `Idle members (≥ ${idleFilterDays} days)`
+                    : "All members"}
+                </CardTitle>
+                <CardDescription>
+                  {idleFilterDays != null ? (
+                    <>
+                      {tableMembers.length} of {memberCount} workspace members with no Cursor
+                      usage in the last {idleFilterDays} days (Team Admin{" "}
+                      <code className="font-mono">VendorUserDailySpend</code> lookback).
+                    </>
+                  ) : (
+                    <>
+                      One row per person from Cursor Team Admin{" "}
+                      <code className="font-mono">GET /teams/members</code>. Program sub-tier and
+                      cap attach when a dashboard <code className="font-mono">License</code> row
+                      matches by email; otherwise tier shows as <strong>Workspace</strong>.
+                    </>
+                  )}
+                </CardDescription>
+              </div>
+              {idleFilterDays != null ? (
+                <Link
+                  href="/cursor-seats#members"
+                  className="text-xs font-medium text-sky-700 underline underline-offset-2"
+                >
+                  Show all members
+                </Link>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent className="px-0 pb-0">
-            {sortedMembers.length === 0 ? (
+            {tableMembers.length === 0 ? (
               <p className="px-5 pb-6 text-sm text-slate-500">
-                No workspace members returned. Check{" "}
-                <code className="font-mono">CURSOR_SCIM_BASE_URL</code> and{" "}
-                <code className="font-mono">CURSOR_ADMIN_TOKEN</code>, or run a roster import with
-                Cursor licenses.
+                {idleFilterDays != null
+                  ? `No members idle ≥ ${idleFilterDays} days.`
+                  : "No workspace members returned. Check CURSOR_TEAM_ADMIN_API_KEY and run vendor spend sync."}
               </p>
             ) : (
               <Table>
@@ -346,7 +389,7 @@ export default async function CursorSeatsPage() {
                   </TR>
                 </THead>
                 <TBody>
-                  {sortedMembers.map((r) => (
+                  {tableMembers.map((r) => (
                     <TR key={r.userId}>
                       <TD className="pl-5">
                         <div className="font-medium text-slate-900">{r.displayName}</div>
@@ -495,14 +538,16 @@ function StatCard({
   value,
   sub,
   tone,
+  href,
 }: {
   label: string;
   value: string | number;
   sub: string;
   tone?: "amber";
+  href?: string;
 }) {
-  return (
-    <Card>
+  const card = (
+    <Card className={href ? "h-full transition-shadow hover:shadow-md" : undefined}>
       <CardContent className="p-4">
         <div className="text-xs uppercase tracking-wider text-slate-500">{label}</div>
         <div
@@ -517,6 +562,16 @@ function StatCard({
       </CardContent>
     </Card>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="block rounded-xl focus-visible:outline focus-visible:ring-2 focus-visible:ring-sky-500">
+        {card}
+      </Link>
+    );
+  }
+
+  return card;
 }
 
 function LegendDot({ color, label }: { color: string; label: string }) {
