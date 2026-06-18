@@ -491,6 +491,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                       ChatGPT Business users CSV (credits spread evenly per export day)
                     </p>
                   ) : null}
+                  {key === "CHATGPT" && openAiChatgptSpendSource === "workspace_analytics" ? (
+                    <p className="text-[11px] text-violet-700 mt-1">
+                      Workspace Analytics API — daily CHATGPT_USER_ANALYTICS sync
+                    </p>
+                  ) : null}
                   {key === "CODEX" && codexSpendSource === "codex_enterprise_analytics_live" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
                       Codex Enterprise Analytics — live on page load (api.chatgpt.com)
@@ -558,11 +563,13 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                 ? "Cursor Team Admin sync when VendorDailySpend rows exist."
                 : "that mirror (Settings → sync Cursor spend for vendor totals). "}
               CHATGPT uses{" "}
-              {openAiChatgptSpendSource === "vendor"
-                ? "OpenAI organization/costs when vendor rows exist; otherwise the gateway mirror."
-                : openAiChatgptSpendSource === "manual_export"
-                  ? "uploaded ChatGPT users CSV (Settings → Data imports) when no OpenAI vendor rows override it."
-                  : "the gateway mirror unless you run OpenAI vendor sync in Settings."}{" "}
+              {openAiChatgptSpendSource === "workspace_analytics"
+                ? "Workspace Analytics API daily sync (CHATGPT_USER_ANALYTICS) when VendorDailySpend rows exist for the period."
+                : openAiChatgptSpendSource === "vendor"
+                  ? "OpenAI organization/costs when vendor rows exist; otherwise the gateway mirror."
+                  : openAiChatgptSpendSource === "manual_export"
+                    ? "uploaded ChatGPT users CSV (Settings → Data imports) when no newer vendor rows override it."
+                    : "the gateway mirror unless Workspace Analytics sync or OpenAI org-costs sync has rows for this period."}{" "}
               CODEX uses{" "}
               {codexSpendSource === "codex_enterprise_analytics_live"
                 ? "Codex Enterprise Analytics live from api.chatgpt.com on each Health load (overrides org costs)."

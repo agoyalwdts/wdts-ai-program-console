@@ -11,6 +11,10 @@ import {
   mergeCodexEnterpriseVendorIntoF1,
 } from "@/lib/f1-codex-enterprise-analytics";
 import {
+  loadChatGptWorkspaceAnalyticsSpendForF1,
+  mergeChatGptWorkspaceAnalyticsIntoF1,
+} from "@/lib/f1-chatgpt-workspace-analytics";
+import {
   loadManualVendorExportSpendForF1,
   mergeManualVendorExportIntoF1,
 } from "@/lib/f1-manual-vendor-export";
@@ -18,7 +22,7 @@ import { loadOpenAiVendorSpendForF1, mergeOpenAiVendorIntoF1 } from "@/lib/f1-op
 import type { ProductKey } from "@/lib/program";
 
 export type OpenAiF1SpendSources = {
-  chatgpt: "gateway" | "vendor" | "manual_export";
+  chatgpt: "gateway" | "vendor" | "manual_export" | "workspace_analytics";
   codex:
     | "gateway"
     | "openai_org_costs"
@@ -36,6 +40,7 @@ export type OpenAiF1SpendSnapshot = {
 
 function resolveOpenAiSources(args: {
   manualChatgptUsed: boolean;
+  workspaceAnalyticsChatgptUsed: boolean;
   manualCodexUsed: boolean;
   openAiChatgptVendor: boolean;
   openAiCodexVendor: boolean;
@@ -45,6 +50,7 @@ function resolveOpenAiSources(args: {
   let chatgpt: OpenAiF1SpendSources["chatgpt"] = "gateway";
   if (args.manualChatgptUsed) chatgpt = "manual_export";
   if (args.openAiChatgptVendor) chatgpt = "vendor";
+  if (args.workspaceAnalyticsChatgptUsed) chatgpt = "workspace_analytics";
 
   let codex: OpenAiF1SpendSources["codex"] = "gateway";
   if (args.manualCodexUsed) codex = "manual_export";
@@ -65,12 +71,14 @@ export async function loadOpenAiSpendSnapshotForF1(
   args: { periodStart: Date; periodEnd: Date },
 ): Promise<OpenAiF1SpendSnapshot> {
   const gateway = getGatewayClient();
-  const [programAgg, vendorManualExport, vendorOpenAi, vendorCodexEnterprise] = await Promise.all([
-    gateway.aggregateByProgram({ periodStart: args.periodStart, periodEnd: args.periodEnd }),
-    loadManualVendorExportSpendForF1(prisma, args),
-    loadOpenAiVendorSpendForF1(prisma, args),
-    loadCodexEnterpriseSpendForF1(prisma, args),
-  ]);
+  const [programAgg, vendorManualExport, vendorOpenAi, vendorCodexEnterprise, workspaceChatgpt] =
+    await Promise.all([
+      gateway.aggregateByProgram({ periodStart: args.periodStart, periodEnd: args.periodEnd }),
+      loadManualVendorExportSpendForF1(prisma, args),
+      loadOpenAiVendorSpendForF1(prisma, args),
+      loadCodexEnterpriseSpendForF1(prisma, args),
+      loadChatGptWorkspaceAnalyticsSpendForF1(prisma, args),
+    ]);
 
   const mtdMap = new Map<ProductKey, number>(
     programAgg
@@ -94,6 +102,11 @@ export async function loadOpenAiSpendSnapshotForF1(
     codexByChartDay: vendorOpenAi.codex.byChartDay,
     useCodexVendor: vendorOpenAi.codex.usedVendor,
   });
+  mergeChatGptWorkspaceAnalyticsIntoF1({
+    mtdMap,
+    days: [],
+    chatgpt: workspaceChatgpt,
+  });
   mergeCodexEnterpriseVendorIntoF1({
     mtdMap,
     days: [],
@@ -111,6 +124,7 @@ export async function loadOpenAiSpendSnapshotForF1(
     combinedUsd: chatgptUsd + codexUsd,
     sources: resolveOpenAiSources({
       manualChatgptUsed: vendorManualExport.chatgpt.used,
+      workspaceAnalyticsChatgptUsed: workspaceChatgpt.used,
       manualCodexUsed: vendorManualExport.codex.used,
       openAiChatgptVendor: vendorOpenAi.chatgpt.usedVendor,
       openAiCodexVendor: vendorOpenAi.codex.usedVendor,
@@ -130,11 +144,13 @@ export async function mergeOpenAiSpendIntoPagePeriodF1(
     days: SpendPoint[];
   },
 ): Promise<void> {
-  const [vendorManualExport, vendorOpenAi, vendorCodexEnterprise] = await Promise.all([
-    loadManualVendorExportSpendForF1(prisma, args),
-    loadOpenAiVendorSpendForF1(prisma, args),
-    loadCodexEnterpriseSpendForF1(prisma, args),
-  ]);
+  const [vendorManualExport, vendorOpenAi, vendorCodexEnterprise, workspaceChatgpt] =
+    await Promise.all([
+      loadManualVendorExportSpendForF1(prisma, args),
+      loadOpenAiVendorSpendForF1(prisma, args),
+      loadCodexEnterpriseSpendForF1(prisma, args),
+      loadChatGptWorkspaceAnalyticsSpendForF1(prisma, args),
+    ]);
 
   mergeManualVendorExportIntoF1({
     mtdMap: args.mtdMap,
@@ -151,6 +167,11 @@ export async function mergeOpenAiSpendIntoPagePeriodF1(
     codexVendorTotal: vendorOpenAi.codex.periodTotalUsd,
     codexByChartDay: vendorOpenAi.codex.byChartDay,
     useCodexVendor: vendorOpenAi.codex.usedVendor,
+  });
+  mergeChatGptWorkspaceAnalyticsIntoF1({
+    mtdMap: args.mtdMap,
+    days: args.days,
+    chatgpt: workspaceChatgpt,
   });
   mergeCodexEnterpriseVendorIntoF1({
     mtdMap: args.mtdMap,
