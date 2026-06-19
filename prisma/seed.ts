@@ -23,6 +23,7 @@ import {
   CURSOR_TIERS,
 } from "../lib/program";
 import { BUILT_IN_ROLES } from "../lib/rbac/built-in-roles";
+import { seedCostCentreForEmail } from "../lib/finops/cost-centres";
 
 const prisma = new PrismaClient();
 
@@ -93,8 +94,7 @@ async function main() {
         roleTag: u.roleTag,
         region: u.region,
         status: "ACTIVE",
-        // Synthetic users default to USER role. The owner row below
-        // overrides for the real account.
+        costCentre: seedCostCentreForEmail(u.email),
         dashboardRoleId: userRoleId,
       },
     });

@@ -217,12 +217,16 @@ model User {
   /// Optional org title for display ("Chief Technology Officer · Head of
   /// AI Task Force").
   title           String?
+  /// FinOps cost-centre key (ADR 0002), e.g. "ENG-4501". Null = unassigned.
+  costCentre      String?
 
   licenses          License[]
   usageRecords      UsageRecord[]
   decisions         Decision[]         @relation("DecisionSubject")
   exceptionRequests ExceptionRequest[] @relation("ExceptionSubject")
   reclamationEvents ReclamationEvent[] @relation("ReclamationSubject")
+
+  @@index([costCentre])
 }
 
 /// Dashboard authorization role. Built-in roles (USER / MANAGER / FINOPS /
