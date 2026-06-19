@@ -1,14 +1,14 @@
 /**
  * HMAC cron — poll Workspace Analytics API (Compliance Logs) for all four event types.
  *
- * Body: optional `{ "initialLookbackDays": number }` (default 7, max 90).
+ * Body: optional `{ "initialLookbackDays": number }` (default: delta / 7).
  * Requires INTEGRATION_OPENAI_COMPLIANCE=real and OPENAI_COMPLIANCE_API_KEY.
  */
 
 import { NextResponse } from "next/server";
 import { verifyCronSignature } from "@/lib/cron/auth";
-import { syncWorkspaceAnalytics } from "@/lib/integrations/workspace-analytics";
 import { prisma } from "@/lib/prisma";
+import { executeSyncJob } from "@/lib/sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,14 +47,18 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const result = await syncWorkspaceAnalytics(prisma, {
+    const outcome = await executeSyncJob(prisma, "workspace_analytics", {
+      trigger: "cron",
       actorEmail: "cron-sync-workspace-analytics@dashboard",
-      initialLookbackDays: parsed.initialLookbackDays,
+      opts: parsed.initialLookbackDays
+        ? { initialLookbackDays: parsed.initialLookbackDays }
+        : undefined,
+      perJobTimeoutMs: 120_000,
     });
-    if (!result.ok) {
-      return NextResponse.json(result, { status: 503 });
+    if (!outcome.ok && !outcome.skipped) {
+      return NextResponse.json({ ok: false, error: outcome.error }, { status: 503 });
     }
-    return NextResponse.json(result);
+    return NextResponse.json(outcome);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: message }, { status: 502 });
