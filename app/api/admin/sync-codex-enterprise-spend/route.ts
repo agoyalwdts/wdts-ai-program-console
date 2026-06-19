@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { syncCodexEnterpriseAnalyticsDaily } from "@/lib/vendor-spend/sync-codex-enterprise-daily";
+import { executeSyncJob } from "@/lib/sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,14 +26,17 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const lookbackDays = parsed.lookbackDays ?? 120;
-
   try {
-    const result = await syncCodexEnterpriseAnalyticsDaily(prisma, {
-      lookbackDays,
+    const outcome = await executeSyncJob(prisma, "codex_enterprise_spend", {
+      trigger: "admin",
       actorEmail: actor.email,
+      opts: parsed.lookbackDays ? { lookbackDays: parsed.lookbackDays } : { lookbackDays: 120 },
+      perJobTimeoutMs: 120_000,
     });
-    return NextResponse.json({ ok: true, ...result });
+    if (!outcome.ok && !outcome.skipped) {
+      return NextResponse.json({ ok: false, error: outcome.error }, { status: 502 });
+    }
+    return NextResponse.json(outcome);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: message }, { status: 502 });

@@ -2,17 +2,14 @@
  * HMAC cron — pull OpenAI organization/costs and upsert VendorDailySpend (CHATGPT + CODEX).
  *
  * Body: optional `{ "lookbackDays": number, "endOffsetDays"?: number, "skipDecision"?: boolean }`
- * Default: last 31 days (incremental). For backfill, GHA loops with endOffsetDays 0, 31, 62, …
- * Auth: same as /api/cron/reconcile-azuread (x-cron-signature + CRON_SHARED_SECRET).
+ * Default: delta from ledger (cap 31 days). Auth: x-cron-signature + CRON_SHARED_SECRET.
  */
 
 import { NextResponse } from "next/server";
 import { verifyCronSignature } from "@/lib/cron/auth";
 import { prisma } from "@/lib/prisma";
-import {
-  OPENAI_VENDOR_MANUAL_MAX_LOOKBACK_DAYS,
-  syncOpenAiVendorDailySpendWindow,
-} from "@/lib/vendor-spend/sync-openai-vendor-daily";
+import { executeSyncJob } from "@/lib/sync";
+import { OPENAI_VENDOR_MANUAL_MAX_LOOKBACK_DAYS } from "@/lib/vendor-spend/sync-openai-vendor-daily";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,20 +51,26 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  const lookbackDays = Math.min(
-    Math.max(parsed.lookbackDays ?? OPENAI_VENDOR_MANUAL_MAX_LOOKBACK_DAYS, 1),
-    OPENAI_VENDOR_MANUAL_MAX_LOOKBACK_DAYS,
-  );
+  const lookbackDays = parsed.lookbackDays
+    ? Math.min(Math.max(parsed.lookbackDays, 1), OPENAI_VENDOR_MANUAL_MAX_LOOKBACK_DAYS)
+    : undefined;
   const endOffsetDays = Math.max(0, Math.floor(parsed.endOffsetDays ?? 0));
 
   try {
-    const result = await syncOpenAiVendorDailySpendWindow(prisma, {
-      lookbackDays,
-      endOffsetDays,
+    const outcome = await executeSyncJob(prisma, "openai_org_costs", {
+      trigger: "cron",
       actorEmail: "cron-sync-openai-spend@dashboard",
-      skipDecision: parsed.skipDecision === true,
+      opts: {
+        lookbackDays,
+        endOffsetDays,
+        skipDecision: parsed.skipDecision === true,
+      },
+      perJobTimeoutMs: 120_000,
     });
-    return NextResponse.json({ ok: true, ...result });
+    if (!outcome.ok && !outcome.skipped) {
+      return NextResponse.json({ ok: false, error: outcome.error }, { status: 502 });
+    }
+    return NextResponse.json(outcome);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: message }, { status: 502 });

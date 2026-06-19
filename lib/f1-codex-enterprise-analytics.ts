@@ -1,9 +1,9 @@
 /**
  * Codex Enterprise Analytics → F1 (CODEX tile + daily chart).
  *
- * When `INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real`, F1 calls
- * `api.chatgpt.com` workspace usage on each page load. `VendorDailySpend`
- * (cron / Settings sync) is only a fallback if the live call fails.
+ * When `INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real`, F1 reads the Postgres
+ * mirror first (populated by layout refresh + cron). Live API is fallback only
+ * when the mirror is empty.
  */
 
 import { Product } from "@prisma/client";
@@ -175,17 +175,20 @@ export async function loadCodexEnterpriseSpendForF1(
     return { periodTotalUsd: 0, byChartDay: new Map(), usedVendor: false, source: "none" };
   }
 
+  const synced = await loadCodexEnterpriseSyncedSpendForF1(prisma, args);
+  if (synced.usedVendor) return synced;
+
   try {
     const live = await loadCodexEnterpriseLiveSpendForF1(args);
     if (live) return live;
   } catch (err) {
     console.error(
-      "[f1/codex-enterprise] live workspace usage failed; falling back to VendorDailySpend",
+      "[f1/codex-enterprise] live workspace usage failed; mirror empty",
       err,
     );
   }
 
-  return loadCodexEnterpriseSyncedSpendForF1(prisma, args);
+  return synced;
 }
 
 export function mergeCodexEnterpriseVendorIntoF1(args: {

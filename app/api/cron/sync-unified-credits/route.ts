@@ -1,14 +1,14 @@
 /**
  * HMAC cron — poll Compliance Logs for Unified Credit Usage (COSTS, alpha).
  *
- * Body: optional `{ "initialLookbackDays": number }` (default 30, max 90).
+ * Body: optional `{ "initialLookbackDays": number }` (default: delta / 30).
  * Requires INTEGRATION_OPENAI_COMPLIANCE=real and OPENAI_COMPLIANCE_API_KEY.
  */
 
 import { NextResponse } from "next/server";
 import { verifyCronSignature } from "@/lib/cron/auth";
-import { syncUnifiedCredits } from "@/lib/integrations/unified-credits";
 import { prisma } from "@/lib/prisma";
+import { executeSyncJob } from "@/lib/sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,14 +47,27 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const result = await syncUnifiedCredits(prisma, {
+    const outcome = await executeSyncJob(prisma, "unified_credits", {
+      trigger: "cron",
       actorEmail: "cron-sync-unified-credits@dashboard",
-      initialLookbackDays: parsed.initialLookbackDays,
+      opts: parsed.initialLookbackDays
+        ? { initialLookbackDays: parsed.initialLookbackDays }
+        : undefined,
+      perJobTimeoutMs: 120_000,
     });
-    if (!result.ok) {
-      return NextResponse.json(result, { status: result.notEnabled ? 503 : 502 });
+    if (!outcome.ok && !outcome.skipped) {
+      return NextResponse.json(
+        { ok: false, error: outcome.error ?? outcome.reason },
+        { status: 502 },
+      );
     }
-    return NextResponse.json(result);
+    if (outcome.skipped && outcome.reason?.includes("COSTS not enabled")) {
+      return NextResponse.json(
+        { ok: false, notEnabled: true, reason: outcome.reason },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json(outcome);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: message }, { status: 502 });

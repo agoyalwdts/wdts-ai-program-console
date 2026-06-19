@@ -355,6 +355,17 @@ model ProgramVendorExportSnapshot {
   @@index([kind, createdAt])
 }
 
+/// Last-run ledger for vendor mirror sync jobs (page load, cron, manual refresh).
+model IntegrationSyncState {
+  key           String    @id
+  lastSuccessAt DateTime?
+  lastAttemptAt DateTime?
+  /// cron | page_load | manual_refresh | admin
+  lastTrigger   String?
+  lastError     String?
+  lastSummary   Json?
+}
+
 // ---------------------------------------------------------------------------
 // Authoritative (dashboard-owned, append-only)
 // ---------------------------------------------------------------------------

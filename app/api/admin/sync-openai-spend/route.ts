@@ -2,19 +2,14 @@
  * FINOPS/ADMIN — trigger OpenAI organization costs sync for Program Health.
  *
  * POST JSON `{ "lookbackDays"?: number, "endOffsetDays"?: number, "skipDecision"?: boolean }`
- *
- * For historical backfill, call repeatedly with endOffsetDays 0, 31, 62, … (see
- * openAiVendorBackfillChunks) — one window per request avoids App Service timeouts.
  */
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import {
-  OPENAI_VENDOR_MANUAL_MAX_LOOKBACK_DAYS,
-  syncOpenAiVendorDailySpendWindow,
-} from "@/lib/vendor-spend/sync-openai-vendor-daily";
+import { executeSyncJob } from "@/lib/sync";
+import { OPENAI_VENDOR_MANUAL_MAX_LOOKBACK_DAYS } from "@/lib/vendor-spend/sync-openai-vendor-daily";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,20 +31,26 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const lookbackDays = Math.min(
-    Math.max(parsed.lookbackDays ?? OPENAI_VENDOR_MANUAL_MAX_LOOKBACK_DAYS, 1),
-    OPENAI_VENDOR_MANUAL_MAX_LOOKBACK_DAYS,
-  );
+  const lookbackDays = parsed.lookbackDays
+    ? Math.min(Math.max(parsed.lookbackDays, 1), OPENAI_VENDOR_MANUAL_MAX_LOOKBACK_DAYS)
+    : undefined;
   const endOffsetDays = Math.max(0, Math.floor(parsed.endOffsetDays ?? 0));
 
   try {
-    const result = await syncOpenAiVendorDailySpendWindow(prisma, {
-      lookbackDays,
-      endOffsetDays,
+    const outcome = await executeSyncJob(prisma, "openai_org_costs", {
+      trigger: "admin",
       actorEmail: actor.email,
-      skipDecision: parsed.skipDecision === true,
+      opts: {
+        lookbackDays,
+        endOffsetDays,
+        skipDecision: parsed.skipDecision === true,
+      },
+      perJobTimeoutMs: 120_000,
     });
-    return NextResponse.json({ ok: true, ...result });
+    if (!outcome.ok && !outcome.skipped) {
+      return NextResponse.json({ ok: false, error: outcome.error }, { status: 502 });
+    }
+    return NextResponse.json(outcome);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: message }, { status: 502 });

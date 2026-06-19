@@ -2,16 +2,16 @@
  * HMAC cron — pull Cursor Team Admin usage events and upsert VendorDailySpend.
  *
  * Body: optional `{ "lookbackDays": number, "endOffsetDays"?: number, "skipDecision"?: boolean }`
- * Default: last 7 days (incremental). For backfill, GHA loops with endOffsetDays 0, 7, 14, …
+ * Default: delta lookback from sync ledger (cap 7 days). For backfill, GHA loops with endOffsetDays.
  * Auth: x-cron-signature + CRON_SHARED_SECRET.
  */
 
 import { NextResponse } from "next/server";
 import { verifyCronSignature } from "@/lib/cron/auth";
 import { prisma } from "@/lib/prisma";
+import { executeSyncJob } from "@/lib/sync";
 import {
   CURSOR_VENDOR_MANUAL_MAX_LOOKBACK_DAYS,
-  syncCursorVendorDailySpendWindow,
 } from "@/lib/vendor-spend/sync-cursor-vendor-daily";
 
 export const runtime = "nodejs";
@@ -54,20 +54,26 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  const lookbackDays = Math.min(
-    Math.max(parsed.lookbackDays ?? 7, 1),
-    CURSOR_VENDOR_MANUAL_MAX_LOOKBACK_DAYS,
-  );
+  const lookbackDays = parsed.lookbackDays
+    ? Math.min(Math.max(parsed.lookbackDays, 1), CURSOR_VENDOR_MANUAL_MAX_LOOKBACK_DAYS)
+    : undefined;
   const endOffsetDays = Math.max(0, Math.floor(parsed.endOffsetDays ?? 0));
 
   try {
-    const result = await syncCursorVendorDailySpendWindow(prisma, {
-      lookbackDays,
-      endOffsetDays,
+    const outcome = await executeSyncJob(prisma, "cursor_vendor_spend", {
+      trigger: "cron",
       actorEmail: "cron-sync-cursor-spend@dashboard",
-      skipDecision: parsed.skipDecision === true,
+      opts: {
+        lookbackDays,
+        endOffsetDays,
+        skipDecision: parsed.skipDecision === true,
+      },
+      perJobTimeoutMs: 120_000,
     });
-    return NextResponse.json({ ok: true, ...result });
+    if (!outcome.ok && !outcome.skipped) {
+      return NextResponse.json({ ok: false, error: outcome.error }, { status: 502 });
+    }
+    return NextResponse.json(outcome);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: message }, { status: 502 });
