@@ -12,6 +12,8 @@ export type DeelEmployee = {
   /** Free-form role tag, e.g. 'sw_engineer_senior', 'tech_writer', 'compliance'. */
   roleTag: string;
   managerEmail: string | null;
+  /** FinOps cost-centre key when Deel (or override CSV) provides one. */
+  costCentre?: string | null;
   region: string;
   status: "ACTIVE" | "SUSPENDED" | "TERMINATED";
 };

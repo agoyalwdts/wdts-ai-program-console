@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   txCreateUser: vi.fn(),
   txUpdateUser: vi.fn(),
+  txFindMany: vi.fn(),
   txCreateDecision: vi.fn(),
   $transaction: vi.fn<(cb: (tx: unknown) => Promise<void>) => Promise<void>>(),
 }));
@@ -33,12 +34,17 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.$transaction.mockImplementation(async (cb) => {
     await cb({
-      user: { create: mocks.txCreateUser, update: mocks.txUpdateUser },
+      user: {
+        create: mocks.txCreateUser,
+        update: mocks.txUpdateUser,
+        findMany: mocks.txFindMany,
+      },
       decision: { create: mocks.txCreateDecision },
     });
   });
   mocks.txCreateUser.mockResolvedValue({});
   mocks.txUpdateUser.mockResolvedValue({});
+  mocks.txFindMany.mockResolvedValue([]);
   mocks.txCreateDecision.mockResolvedValue({});
 });
 
@@ -72,6 +78,7 @@ describe("reconcileAzureAD", () => {
     const summary = await run(false);
 
     expect(summary.prismaCreated).toBe(1);
+    expect(mocks.txFindMany).toHaveBeenCalled();
     expect(summary.prismaUpdated).toBe(0);
     expect(summary.prismaSuspended).toBe(0);
     expect(mocks.txCreateUser).toHaveBeenCalledWith({
@@ -205,6 +212,10 @@ describe("reconcileAzureAD — manager-edge reconciliation", () => {
         managerId: null,
       },
     ]);
+    mocks.txFindMany.mockResolvedValueOnce([
+      { id: "u-rep", email: "rep@w.com" },
+      { id: "u-boss", email: "boss@w.com" },
+    ]);
 
     const summary = await run(false);
     expect(summary.managerEdgesLinked).toBe(1);
@@ -230,6 +241,8 @@ describe("reconcileAzureAD — manager-edge reconciliation", () => {
       },
     ]);
 
+    mocks.txFindMany.mockResolvedValueOnce([{ id: "u-rep", email: "rep@w.com" }]);
+
     const summary = await run(false);
     expect(summary.managerEdgesCleared).toBe(1);
     expect(summary.managerEdgesLinked).toBe(0);
@@ -252,6 +265,8 @@ describe("reconcileAzureAD — manager-edge reconciliation", () => {
         managerId: null,
       },
     ]);
+
+    mocks.txFindMany.mockResolvedValueOnce([{ id: "u-rep", email: "rep@w.com" }]);
 
     const summary = await run(false);
     expect(summary.managerEdgesUnresolved).toBe(1);
@@ -289,9 +304,34 @@ describe("reconcileAzureAD — manager-edge reconciliation", () => {
       },
     ]);
 
+    mocks.txFindMany.mockResolvedValueOnce([
+      { id: "u-rep", email: "rep@w.com" },
+      { id: "u-boss", email: "boss@w.com" },
+    ]);
+
     const summary = await run(false);
     expect(summary.managerEdgesLinked).toBe(0);
     expect(summary.managerEdgesCleared).toBe(0);
+  });
+
+  it("links manager edges for users created in the same reconciliation pass", async () => {
+    mocks.listUsers.mockResolvedValueOnce([
+      gu({ email: "rep@w.com", managerEmail: "boss@w.com" }),
+      gu({ email: "boss@w.com", managerEmail: null }),
+    ]);
+    mocks.findMany.mockResolvedValueOnce([]);
+    mocks.txFindMany.mockResolvedValueOnce([
+      { id: "u-rep", email: "rep@w.com" },
+      { id: "u-boss", email: "boss@w.com" },
+    ]);
+
+    const summary = await run(false);
+    expect(summary.prismaCreated).toBe(2);
+    expect(summary.managerEdgesLinked).toBe(1);
+    expect(mocks.txUpdateUser).toHaveBeenCalledWith({
+      where: { email: "rep@w.com" },
+      data: { managerId: "u-boss" },
+    });
   });
 
   it("dry-run reports manager counts but doesn't write", async () => {
@@ -349,6 +389,11 @@ describe("reconcileAzureAD — manager-edge reconciliation", () => {
         status: "ACTIVE",
         managerId: null,
       },
+    ]);
+    mocks.txFindMany.mockResolvedValueOnce([
+      { id: "u-rep", email: "rep@w.com" },
+      { id: "u-oldboss", email: "oldboss@w.com" },
+      { id: "u-newboss", email: "newboss@w.com" },
     ]);
 
     await run(false);
