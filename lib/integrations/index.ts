@@ -81,6 +81,7 @@ export {
 export type { ComplianceAuthLogIpSummary } from "./openai-compliance";
 
 export { syncWorkspaceAnalytics, WORKSPACE_ANALYTICS_EVENT_TYPES } from "./workspace-analytics";
+export { syncUnifiedCredits, UNIFIED_CREDITS_VENDOR_KEY } from "./unified-credits";
 export type { WorkspaceAnalyticsSyncResult } from "./workspace-analytics";
 
 export {

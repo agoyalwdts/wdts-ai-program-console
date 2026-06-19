@@ -167,6 +167,42 @@ jobs:
           cat /tmp/out.json >> "$GITHUB_STEP_SUMMARY"
           [ "$HTTP" = "200" ] || (echo "::error::HTTP $HTTP" && exit 1)
 
+  sync-unified-credits:
+    name: unified credits COSTS (hourly)
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '35 * * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: cron-unified-credits
+      cancel-in-progress: false
+    steps:
+      - name: Verify secret
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          if [ -z "$CRON_SHARED_SECRET" ]; then
+            echo "::error::CRON_SHARED_SECRET is not set."
+            exit 1
+          fi
+      - name: POST sync-unified-credits
+        env:
+          CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+        run: |
+          BODY='{"initialLookbackDays":30}'
+          SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" | awk '{print $2}')
+          URL="${DASHBOARD_BASE_URL}/api/cron/sync-unified-credits"
+          echo "## unified_credits — $URL" >> "$GITHUB_STEP_SUMMARY"
+          HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
+            -H "x-cron-signature: sha256=${SIG}" -H "content-type: application/json" \
+            --data "$BODY" "$URL")
+          cat /tmp/out.json >> "$GITHUB_STEP_SUMMARY"
+          if [ "$HTTP" = "200" ]; then exit 0; fi
+          if [ "$HTTP" = "503" ] && grep -q '"notEnabled":true' /tmp/out.json; then
+            echo "COSTS alpha not live on Compliance API yet — skipping."
+            exit 0
+          fi
+          echo "::error::HTTP $HTTP" && exit 1
+
   sync-openai:
     name: openai org costs (twice daily)
     if: >-
