@@ -86,6 +86,8 @@ async function getLadder() {
     all: seats,
     source: loaded.source,
     warnings: loaded.warnings,
+    chatgptWorkspaceSeatCount: loaded.chatgptWorkspaceSeatCount,
+    codexActiveSeatCount: loaded.codexActiveSeatCount,
   };
 }
 
@@ -98,6 +100,8 @@ export default async function CodexLadderPage() {
   const total = data.all.length;
   const totalSpend = data.all.reduce((s, x) => s + x.mtdSpendUsd, 0);
   const totalCap = data.all.reduce((s, x) => s + x.capUsdMonth, 0);
+  const chatgptSeats = data.chatgptWorkspaceSeatCount;
+  const codexActiveSeats = data.codexActiveSeatCount;
 
   return (
     <>
@@ -121,19 +125,30 @@ export default async function CodexLadderPage() {
           </p>
         )}
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <StatCard
-            label="Total Codex seats"
-            value={total}
+            label="Total ChatGPT seats"
+            value={chatgptSeats}
             sub={
               data.source === "synthetic_prisma"
-                ? "Dev Prisma License rows"
-                : data.source === "unavailable"
-                  ? "Live APIs returned no roster"
-                  : "OpenAI org + Codex analytics roster"
+                ? "Dev Prisma CHATGPT licenses"
+                : chatgptSeats > 0
+                  ? "ChatGPT workspace roster (SCIM / exports)"
+                  : "No workspace roster loaded"
             }
           />
-          <StatCard label="Aggregate MTD" value={formatUsd(totalSpend, { decimals: 0 })} sub={`of ${formatUsd(totalCap, { decimals: 0 })} cap`} />
+          <StatCard
+            label="Total Codex seats"
+            value={codexActiveSeats}
+            sub={
+              data.source === "synthetic_prisma"
+                ? "Dev Prisma CODEX licenses"
+                : codexActiveSeats > 0
+                  ? `Codex-active users (${CODEX_ACTIVE_LOOKBACK_LABEL})`
+                  : "No Codex usage in analytics window"
+            }
+          />
+          <StatCard label="Aggregate MTD" value={formatUsd(totalSpend, { decimals: 0 })} sub={`of ${formatUsd(totalCap, { decimals: 0 })} cap · ${total} in tier tables`} />
           <StatCard label="Promotion candidates" value={data.promotionCandidates.length} sub="Discovery ≥ 50% cap" tone="emerald" />
           <StatCard label="Demotion candidates" value={data.demotionCandidates.length} sub="Power/Standard/Light < 10% cap" tone="amber" />
         </div>
@@ -143,10 +158,10 @@ export default async function CodexLadderPage() {
           <CardHeader>
             <CardTitle>Tier distribution</CardTitle>
             <CardDescription>
-              Counts vs the §4.6.2 design quotas (Power 16 / Standard 40 / Light 24 /
-              Discovery 234). Tier and cap come from dashboard{" "}
-              <code className="font-mono text-xs">License</code> rows when present; roster
-              members come from live OpenAI org and/or Codex analytics exports.
+              Codex-active users only (Enterprise Analytics lookback). Counts vs the §4.6.2
+              design quotas (Power 16 / Standard 40 / Light 24 / Discovery 234). Tier and cap
+              come from dashboard <code className="font-mono text-xs">License</code> rows when
+              present; unrated members default to Discovery.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -234,15 +249,14 @@ export default async function CodexLadderPage() {
 
         <p className="text-xs text-slate-400">
           F9 loads via <code className="font-mono">loadCodexLadderSeats()</code>: synthetic mode uses
-          Prisma <code className="font-mono">License</code> (<code className="font-mono">CODEX</code>) only.
-          With <code className="font-mono">INTEGRATION_OPENAI=real</code>, roster unions OpenAI Admin org
-          users with ChatGPT workspace members (SCIM when{" "}
-          <code className="font-mono">OPENAI_SCIM_API_TOKEN</code> is set, else{" "}
-          <code className="font-mono">CHATGPT_USERS_CSV</code> / analytics snapshots). With{" "}
-          <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>, roster also
-          unions emails from the latest <code className="font-mono">CODEX_SESSIONS_JSON</code> snapshot.
-          Per-seat MTD comes from Codex analytics (live API + snapshot fallback); gateway mirror is a
-          secondary source. Cap utilisation is period-to-date since the plan renews on the{" "}
+          Prisma <code className="font-mono">License</code> rows. With{" "}
+          <code className="font-mono">INTEGRATION_OPENAI=real</code>, the ChatGPT seat count reads
+          the workspace roster (SCIM when <code className="font-mono">OPENAI_SCIM_API_TOKEN</code>{" "}
+          is set, else <code className="font-mono">CHATGPT_USERS_CSV</code> / analytics snapshots).
+          With <code className="font-mono">INTEGRATION_CODEX_ENTERPRISE_ANALYTICS=real</code>, Codex
+          seats and tier tables list users with Codex usage in the last 90 days (live API, snapshot
+          fallback). Per-seat MTD comes from Codex analytics (live API + snapshot); gateway mirror is
+          a secondary source. Cap utilisation is period-to-date since the plan renews on the{" "}
           <strong>16th</strong> each month. Tier moves (F6) open a policy-repo PR via{" "}
           <code className="font-mono">POST /api/tier-moves/codex</code> — the dashboard mirror updates
           after the PR merges.
@@ -444,6 +458,8 @@ const COLUMN_LABEL: Record<
   mtdSpend: "MTD spend",
   action: "",
 };
+
+const CODEX_ACTIVE_LOOKBACK_LABEL = "90-day analytics lookback";
 
 function codexLadderSourceLabel(source: CodexLadderSource): string {
   switch (source) {

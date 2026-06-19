@@ -13,7 +13,14 @@ import { formatLocalYmd } from "@/lib/f1-period";
 import { prisma } from "@/lib/prisma";
 import { startOfOpenAiChatGptCodexBillingPeriod } from "@/lib/openai-billing-period";
 import { normCodexAnalyticsEmail } from "@/lib/integrations/codex-enterprise-analytics/aggregate-per-user-mtd";
-import { resolveUsdPerCredit } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
+import {
+  fetchCodexEnterprisePerUserUsageRows,
+  resolveCodexEnterpriseAnalyticsCredentials,
+  resolveUsdPerCredit,
+} from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
+import { resolveCodexUsageRowEmail } from "@/lib/integrations/codex-enterprise-analytics/resolve-usage-row-identity";
+import { registerCodexAnalyticsUserIdEmail } from "@/lib/guardrails/codex-user-id-keys";
+import { SNAPSHOT_KIND_BY_EVENT_TYPE } from "@/lib/integrations/workspace-analytics/event-types";
 import type { Fetch } from "../_http";
 import { getIntegrationMode } from "../env";
 import {
@@ -45,7 +52,13 @@ export type CodexLadderLoadResult = {
   seats: CodexSeat[];
   source: CodexLadderSource;
   warnings: string[];
+  /** ChatGPT Enterprise workspace roster (SCIM / exports) — entitled headcount. */
+  chatgptWorkspaceSeatCount: number;
+  /** Users with Codex usage in the analytics lookback window. */
+  codexActiveSeatCount: number;
 };
+
+const CODEX_ACTIVE_LOOKBACK_DAYS = 90;
 
 function normEmail(e: string): string {
   return e.trim().toLowerCase();
@@ -94,6 +107,90 @@ async function loadAnalyticsSnapshotMembers(): Promise<{
     };
   }
   return { members, warnings: [] };
+}
+
+function buildUserIdToEmailFromMembers(members: OrgMemberBrief[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const m of members) {
+    const email = normEmail(m.email);
+    if (!email.includes("@")) continue;
+    registerCodexAnalyticsUserIdEmail(map, m.id, email);
+  }
+  return map;
+}
+
+async function enrichUserIdMapFromWorkspaceAnalytics(
+  userIdToEmail: Map<string, string>,
+): Promise<void> {
+  const snaps = await prisma.programVendorExportSnapshot.findMany({
+    where: { kind: SNAPSHOT_KIND_BY_EVENT_TYPE.CHATGPT_USER_ANALYTICS },
+    orderBy: { createdAt: "desc" },
+    take: 45,
+    select: { payload: true },
+  });
+  for (const snap of snaps) {
+    const users = (snap.payload as { users?: { user_id?: string; email?: string }[] } | null)?.users;
+    if (!Array.isArray(users)) continue;
+    for (const u of users) {
+      const userId = u.user_id?.trim();
+      const email = u.email?.trim();
+      if (!userId || !email?.includes("@")) continue;
+      registerCodexAnalyticsUserIdEmail(userIdToEmail, userId, email);
+    }
+  }
+}
+
+/** Codex-active roster: live Enterprise Analytics API (90d), then snapshot fallback. */
+async function loadCodexActiveMembers(args: {
+  env: Record<string, string | undefined>;
+  fetchImpl?: Fetch;
+  identityMembers: OrgMemberBrief[];
+}): Promise<{ members: OrgMemberBrief[]; warnings: string[] }> {
+  const warnings: string[] = [];
+  const creds = resolveCodexEnterpriseAnalyticsCredentials(args.env);
+
+  if (creds) {
+    try {
+      const userIdToEmail = buildUserIdToEmailFromMembers(args.identityMembers);
+      await enrichUserIdMapFromWorkspaceAnalytics(userIdToEmail);
+
+      const endSec = Math.floor(Date.now() / 1000);
+      const startSec = endSec - CODEX_ACTIVE_LOOKBACK_DAYS * 86_400;
+      const rows = await fetchCodexEnterprisePerUserUsageRows({
+        startTimeSec: startSec,
+        endTimeSec: endSec,
+        creds,
+        fetchImpl: args.fetchImpl,
+      });
+
+      const byEmail = new Map<string, OrgMemberBrief>();
+      for (const r of rows) {
+        const email = resolveCodexUsageRowEmail(r, userIdToEmail);
+        if (!email?.includes("@")) continue;
+        const credits = r.totals?.credits ?? 0;
+        if (credits <= 0) continue;
+        if (!byEmail.has(email)) {
+          byEmail.set(email, {
+            id: `analytics-live:${email}`,
+            email,
+            displayName: email,
+          });
+        }
+      }
+      if (byEmail.size > 0) {
+        return { members: [...byEmail.values()], warnings: [] };
+      }
+      warnings.push(
+        `Codex Enterprise Analytics API returned no per-user usage in the last ${CODEX_ACTIVE_LOOKBACK_DAYS} days.`,
+      );
+    } catch (err) {
+      warnings.push(
+        `Codex analytics live roster failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  return loadAnalyticsSnapshotMembers();
 }
 
 async function loadDashboardUserIdsByNormEmail(emails: string[]): Promise<Map<string, string>> {
@@ -208,6 +305,8 @@ export async function loadCodexLadderSeats(args?: {
     return {
       seats,
       source: "synthetic_prisma",
+      chatgptWorkspaceSeatCount: seats.length,
+      codexActiveSeatCount: seats.length,
       warnings: [
         "INTEGRATION_OPENAI and INTEGRATION_CODEX_ENTERPRISE_ANALYTICS are not `real` — showing dev Prisma License rows.",
       ],
@@ -216,7 +315,6 @@ export async function loadCodexLadderSeats(args?: {
 
   const warnings: string[] = [];
   let orgMembers: OrgMemberBrief[] = [];
-  let analyticsMembers: OrgMemberBrief[] = [];
   let workspaceRoster = {
     members: [] as OrgMemberBrief[],
     scimCount: 0,
@@ -225,7 +323,7 @@ export async function loadCodexLadderSeats(args?: {
     warnings: [] as string[],
   };
 
-  const [workspaceLoaded, orgResult, analyticsLoaded] = await Promise.all([
+  const [workspaceLoaded, orgResult] = await Promise.all([
     loadChatGptWorkspaceRosterMembers({
       prisma,
       env,
@@ -239,9 +337,6 @@ export async function loadCodexLadderSeats(args?: {
             error: err instanceof Error ? err.message : String(err),
           }))
       : Promise.resolve({ members: [] as OrgMemberBrief[], error: null }),
-    codexAnalyticsReal
-      ? loadAnalyticsSnapshotMembers()
-      : Promise.resolve({ members: [] as OrgMemberBrief[], warnings: [] as string[] }),
   ]);
 
   workspaceRoster = workspaceLoaded;
@@ -250,28 +345,43 @@ export async function loadCodexLadderSeats(args?: {
   if (orgResult.error) {
     warnings.push(`OpenAI org users failed: ${orgResult.error}`);
   }
-  analyticsMembers = analyticsLoaded.members;
-  warnings.push(...analyticsLoaded.warnings);
 
-  const liveMembers = dedupeMembers([
-    ...workspaceRoster.members,
-    ...orgMembers,
-    ...analyticsMembers,
-  ]);
-  if (liveMembers.length === 0) {
+  const chatgptWorkspaceSeatCount = dedupeMembers(workspaceRoster.members).length;
+  const identityMembers = dedupeMembers([...workspaceRoster.members, ...orgMembers]);
+
+  const codexActiveLoaded = codexAnalyticsReal
+    ? await loadCodexActiveMembers({
+        env,
+        fetchImpl: args?.fetchImpl,
+        identityMembers,
+      })
+    : { members: [] as OrgMemberBrief[], warnings: [] as string[] };
+  warnings.push(...codexActiveLoaded.warnings);
+  const codexActiveMembers = codexActiveLoaded.members;
+  const codexActiveSeatCount = codexActiveMembers.length;
+
+  const rosterForLadder = codexAnalyticsReal
+    ? codexActiveMembers
+    : dedupeMembers([...workspaceRoster.members, ...orgMembers]);
+
+  if (rosterForLadder.length === 0) {
     return {
       seats: [],
       source: "unavailable",
+      chatgptWorkspaceSeatCount,
+      codexActiveSeatCount,
       warnings: [
         ...warnings,
-        "No live Codex roster returned. Prisma seed licenses are not shown in real mode.",
+        codexAnalyticsReal
+          ? "No Codex-active users in the analytics lookback window. Tier tables show Codex usage only — not the full ChatGPT workspace roster."
+          : "No live Codex roster returned. Prisma seed licenses are not shown in real mode.",
       ],
     };
   }
 
   const prismaSeats = await listCodexSeatsFromPrisma();
   const licensedEmails = new Set(prismaSeats.map((s) => normEmail(s.email)));
-  const membersWithNames = await applyDisplayNamesFromPrisma(liveMembers);
+  const membersWithNames = await applyDisplayNamesFromPrisma(rosterForLadder);
   const emailsForLookup = membersWithNames
     .map((m) => m.email)
     .filter((e) => {
@@ -298,8 +408,10 @@ export async function loadCodexLadderSeats(args?: {
       workspaceExportCount:
         workspaceRoster.csvSnapshotCount + workspaceRoster.analyticsSnapshotCount,
       orgCount: orgMembers.length,
-      analyticsCount: analyticsMembers.length,
+      analyticsCount: codexActiveSeatCount,
     }),
+    chatgptWorkspaceSeatCount,
+    codexActiveSeatCount,
     warnings,
   };
 }

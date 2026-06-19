@@ -11,6 +11,13 @@ describe("listOpenAiScimMembers", () => {
     expect(out).toEqual([]);
   });
 
+  it("returns empty when token is a Key Vault placeholder", async () => {
+    const out = await listOpenAiScimMembers({
+      env: { OPENAI_SCIM_API_TOKEN: "PLACEHOLDER-OPENAI-SCIM-API-TOKEN" },
+    });
+    expect(out).toEqual([]);
+  });
+
   it("paginates SCIM Users and maps active members", async () => {
     const fetchImpl = vi.fn(async () => {
       return new Response(

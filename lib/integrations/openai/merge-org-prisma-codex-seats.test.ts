@@ -26,7 +26,7 @@ describe("mergeOrgUsersWithPrismaCodexSeats", () => {
     expect(merged[0]?.userId).toBe("u-db");
   });
 
-  it("appends org-only members as STANDARD then leftover licensed users not in org", () => {
+  it("appends org-only members as DISCOVERY then leftover licensed users not in org", () => {
     const prismaSeats: CodexSeat[] = [
       {
         userId: "lic-1",
@@ -62,7 +62,7 @@ describe("mergeOrgUsersWithPrismaCodexSeats", () => {
     expect(merged[0]?.email).toBe("a@x.com");
     expect(merged[0]?.subTier).toBe("LIGHT");
     expect(merged[1]?.userId).toBe("u-b");
-    expect(merged[1]?.subTier).toBe("STANDARD");
+    expect(merged[1]?.subTier).toBe("DISCOVERY");
     expect(merged[2]?.email).toBe("orphan@x.com");
   });
 
