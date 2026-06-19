@@ -1,10 +1,16 @@
 import type { PrismaClient } from "@prisma/client";
 import {
+  computeSyncMaxWaitMs,
+  DEFAULT_SYNC_JOB_TIMEOUT_MS,
+  resolveSyncJobTimeoutForJob,
+} from "./job-timeouts";
+import {
   getSyncLedgerRow,
   recordSyncAttempt,
   recordSyncFailure,
   recordSyncSuccess,
 } from "./ledger";
+import { reconcileVendorMirrorAfterTimeout } from "./reconcile-vendor-mirror";
 import { SYNC_JOB_BY_KEY, SYNC_JOBS } from "./registry";
 import type {
   FreshnessSummary,
@@ -16,7 +22,6 @@ import type {
 } from "./types";
 
 const PAGE_LOAD_DEBOUNCE_MS = 30_000;
-const DEFAULT_PER_JOB_TIMEOUT_MS = 8_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -47,10 +52,11 @@ function shouldDebouncePageLoad(
   if (trigger !== "page_load" || !lastAttemptAt) return false;
   const sinceAttempt = Date.now() - lastAttemptAt.getTime();
   if (sinceAttempt > PAGE_LOAD_DEBOUNCE_MS) return false;
-  if (!lastSuccessAt || lastSuccessAt.getTime() < lastAttemptAt.getTime()) {
+  // Debounce only when the last attempt already recorded a success (multi-tab storm).
+  if (lastSuccessAt && lastSuccessAt.getTime() >= lastAttemptAt.getTime()) {
     return true;
   }
-  return sinceAttempt < PAGE_LOAD_DEBOUNCE_MS;
+  return false;
 }
 
 export async function executeSyncJob(
@@ -104,7 +110,7 @@ export async function executeSyncJob(
         lastSuccessAt: ledger.lastSuccessAt,
         opts: args.opts ?? {},
       }),
-      args.perJobTimeoutMs ?? DEFAULT_PER_JOB_TIMEOUT_MS,
+      args.perJobTimeoutMs ?? resolveSyncJobTimeoutForJob(job, args.trigger),
     );
 
     if (result.skipped) {
@@ -145,6 +151,28 @@ export async function executeSyncJob(
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const timedOut = message.includes("timed out after");
+    if (timedOut) {
+      const reconciled = await reconcileVendorMirrorAfterTimeout(
+        prisma,
+        key,
+        started,
+      );
+      if (reconciled.reconciled) {
+        await recordSyncSuccess(prisma, key, args.trigger, {
+          reconciledAfterTimeout: true,
+          syncedAt: reconciled.syncedAt.toISOString(),
+        });
+        return {
+          key,
+          label: job.label,
+          ok: true,
+          skipped: false,
+          timedOut: true,
+          ms: Date.now() - started,
+          reason: "reconciled from vendor mirror after timeout",
+        };
+      }
+    }
     await recordSyncFailure(prisma, key, args.trigger, message);
     return {
       key,
@@ -172,7 +200,12 @@ export async function refreshDashboardMirrors(
 ): Promise<RefreshDashboardMirrorsResult> {
   const env = args.env ?? process.env;
   const tiers = new Set(args.tiers ?? ["hot"]);
-  const maxWaitMs = args.maxWaitMs ?? 15_000;
+  const maxWaitMs = computeSyncMaxWaitMs({
+    env,
+    tiers: Array.from(tiers) as SyncTier[],
+    trigger: args.trigger,
+    overrideMs: args.maxWaitMs,
+  });
   const deadline = Date.now() + maxWaitMs;
 
   const candidates = SYNC_JOBS.filter(
@@ -220,7 +253,11 @@ export async function refreshDashboardMirrors(
 
   await Promise.all(
     toRun.map(async (key) => {
-      const timeout = Math.min(DEFAULT_PER_JOB_TIMEOUT_MS, remainingMs() || 1);
+      const job = SYNC_JOB_BY_KEY.get(key);
+      const configuredMs = job
+        ? resolveSyncJobTimeoutForJob(job, args.trigger)
+        : DEFAULT_SYNC_JOB_TIMEOUT_MS;
+      const timeout = Math.min(configuredMs, Math.max(remainingMs(), 1));
       const outcome = await executeSyncJob(prisma, key, {
         trigger: args.trigger,
         actorEmail: args.actorEmail,

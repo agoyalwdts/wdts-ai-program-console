@@ -70,6 +70,7 @@ export const SYNC_JOBS: SyncJobDefinition[] = [
           lookbackDays,
           actorEmail: ctx.actorEmail,
           skipDecision: ctx.opts.skipDecision === true,
+          skipSnapshots: ctx.trigger === "page_load",
           env: ctx.env,
         });
         return { ok: true, summary: { ...result, lookbackDays } };

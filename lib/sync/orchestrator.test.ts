@@ -97,4 +97,33 @@ describe("refreshDashboardMirrors", () => {
     });
     expect(row?.lastSuccessAt).toBeTruthy();
   });
+
+  it("reconciles vendor mirror after timeout", async () => {
+    process.env.INTEGRATION_CODEX_ENTERPRISE_ANALYTICS = "real";
+    const started = Date.now();
+    mocks.syncCodex.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      return { daysUpserted: 1, totalCredits: 1, windowStartMs: 0, windowEndMs: 0 };
+    });
+    const store = new Map<string, unknown>();
+    const base = makePrisma(store);
+    const prisma = Object.assign(base, {
+      vendorDailySpend: {
+        findFirst: async () => ({ syncedAt: new Date(started + 10) }),
+      },
+    }) as unknown as PrismaClient;
+
+    const { executeSyncJob } = await import("./orchestrator");
+    const outcome = await executeSyncJob(prisma, "codex_enterprise_spend", {
+      trigger: "page_load",
+      actorEmail: "u@wdts.com",
+      perJobTimeoutMs: 1,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.reason).toContain("reconciled");
+    const row = await prisma.integrationSyncState.findUnique({
+      where: { key: "codex_enterprise_spend" },
+    });
+    expect(row?.lastSuccessAt).toBeTruthy();
+  });
 });

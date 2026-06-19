@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { loadFreshnessSummary, refreshDashboardMirrors } from "@/lib/sync";
+import { PAGE_LOAD_SYNC_MAX_WAIT_MS } from "@/lib/sync/job-timeouts";
 import { isDashboardSyncForceFromRequest } from "@/lib/sync/page-load-request";
 import { UserSessionProvider } from "@/components/dashboard/user-session-provider";
 import { SyncFreshnessBar } from "@/components/dashboard/sync-freshness-bar";
@@ -18,7 +19,7 @@ export async function DashboardAuthShell({
     trigger: "page_load",
     actorEmail: user.email,
     tiers: ["hot"],
-    maxWaitMs: 15_000,
+    maxWaitMs: PAGE_LOAD_SYNC_MAX_WAIT_MS,
     force: forceRefresh,
   });
 
