@@ -177,6 +177,7 @@ None of these values lives anywhere else in production.
 | `OPENAI-CODEX-ANALYTICS-API-KEY` | `OPENAI_CODEX_ANALYTICS_API_KEY` | Platform API key with `codex.enterprise.analytics.read` (Codex Enterprise Analytics on `api.chatgpt.com`) |
 | `CHATGPT-WORKSPACE-ID` | `CHATGPT_WORKSPACE_ID` | ChatGPT Admin → workspace UUID (alias: `OPENAI_CHATGPT_WORKSPACE_ID`) |
 | `OPENAI-COMPLIANCE-API-KEY` | `OPENAI_COMPLIANCE_API_KEY` | Compliance Logs Platform key (separate from admin key); F2 AUTH_LOG footprint |
+| `OPENAI-SCIM-API-TOKEN` | `OPENAI_SCIM_API_TOKEN` | ChatGPT Enterprise admin → SCIM provisioning (Bearer for `GET /scim/v2/Users`; F9 full workspace roster). **Not** the Admin API key or Compliance key |
 | `OPENAI-CODEX-ANALYTICS-USD-PER-CREDIT` | `OPENAI_CODEX_ANALYTICS_USD_PER_CREDIT` | Optional; default `1` — multiply API `credits` to USD for F1 |
 | `ANTHROPIC-ADMIN-API-KEY` | `ANTHROPIC_ADMIN_API_KEY` | Anthropic workspace admin keys |
 | `ANTHROPIC-ORG-ID` | `ANTHROPIC_ORG_ID` | Anthropic workspace settings |
@@ -203,6 +204,7 @@ Non-secret App Settings (set as plain values, not Key Vault refs):
 | `INTEGRATION_AZUREAD` | `real` |
 | `INTEGRATION_CURSOR` | `real` |
 | `INTEGRATION_OPENAI` | `real` |
+| `OPENAI_SCIM_BASE_URL` | `https://api.openai.com/scim/v2` (plain value; optional if default is fine) |
 | `INTEGRATION_CODEX_ENTERPRISE_ANALYTICS` | `synthetic` until the analytics key + workspace id are live; then **`real`** for F1 CODEX from `api.chatgpt.com` |
 | `INTEGRATION_OPENAI_COMPLIANCE` | `synthetic` until Compliance API key is issued and security-reviewed; then **`real`** for F2 AUTH_LOG footprint |
 | `CHATGPT_CODEX_ENTRA_APP_PATTERNS` | Optional comma-separated substrings for Entra sign-in app filter (default: chatgpt,openai,codex,gpt) |

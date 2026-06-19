@@ -169,7 +169,7 @@ describe("makeRealOpenAIClient", () => {
     expect(seats[0]?.subTier).toBe("LIGHT");
     expect(seats[1]?.email).toBe("b@w.com");
     expect(seats[1]?.userId).toBe("uuid-b");
-    expect(seats[1]?.subTier).toBe("STANDARD");
+    expect(seats[1]?.subTier).toBe("DISCOVERY");
   });
 
   it("listCodexSeats returns no seats when org users API fails in real mode", async () => {

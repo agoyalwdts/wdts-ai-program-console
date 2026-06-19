@@ -72,6 +72,8 @@ describe("loadCodexLadderSeats", () => {
     const out = await loadCodexLadderSeats({ env: {} });
     expect(out.source).toBe("synthetic_prisma");
     expect(out.seats).toHaveLength(1);
+    expect(out.chatgptWorkspaceSeatCount).toBe(1);
+    expect(out.codexActiveSeatCount).toBe(1);
     expect(out.warnings[0]).toMatch(/not `real`/);
   });
 
@@ -109,6 +111,8 @@ describe("loadCodexLadderSeats", () => {
 
     expect(out.source).toBe("chatgpt_scim");
     expect(out.seats).toHaveLength(1);
+    expect(out.chatgptWorkspaceSeatCount).toBe(1);
+    expect(out.codexActiveSeatCount).toBe(0);
     expect(out.seats[0]?.email).toBe("real@wdtablesystems.com");
     expect(out.seats.find((s) => s.email === "seed@wdts.com")).toBeUndefined();
   });
@@ -127,7 +131,9 @@ describe("loadCodexLadderSeats", () => {
 
     expect(out.source).toBe("unavailable");
     expect(out.seats).toHaveLength(0);
-    expect(out.warnings.some((w) => w.includes("Prisma seed"))).toBe(true);
+    expect(out.chatgptWorkspaceSeatCount).toBe(0);
+    expect(out.codexActiveSeatCount).toBe(0);
+    expect(out.warnings.some((w) => w.includes("Prisma seed") || w.includes("No live Codex"))).toBe(true);
   });
 
   it("can build roster from Codex analytics snapshot when org is off", async () => {
@@ -161,6 +167,8 @@ describe("loadCodexLadderSeats", () => {
 
     expect(out.source).toBe("codex_analytics_snapshot");
     expect(out.seats).toHaveLength(1);
+    expect(out.chatgptWorkspaceSeatCount).toBe(0);
+    expect(out.codexActiveSeatCount).toBe(1);
     expect(out.seats[0]?.email).toBe("codex@wdtablesystems.com");
   });
 });

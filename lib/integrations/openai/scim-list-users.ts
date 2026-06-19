@@ -2,8 +2,10 @@
  * ChatGPT Enterprise SCIM 2.0 — list workspace members (GET /Users).
  * Canonical roster for ChatGPT/Codex seats; org Admin API often under-counts.
  *
- * Env: OPENAI_SCIM_API_TOKEN (required), OPENAI_SCIM_BASE_URL (optional,
- * default https://api.openai.com/scim/v2).
+ * Env: OPENAI_SCIM_API_TOKEN (required), OPENAI_SCIM_BASE_URL (required in prod —
+ * copy the full Endpoint from ChatGPT admin → Directory Sync Setup → Configure
+ * Directory Provider, e.g. https://external.auth.openai.com/scim/v2.0/<workspace-id>).
+ * Do not use the generic api.openai.com default unless your admin page shows that URL.
  */
 
 import { jsonGet, type Fetch } from "../_http";
@@ -32,7 +34,7 @@ export function readOpenAiScimEnv(
   env: Record<string, string | undefined> = process.env,
 ): { baseUrl: string; token: string } | null {
   const token = env.OPENAI_SCIM_API_TOKEN?.trim();
-  if (!token) return null;
+  if (!token || /^PLACEHOLDER/i.test(token)) return null;
   const rawBase = env.OPENAI_SCIM_BASE_URL?.trim() || DEFAULT_SCIM_BASE;
   if (!isConfiguredScimBaseUrl(rawBase)) return null;
   return { baseUrl: rawBase.replace(/\/$/, ""), token };

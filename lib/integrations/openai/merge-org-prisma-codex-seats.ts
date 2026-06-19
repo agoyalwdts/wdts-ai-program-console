@@ -15,8 +15,8 @@ function normEmail(e: string): string {
  * One seat per OpenAI org member (`/v1/organization/users`). When the same
  * email has a Prisma CODEX `License`, that row wins for tier / cap / MTD
  * (MTD re-applied after merge in `enrichCodexSeatsForDisplay`). Otherwise
- * emit a STANDARD placeholder so F9 "filled" tracks org roster, not only
- * licensed rows.
+ * emit a DISCOVERY placeholder (§4.6.2 floor tier) when there is no Prisma
+ * CODEX license row yet.
  */
 export function mergeOrgUsersWithPrismaCodexSeats(args: {
   orgMembers: OrgMemberBrief[];
@@ -40,8 +40,8 @@ export function mergeOrgUsersWithPrismaCodexSeats(args: {
     byEmail.set(normEmail(s.email), s);
   }
 
-  const defaultTier: CodexSubTier = "STANDARD";
-  const defaultCap = CODEX_TIERS.STANDARD.capUsdMonth;
+  const defaultTier: CodexSubTier = "DISCOVERY";
+  const defaultCap = CODEX_TIERS.DISCOVERY.capUsdMonth;
 
   const out: CodexSeat[] = [];
   for (const m of orgMembers) {
