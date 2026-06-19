@@ -186,6 +186,7 @@ export async function refreshDashboardMirrors(
     const ledger = await getSyncLedgerRow(prisma, job.key);
     if (
       args.trigger === "page_load" &&
+      args.force !== true &&
       shouldDebouncePageLoad(args.trigger, ledger.lastAttemptAt, ledger.lastSuccessAt)
     ) {
       skippedOutcomes.push({

@@ -9,7 +9,21 @@
  * lib/auth.ts to prevent a refactor from silently dropping coverage.
  */
 
-export { auth as proxy } from "@/auth";
+import { NextResponse } from "next/server";
+import { auth } from "@/auth";
+import {
+  DASHBOARD_SYNC_FORCE_HEADER,
+  parseSyncForceParam,
+} from "@/lib/sync/page-load-request";
+
+export const proxy = auth((req) => {
+  if (parseSyncForceParam(req.nextUrl.searchParams.get("refresh"))) {
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set(DASHBOARD_SYNC_FORCE_HEADER, "1");
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+  return NextResponse.next();
+});
 
 /**
  * Run on every request EXCEPT static assets, image optimisation outputs,

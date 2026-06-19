@@ -508,12 +508,12 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   ) : null}
                   {key === "CODEX" && codexSpendSource === "codex_enterprise_analytics_live" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
-                      Codex Enterprise Analytics — live on page load (api.chatgpt.com)
+                      Codex Enterprise Analytics — live API (mirror empty; api.chatgpt.com)
                     </p>
                   ) : null}
                   {key === "CODEX" && codexSpendSource === "codex_enterprise_analytics_sync" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
-                      Codex Enterprise Analytics — cached sync (live API unavailable)
+                      Codex Enterprise Analytics — dashboard sync mirror (page load / cron)
                     </p>
                   ) : null}
                   {key === "CODEX" && codexSpendSource === "openai_org_costs" ? (
@@ -582,9 +582,9 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                     : "the gateway mirror unless Workspace Analytics sync or OpenAI org-costs sync has rows for this period."}{" "}
               CODEX uses{" "}
               {codexSpendSource === "codex_enterprise_analytics_live"
-                ? "Codex Enterprise Analytics live from api.chatgpt.com on each Health load (overrides org costs)."
+                ? "Codex Enterprise Analytics live from api.chatgpt.com when the VendorDailySpend mirror is empty."
                 : codexSpendSource === "codex_enterprise_analytics_sync"
-                  ? "Codex Enterprise Analytics from the last VendorDailySpend sync (live API failed)."
+                  ? "Codex Enterprise Analytics from the dashboard sync mirror (hot-tier delta on open, hourly cron, or Refresh data)."
                   : codexSpendSource === "openai_org_costs"
                   ? "OpenAI organization/costs when vendor rows exist."
                   : codexSpendSource === "manual_export"
