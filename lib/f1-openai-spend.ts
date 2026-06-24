@@ -18,18 +18,24 @@ import {
   loadManualVendorExportSpendForF1,
   mergeManualVendorExportIntoF1,
 } from "@/lib/f1-manual-vendor-export";
+import {
+  loadUnifiedCreditsSpendForF1,
+  mergeUnifiedCreditsChatGptIntoF1,
+  mergeUnifiedCreditsCodexIntoF1,
+} from "@/lib/f1-unified-credits-spend";
 import { loadOpenAiVendorSpendForF1, mergeOpenAiVendorIntoF1 } from "@/lib/f1-openai-vendor";
 import type { ProductKey } from "@/lib/program";
 import { resolveOpenAiF1Credits, type OpenAiF1Credits } from "@/lib/f1-openai-credits";
 
 export type OpenAiF1SpendSources = {
-  chatgpt: "gateway" | "vendor" | "manual_export" | "workspace_analytics";
+  chatgpt: "gateway" | "vendor" | "manual_export" | "workspace_analytics" | "unified_credits";
   codex:
     | "gateway"
     | "openai_org_costs"
     | "codex_enterprise_analytics_live"
     | "codex_enterprise_analytics_sync"
-    | "manual_export";
+    | "manual_export"
+    | "unified_credits";
 };
 
 export type OpenAiF1SpendSnapshot = {
@@ -43,16 +49,19 @@ export type OpenAiF1SpendSnapshot = {
 function resolveOpenAiSources(args: {
   manualChatgptUsed: boolean;
   workspaceAnalyticsChatgptUsed: boolean;
+  unifiedChatgptUsed: boolean;
   manualCodexUsed: boolean;
   openAiChatgptVendor: boolean;
   openAiCodexVendor: boolean;
   codexEnterpriseUsed: boolean;
   codexEnterpriseSource: "none" | "live" | "sync";
+  unifiedCodexUsed: boolean;
 }): OpenAiF1SpendSources {
   let chatgpt: OpenAiF1SpendSources["chatgpt"] = "gateway";
   if (args.manualChatgptUsed) chatgpt = "manual_export";
   if (args.openAiChatgptVendor) chatgpt = "vendor";
   if (args.workspaceAnalyticsChatgptUsed) chatgpt = "workspace_analytics";
+  if (args.unifiedChatgptUsed) chatgpt = "unified_credits";
 
   let codex: OpenAiF1SpendSources["codex"] = "gateway";
   if (args.manualCodexUsed) codex = "manual_export";
@@ -63,6 +72,7 @@ function resolveOpenAiSources(args: {
         ? "codex_enterprise_analytics_live"
         : "codex_enterprise_analytics_sync";
   }
+  if (args.unifiedCodexUsed) codex = "unified_credits";
 
   return { chatgpt, codex };
 }
@@ -73,13 +83,14 @@ export async function loadOpenAiSpendSnapshotForF1(
   args: { periodStart: Date; periodEnd: Date; budgetMonthMultiplier?: number },
 ): Promise<OpenAiF1SpendSnapshot> {
   const gateway = getGatewayClient();
-  const [programAgg, vendorManualExport, vendorOpenAi, vendorCodexEnterprise, workspaceChatgpt] =
+  const [programAgg, vendorManualExport, vendorOpenAi, vendorCodexEnterprise, workspaceChatgpt, unifiedCredits] =
     await Promise.all([
       gateway.aggregateByProgram({ periodStart: args.periodStart, periodEnd: args.periodEnd }),
       loadManualVendorExportSpendForF1(prisma, args),
       loadOpenAiVendorSpendForF1(prisma, args),
       loadCodexEnterpriseSpendForF1(prisma, args),
       loadChatGptWorkspaceAnalyticsSpendForF1(prisma, args),
+      loadUnifiedCreditsSpendForF1(prisma, args),
     ]);
 
   const mtdMap = new Map<ProductKey, number>(
@@ -116,6 +127,8 @@ export async function loadOpenAiSpendSnapshotForF1(
     codexByChartDay: vendorCodexEnterprise.byChartDay,
     useVendor: vendorCodexEnterprise.usedVendor,
   });
+  mergeUnifiedCreditsChatGptIntoF1({ mtdMap, days: [], chatgpt: unifiedCredits.chatgpt });
+  mergeUnifiedCreditsCodexIntoF1({ mtdMap, days: [], codex: unifiedCredits.codex });
 
   const chatgptUsd = mtdMap.get("CHATGPT") ?? 0;
   const codexUsd = mtdMap.get("CODEX") ?? 0;
@@ -123,11 +136,13 @@ export async function loadOpenAiSpendSnapshotForF1(
   const sources = resolveOpenAiSources({
     manualChatgptUsed: vendorManualExport.chatgpt.used,
     workspaceAnalyticsChatgptUsed: workspaceChatgpt.used,
+    unifiedChatgptUsed: unifiedCredits.chatgpt.used,
     manualCodexUsed: vendorManualExport.codex.used,
     openAiChatgptVendor: vendorOpenAi.chatgpt.usedVendor,
     openAiCodexVendor: vendorOpenAi.codex.usedVendor,
     codexEnterpriseUsed: vendorCodexEnterprise.usedVendor,
     codexEnterpriseSource: vendorCodexEnterprise.source,
+    unifiedCodexUsed: unifiedCredits.codex.used,
   });
 
   const credits = resolveOpenAiF1Credits({
@@ -140,6 +155,10 @@ export async function loadOpenAiSpendSnapshotForF1(
     manualChatgptUsd: vendorManualExport.chatgpt.periodTotalUsd,
     codexEnterpriseUsed: vendorCodexEnterprise.usedVendor,
     codexEnterpriseUsd: vendorCodexEnterprise.periodTotalUsd,
+    unifiedChatgptUsed: unifiedCredits.chatgpt.used,
+    unifiedChatgptUsd: unifiedCredits.chatgpt.periodTotalUsd,
+    unifiedCodexUsed: unifiedCredits.codex.used,
+    unifiedCodexUsd: unifiedCredits.codex.periodTotalUsd,
   });
 
   return {
@@ -161,12 +180,13 @@ export async function mergeOpenAiSpendIntoPagePeriodF1(
     days: SpendPoint[];
   },
 ): Promise<void> {
-  const [vendorManualExport, vendorOpenAi, vendorCodexEnterprise, workspaceChatgpt] =
+  const [vendorManualExport, vendorOpenAi, vendorCodexEnterprise, workspaceChatgpt, unifiedCredits] =
     await Promise.all([
       loadManualVendorExportSpendForF1(prisma, args),
       loadOpenAiVendorSpendForF1(prisma, args),
       loadCodexEnterpriseSpendForF1(prisma, args),
       loadChatGptWorkspaceAnalyticsSpendForF1(prisma, args),
+      loadUnifiedCreditsSpendForF1(prisma, args),
     ]);
 
   mergeManualVendorExportIntoF1({
@@ -196,5 +216,15 @@ export async function mergeOpenAiSpendIntoPagePeriodF1(
     codexVendorTotal: vendorCodexEnterprise.periodTotalUsd,
     codexByChartDay: vendorCodexEnterprise.byChartDay,
     useVendor: vendorCodexEnterprise.usedVendor,
+  });
+  mergeUnifiedCreditsChatGptIntoF1({
+    mtdMap: args.mtdMap,
+    days: args.days,
+    chatgpt: unifiedCredits.chatgpt,
+  });
+  mergeUnifiedCreditsCodexIntoF1({
+    mtdMap: args.mtdMap,
+    days: args.days,
+    codex: unifiedCredits.codex,
   });
 }

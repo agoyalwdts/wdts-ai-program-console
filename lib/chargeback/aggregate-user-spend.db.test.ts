@@ -3,6 +3,7 @@ import { Product } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CURSOR_TEAM_ADMIN_VENDOR_KEY } from "@/lib/integrations/cursor/team-admin-usage";
 import { UNIFIED_CREDITS_VENDOR_KEY } from "@/lib/integrations/unified-credits/constants";
+import { WORKSPACE_ANALYTICS_USER_VENDOR_KEY } from "@/lib/integrations/workspace-analytics/vendor-key";
 import {
   aggregateChargebackSpendByUserId,
   totalSpendForUser,
@@ -106,6 +107,56 @@ describe("aggregateChargebackSpendByUserId", () => {
           product: Product.CHATGPT,
           day,
           userEmail: user.email.toLowerCase(),
+        },
+      });
+    }
+  });
+
+  it("prefers Unified Credits over workspace analytics per-user vendor when both present", async () => {
+    const user = await prisma.user.findFirst({ select: { id: true, email: true } });
+    if (!user) return;
+
+    const day = new Date(2099, 2, 5, 12, 0, 0, 0);
+    const email = user.email.toLowerCase();
+    await prisma.vendorUserDailySpend.createMany({
+      data: [
+        {
+          vendor: WORKSPACE_ANALYTICS_USER_VENDOR_KEY,
+          product: Product.CHATGPT,
+          day,
+          userEmail: email,
+          spendUsd: 999,
+          eventCount: 1,
+        },
+        {
+          vendor: UNIFIED_CREDITS_VENDOR_KEY,
+          product: Product.CHATGPT,
+          day,
+          userEmail: email,
+          spendUsd: 12.5,
+          eventCount: 1,
+        },
+      ],
+    });
+
+    try {
+      const periodStart = new Date(2099, 2, 1);
+      const periodEnd = new Date(2099, 2, 31);
+      const { spendByUserId } = await aggregateChargebackSpendByUserId({
+        prisma,
+        gatewayAggs: [],
+        emailToUserId: new Map([[email, user.id]]),
+        periodStart,
+        periodEnd,
+      });
+      expect(spendByUserId.get(user.id)?.CHATGPT).toBeCloseTo(12.5);
+    } finally {
+      await prisma.vendorUserDailySpend.deleteMany({
+        where: {
+          product: Product.CHATGPT,
+          day,
+          userEmail: email,
+          vendor: { in: [WORKSPACE_ANALYTICS_USER_VENDOR_KEY, UNIFIED_CREDITS_VENDOR_KEY] },
         },
       });
     }

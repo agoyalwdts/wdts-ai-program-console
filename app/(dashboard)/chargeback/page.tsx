@@ -40,7 +40,7 @@ export default async function ChargebackPage(props: { searchParams: Promise<SP> 
   const monthQuery = sp.month;
 
   const sourceLabel = data.spendMeta.usedVendorMirror
-    ? "VendorUserDailySpend + workspace snapshots (gateway fallback)"
+    ? "VendorUserDailySpend + snapshots (Unified Credits COSTS preferred; gateway fallback)"
     : "gateway UsageRecord mirror";
 
   return (

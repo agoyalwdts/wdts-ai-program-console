@@ -41,8 +41,9 @@ with JSONL file listings when probed with the compliance platform key.
 ## When live
 
 1. Hourly cron + page-load sync ingest COSTS JSONL (30-day lookback, max 90).
-2. F1 / chargeback can prefer `OPENAI_UNIFIED_CREDITS_COMPLIANCE` over CSV
-   (follow-up PR).
+2. **F1 + chargeback** prefer `OPENAI_UNIFIED_CREDITS_COMPLIANCE` over Workspace
+   Analytics pool totals and CSV snapshots when mirror rows exist
+   (`lib/f1-unified-credits-spend.ts`, `lib/chargeback/aggregate-user-spend.ts`).
 3. Validate against Credit Usage Report CSV for one 16th→15th billing period.
 
 ## Open follow-ups (tracked with OpenAI)

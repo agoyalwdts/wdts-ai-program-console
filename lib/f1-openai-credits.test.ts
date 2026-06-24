@@ -3,6 +3,35 @@ import { resolveOpenAiF1Credits } from "./f1-openai-credits";
 
 
 describe("resolveOpenAiF1Credits", () => {
+  const noUnified = {
+    unifiedChatgptUsed: false,
+    unifiedChatgptUsd: 0,
+    unifiedCodexUsed: false,
+    unifiedCodexUsd: 0,
+  };
+
+  it("uses Unified Credits COSTS product slices when synced", () => {
+    const r = resolveOpenAiF1Credits({
+      chatgptUsd: 999,
+      codexUsd: 999,
+      budgetMonthMultiplier: 1,
+      workspaceChatgptUsed: true,
+      workspaceChatgptUsd: 999,
+      manualChatgptUsed: false,
+      manualChatgptUsd: 0,
+      codexEnterpriseUsed: true,
+      codexEnterpriseUsd: 999,
+      unifiedChatgptUsed: true,
+      unifiedChatgptUsd: 700_000 * 0.07,
+      unifiedCodexUsed: true,
+      unifiedCodexUsd: 300_000 * 0.07,
+    });
+    expect(r.mode).toBe("direct");
+    expect(r.chatgptCredits).toBeCloseTo(700_000, 0);
+    expect(r.codexCredits).toBeCloseTo(300_000, 0);
+    expect(r.combinedCredits).toBeCloseTo(1_000_000, 0);
+  });
+
   it("subtracts Codex from org-pool Workspace Analytics credits for ChatGPT tile", () => {
     // Pool = 1M credits @ $0.07; Codex = 300k credits @ $0.07
     const poolUsd = 1_000_000 * 0.07;
@@ -17,6 +46,7 @@ describe("resolveOpenAiF1Credits", () => {
       manualChatgptUsd: 0,
       codexEnterpriseUsed: true,
       codexEnterpriseUsd: codexUsd,
+      ...noUnified,
     });
     expect(r.mode).toBe("direct");
     expect(r.combinedCredits).toBeCloseTo(1_000_000, 0);
@@ -36,6 +66,7 @@ describe("resolveOpenAiF1Credits", () => {
       manualChatgptUsd: 0,
       codexEnterpriseUsed: false,
       codexEnterpriseUsd: 0,
+      ...noUnified,
     });
     expect(r.chatgptCredits).toBeCloseTo(500_000, 0);
     expect(r.codexCredits).toBe(0);

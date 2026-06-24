@@ -35,10 +35,29 @@ export function resolveOpenAiF1Credits(args: {
   manualChatgptUsd: number;
   codexEnterpriseUsed: boolean;
   codexEnterpriseUsd: number;
+  unifiedChatgptUsed: boolean;
+  unifiedChatgptUsd: number;
+  unifiedCodexUsed: boolean;
+  unifiedCodexUsd: number;
   env?: Record<string, string | undefined>;
 }): OpenAiF1Credits {
   const env = args.env ?? process.env;
   const codexUsdPerCredit = resolveUsdPerCredit(env);
+
+  if (args.unifiedChatgptUsed || args.unifiedCodexUsed) {
+    const chatgptCredits = args.unifiedChatgptUsed
+      ? usdToCredits(args.unifiedChatgptUsd, OPENAI_CREDIT_OVERAGE_USD)
+      : usdToCredits(args.chatgptUsd, OPENAI_CREDIT_OVERAGE_USD);
+    const codexCredits = args.unifiedCodexUsed
+      ? usdToCredits(args.unifiedCodexUsd, codexUsdPerCredit)
+      : 0;
+    return {
+      chatgptCredits,
+      codexCredits,
+      combinedCredits: chatgptCredits + codexCredits,
+      mode: "direct",
+    };
+  }
 
   const orgPoolUsd =
     args.workspaceChatgptUsed

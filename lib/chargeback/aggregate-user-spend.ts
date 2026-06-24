@@ -88,7 +88,7 @@ function productKeyFromPrisma(product: Product): ProductKey | null {
   return null;
 }
 
-/** Vendor priority per product — higher index wins when totals differ. */
+/** Vendor priority per product — later entries win over earlier when both have spend. */
 const VENDOR_PRIORITY: Partial<Record<ProductKey, string[]>> = {
   CURSOR: [CURSOR_TEAM_ADMIN_VENDOR_KEY],
   CHATGPT: [
@@ -97,6 +97,26 @@ const VENDOR_PRIORITY: Partial<Record<ProductKey, string[]>> = {
   ],
   CODEX: [UNIFIED_CREDITS_VENDOR_KEY],
 };
+
+function pickPreferredVendor(
+  byVendor: Map<string, number>,
+  priority: string[],
+): { vendor: string | null; usd: number } {
+  for (let i = priority.length - 1; i >= 0; i--) {
+    const vendor = priority[i]!;
+    const usd = byVendor.get(vendor) ?? 0;
+    if (usd > 0) return { vendor, usd };
+  }
+  let bestUsd = 0;
+  let bestVendor: string | null = null;
+  for (const [vendor, usd] of byVendor) {
+    if (usd > bestUsd) {
+      bestUsd = usd;
+      bestVendor = vendor;
+    }
+  }
+  return { vendor: bestVendor, usd: bestUsd };
+}
 
 async function batchChatGptUsdFromSnapshots(
   prisma: PrismaClient,
@@ -251,39 +271,22 @@ export async function aggregateChargebackSpendByUserId(args: {
     if (!userId) continue;
     const row = getOrCreate(userId);
 
-    const byProduct = vendorTotals.get(email);
-    if (byProduct) {
-      for (const [product, byVendor] of byProduct) {
-        const priority = VENDOR_PRIORITY[product] ?? [];
-        let bestUsd = 0;
-        let bestVendor: string | null = null;
-        for (const [vendor, usd] of byVendor) {
-          const pri = priority.indexOf(vendor);
-          const rank = pri >= 0 ? pri : -1;
-          const bestRank = bestVendor ? priority.indexOf(bestVendor) : -1;
-          if (usd > bestUsd || (usd === bestUsd && rank > bestRank)) {
-            bestUsd = usd;
-            bestVendor = vendor;
-          }
-        }
-        if (bestVendor === CURSOR_TEAM_ADMIN_VENDOR_KEY && bumpProduct(row, product, bestUsd)) {
-          usedVendorMirror = true;
-        } else if (bestVendor === UNIFIED_CREDITS_VENDOR_KEY && bumpProduct(row, product, bestUsd)) {
-          usedVendorMirror = true;
-        } else if (bestVendor === WORKSPACE_ANALYTICS_USER_VENDOR_KEY && bumpProduct(row, product, bestUsd)) {
-          usedVendorMirror = true;
-        } else if (bestUsd > 0) {
-          bumpProduct(row, product, bestUsd);
-          usedVendorMirror = true;
-        }
-      }
-    }
-
     const chatgptUsd = chatgptByEmail.get(email);
     if (chatgptUsd != null) bumpProduct(row, "CHATGPT", chatgptUsd);
 
     const codexUsd = codexByEmail.get(email);
     if (codexUsd != null) bumpProduct(row, "CODEX", codexUsd);
+
+    const byProduct = vendorTotals.get(email);
+    if (byProduct) {
+      for (const [product, byVendor] of byProduct) {
+        const priority = VENDOR_PRIORITY[product] ?? [];
+        const { usd } = pickPreferredVendor(byVendor, priority);
+        if (usd > 0 && bumpProduct(row, product, usd)) {
+          usedVendorMirror = true;
+        }
+      }
+    }
 
     // Cursor vendor rows use normCursorUserEmail in mirror — re-check with cursor norm.
     if (getIntegrationMode("cursor") === "real") {
