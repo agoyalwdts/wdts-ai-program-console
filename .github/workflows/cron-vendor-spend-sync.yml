@@ -59,7 +59,7 @@ jobs:
         env:
           CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
         run: |
-          BODY='{"lookbackDays":7}'
+          BODY='{"lookbackDays":31}'
           SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" | awk '{print $2}')
           URL="${DASHBOARD_BASE_URL}/api/cron/sync-cursor-spend"
           echo "## cursor incremental — $URL" >> "$GITHUB_STEP_SUMMARY"

@@ -18,8 +18,8 @@ const JOB_TIMEOUT_MS: Partial<
     default: 15_000,
   },
   cursor_vendor_spend: {
-    page_load: 25_000,
-    manual_refresh: 60_000,
+    page_load: 35_000,
+    manual_refresh: 90_000,
     cron: 120_000,
     admin: 120_000,
     default: 12_000,

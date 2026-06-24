@@ -21,7 +21,7 @@ Introduce a **sync orchestrator** (`lib/sync/`) and **`IntegrationSyncState` led
 
 | Key | Tier | Stale (page load) | Delta |
 |-----|------|-------------------|-------|
-| `cursor_vendor_spend` | hot | 5 min | days since last success, cap 3 (refresh) / 7 (cron) |
+| `cursor_vendor_spend` | hot | 5 min | MTD floor (local month start → today), cap 31 |
 | `codex_enterprise_spend` | hot | 5 min | cap 4 / 14 |
 | `workspace_analytics` | hot | 5 min | compliance log cursor (`lastEndTime`) |
 | `unified_credits` | hot | 5 min | compliance log cursor |

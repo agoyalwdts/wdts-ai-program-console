@@ -5,13 +5,14 @@ import { syncCodexEnterpriseAnalyticsDaily } from "@/lib/vendor-spend/sync-codex
 import { syncCursorVendorDailySpendWindow } from "@/lib/vendor-spend/sync-cursor-vendor-daily";
 import { syncOpenAiVendorDailySpendWindow } from "@/lib/vendor-spend/sync-openai-vendor-daily";
 import { deltaLookbackDays } from "./delta-lookback";
+import { resolveVendorMirrorLookbackDays } from "./vendor-mirror-lookback";
 import type { SyncJobDefinition, SyncJobResult } from "./types";
 
 const CURSOR_LOOKBACK = {
   min: 1,
-  maxOnRefresh: 3,
-  maxOnCron: 7,
-  initial: 7,
+  maxOnRefresh: 31,
+  maxOnCron: 31,
+  initial: 31,
 } as const;
 
 const CODEX_LOOKBACK = {
@@ -38,7 +39,11 @@ export const SYNC_JOBS: SyncJobDefinition[] = [
     run: async (ctx): Promise<SyncJobResult> => {
       const lookbackDays =
         ctx.opts.lookbackDays ??
-        deltaLookbackDays(ctx.lastSuccessAt, ctx.trigger, CURSOR_LOOKBACK);
+        resolveVendorMirrorLookbackDays(
+          ctx.lastSuccessAt,
+          ctx.trigger,
+          CURSOR_LOOKBACK,
+        );
       try {
         const result = await syncCursorVendorDailySpendWindow(ctx.prisma, {
           lookbackDays,
