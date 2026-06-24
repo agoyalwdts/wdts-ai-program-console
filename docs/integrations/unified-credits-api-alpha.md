@@ -14,18 +14,33 @@ PDF *Unified Credit Usage API* (16 Jun 2026).
 | Snapshots | `ProgramVendorExportSnapshot.kind = UNIFIED_CREDITS_COSTS` |
 
 Requires `INTEGRATION_OPENAI_COMPLIANCE=real`, `OPENAI_COMPLIANCE_API_KEY`,
-`CHATGPT_WORKSPACE_ID` (same as Workspace Analytics / AUTH_LOG).
+**`OPENAI_ORG_ID`** (organization-scoped — **not** `CHATGPT_WORKSPACE_ID`).
+
+### Compliance path (important)
+
+COSTS is **organization-scoped**. List/download via:
+
+```http
+GET https://api.chatgpt.com/v1/compliance/organizations/{OPENAI_ORG_ID}/logs?event_type=COSTS&after=…
+```
+
+Workspace Analytics (`CHATGPT_USER_*`) and `AUTH_LOG` remain on:
+
+```http
+GET …/compliance/workspaces/{CHATGPT_WORKSPACE_ID}/logs?event_type=…
+```
+
+OpenAI support case **10188319** (June 2026) confirmed the workspace path returns
+empty/invalid results for COSTS even when org enablement is live.
 
 ## Enablement status
 
-As of 2026-06-19, OpenAI support confirmed WDTS workspace alpha enablement, but
-`GET …/logs?event_type=COSTS` still returns `400 Invalid event_type COSTS`
-while `CHATGPT_USER_ANALYTICS` and `AUTH_LOG` return `200`. The cron treats
-`notEnabled: true` as a soft skip until OpenAI flips the flag.
+As of 2026-06-24, `GET …/organizations/org-…/logs?event_type=COSTS` returns **HTTP 200**
+with JSONL file listings when probed with the compliance platform key.
 
 ## When live
 
-1. Hourly cron ingests COSTS JSONL (30-day lookback, max 90).
+1. Hourly cron + page-load sync ingest COSTS JSONL (30-day lookback, max 90).
 2. F1 / chargeback can prefer `OPENAI_UNIFIED_CREDITS_COMPLIANCE` over CSV
    (follow-up PR).
 3. Validate against Credit Usage Report CSV for one 16th→15th billing period.

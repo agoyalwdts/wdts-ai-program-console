@@ -7,7 +7,7 @@ import { getIntegrationMode, type IntegrationEnv } from "../env";
 import {
   downloadComplianceLogFile,
   listComplianceLogFiles,
-  resolveComplianceCredentials,
+  resolveUnifiedCreditsComplianceCredentials,
 } from "../openai-compliance/fetch";
 import { UNIFIED_CREDITS_EVENT_TYPE } from "./constants";
 import { ingestUnifiedCreditsRows } from "./ingest";
@@ -58,9 +58,12 @@ export async function syncUnifiedCredits(
     return { ...empty, reason: "INTEGRATION_OPENAI_COMPLIANCE is not real" };
   }
 
-  const creds = resolveComplianceCredentials(env);
+  const creds = resolveUnifiedCreditsComplianceCredentials(env);
   if (!creds) {
-    return { ...empty, reason: "OPENAI_COMPLIANCE_API_KEY or CHATGPT_WORKSPACE_ID unset" };
+    return {
+      ...empty,
+      reason: "OPENAI_COMPLIANCE_API_KEY or OPENAI_ORG_ID unset (COSTS uses org-scoped compliance path)",
+    };
   }
 
   const lookbackDays = Math.min(
@@ -144,7 +147,7 @@ export async function syncUnifiedCredits(
         ok: false,
         notEnabled: true,
         reason:
-          "Compliance API rejected event_type=COSTS — workspace alpha enablement may not be live on the API yet.",
+          "Compliance API rejected event_type=COSTS — confirm OPENAI_ORG_ID and org-scoped enablement.",
       };
     }
     return { ...empty, ok: false, reason: message };

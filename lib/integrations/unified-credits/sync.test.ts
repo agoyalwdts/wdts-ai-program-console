@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { syncUnifiedCredits } from "./sync";
 
 vi.mock("../openai-compliance/fetch", () => ({
-  resolveComplianceCredentials: () => ({
+  resolveUnifiedCreditsComplianceCredentials: () => ({
     apiKey: "k",
-    principalId: "ws-1",
-    scope: "workspaces" as const,
+    principalId: "org-test",
+    scope: "organizations" as const,
   }),
   listComplianceLogFiles: vi.fn(),
   downloadComplianceLogFile: vi.fn(),
@@ -34,7 +34,11 @@ describe("syncUnifiedCredits", () => {
 
     const out = await syncUnifiedCredits(prisma as never, {
       actorEmail: "test@wdts.com",
-      env: { INTEGRATION_OPENAI_COMPLIANCE: "real", OPENAI_COMPLIANCE_API_KEY: "k", CHATGPT_WORKSPACE_ID: "ws" },
+      env: {
+        INTEGRATION_OPENAI_COMPLIANCE: "real",
+        OPENAI_COMPLIANCE_API_KEY: "k",
+        OPENAI_ORG_ID: "org-test",
+      },
       skipDecision: true,
     });
 
@@ -80,7 +84,11 @@ describe("syncUnifiedCredits", () => {
 
     const out = await syncUnifiedCredits(ingestPrisma as never, {
       actorEmail: "test@wdts.com",
-      env: { INTEGRATION_OPENAI_COMPLIANCE: "real", OPENAI_COMPLIANCE_API_KEY: "k", CHATGPT_WORKSPACE_ID: "ws" },
+      env: {
+        INTEGRATION_OPENAI_COMPLIANCE: "real",
+        OPENAI_COMPLIANCE_API_KEY: "k",
+        OPENAI_ORG_ID: "org-test",
+      },
       skipDecision: true,
     });
 

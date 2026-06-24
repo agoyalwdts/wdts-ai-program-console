@@ -24,6 +24,16 @@ export function resolveComplianceCredentials(
   return { apiKey, principalId: workspaceId, scope };
 }
 
+/** COSTS (Unified Credit Usage) is organization-scoped per OpenAI Compliance API. */
+export function resolveUnifiedCreditsComplianceCredentials(
+  env: Record<string, string | undefined> = process.env,
+): ComplianceCreds | null {
+  const apiKey = env.OPENAI_COMPLIANCE_API_KEY?.trim();
+  const orgId = env.OPENAI_ORG_ID?.trim();
+  if (!apiKey || !orgId) return null;
+  return { apiKey, principalId: orgId, scope: "organizations" };
+}
+
 function authHeader(apiKey: string): Record<string, string> {
   return { Authorization: `Bearer ${apiKey}` };
 }

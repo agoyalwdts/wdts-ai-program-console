@@ -33,6 +33,7 @@ az webapp config appsettings set --resource-group "$RG" --name "$APP" \
 az webapp restart --resource-group "$RG" --name "$APP" -o none
 
 WS=$(az keyvault secret show --vault-name "$VAULT" --name CHATGPT-WORKSPACE-ID --query value -o tsv)
+ORG=$(az keyvault secret show --vault-name "$VAULT" --name OPENAI-ORG-ID --query value -o tsv)
 AFTER=$(date -u -v-7d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
 HTTP=$(curl -sS -o /tmp/compliance-probe.json -w "%{http_code}" -G \
   -H "Authorization: Bearer ${KEY}" \
@@ -40,13 +41,27 @@ HTTP=$(curl -sS -o /tmp/compliance-probe.json -w "%{http_code}" -G \
   --data-urlencode "event_type=AUTH_LOG" \
   --data-urlencode "limit=3" \
   --data-urlencode "after=${AFTER}")
+COSTS_HTTP=$(curl -sS -o /tmp/compliance-costs.json -w "%{http_code}" -G \
+  -H "Authorization: Bearer ${KEY}" \
+  "https://api.chatgpt.com/v1/compliance/organizations/${ORG}/logs" \
+  --data-urlencode "event_type=COSTS" \
+  --data-urlencode "limit=3" \
+  --data-urlencode "after=${AFTER}")
 unset KEY
 
-echo "Compliance list logs: HTTP ${HTTP}"
+echo "Compliance AUTH_LOG (workspace): HTTP ${HTTP}"
 if [[ "${HTTP}" == "200" ]]; then
   python3 -c "import json; d=json.load(open('/tmp/compliance-probe.json')); print('log_files', len(d.get('data',[])), 'has_more', d.get('has_more'))"
 else
   head -c 300 /tmp/compliance-probe.json
+  echo
+fi
+
+echo "Compliance COSTS (organization): HTTP ${COSTS_HTTP}"
+if [[ "${COSTS_HTTP}" == "200" ]]; then
+  python3 -c "import json; d=json.load(open('/tmp/compliance-costs.json')); print('log_files', len(d.get('data',[])), 'has_more', d.get('has_more'))"
+else
+  head -c 300 /tmp/compliance-costs.json
   echo
 fi
 echo "Done. Check /users → Sign-in footprint → ChatGPT (Compliance AUTH_LOG) after ~1 min."

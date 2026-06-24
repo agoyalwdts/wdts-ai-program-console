@@ -1,6 +1,7 @@
 export type { ComplianceAuthLogIpSummary } from "./types";
 export {
   resolveComplianceCredentials,
+  resolveUnifiedCreditsComplianceCredentials,
   listComplianceLogFiles,
   downloadComplianceLogFile,
 } from "./fetch";
