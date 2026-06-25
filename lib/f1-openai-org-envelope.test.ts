@@ -180,6 +180,53 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
     expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(589_900, -2);
     expect(portal.source).toBe("unified_credits");
   });
+
+  it("calibrates with fallback uplift when WA and unified days do not overlap (~561K → ~590K)", () => {
+    const merged = emptyMerged();
+    const upliftRatio = 589_900 / 504_908;
+    const waDayUsd = (504_908 * OPENAI_CREDIT_OVERAGE_USD) / 25;
+    const unifiedDayUsd = waDayUsd * upliftRatio;
+    const unifiedDays = ["2026-06-21", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25"];
+
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map(unifiedDays.map((d) => [d, unifiedDayUsd * 0.4])),
+      unifiedCodByYmd: new Map(unifiedDays.map((d) => [d, unifiedDayUsd * 0.6])),
+      orgCostsChatByYmd: new Map(),
+      orgCostsCodByYmd: new Map(),
+      workspacePoolByYmd: new Map(
+        Array.from({ length: 20 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, waDayUsd] as const;
+        }),
+      ),
+    };
+
+    expect(
+      computeWaCreditUpliftRatio({
+        layers,
+        periodStart: new Date(2026, 5, 1),
+        periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+      }),
+    ).toBeCloseTo(upliftRatio, 2);
+
+    const raw = sumOpenAiPortalAlignedEnvelopeUsd({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+    });
+    expect(raw / OPENAI_CREDIT_OVERAGE_USD).toBeLessThan(570_000);
+
+    const portal = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+    });
+
+    expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(589_900, -2);
+    expect(portal.source).toBe("unified_credits");
+  });
 });
 
 describe("resolveOpenAiPortalEnvelope", () => {

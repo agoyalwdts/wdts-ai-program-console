@@ -175,6 +175,34 @@ export async function loadOpenAiOrgEnvelopeLayers(
 /** Min daily USD on overlap days when deriving WA→portal uplift from unified COSTS. */
 const MIN_OVERLAP_DAY_USD = 50;
 
+/**
+ * Fallback WA→portal uplift when unified and WA cover disjoint day ranges (no overlap
+ * to measure). Derived from observed 504K WA vs 590K Admin Credits (Jun 2026).
+ */
+export const OPENAI_WA_PORTAL_UPLIFT_DEFAULT = 589_900 / 504_908;
+
+function sumProductMapsInPeriod(args: {
+  chatByYmd: Map<string, number>;
+  codByYmd: Map<string, number>;
+  periodStart: Date;
+  periodEnd: Date;
+}): number {
+  let total = 0;
+  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
+    const ymd = localYmd(day);
+    total += (args.chatByYmd.get(ymd) ?? 0) + (args.codByYmd.get(ymd) ?? 0);
+  }
+  return total;
+}
+
+function sumMapInPeriod(m: Map<string, number>, periodStart: Date, periodEnd: Date): number {
+  let total = 0;
+  for (const day of enumerateDays(periodStart, periodEnd)) {
+    total += m.get(localYmd(day)) ?? 0;
+  }
+  return total;
+}
+
 /** Median unified/WA ratio on days where both feeds have data (WA undercounts vs portal). */
 export function computeWaCreditUpliftRatio(args: {
   layers: OpenAiOrgEnvelopeLayers;
@@ -197,13 +225,40 @@ export function computeWaCreditUpliftRatio(args: {
     }
   }
 
-  if (dailyRatios.length === 0) return 1;
+  if (dailyRatios.length === 0) {
+    if (
+      hasWaOnlyDaysInPeriod({
+        layers: args.layers,
+        periodStart: args.periodStart,
+        periodEnd: args.periodEnd,
+      })
+    ) {
+      return Math.min(Math.max(OPENAI_WA_PORTAL_UPLIFT_DEFAULT, 1), 1.35);
+    }
+    return 1;
+  }
 
   dailyRatios.sort((a, b) => a - b);
   const median = dailyRatios[Math.floor(dailyRatios.length / 2)]!;
   const volumeWeighted = overlapWaUsd > 0 ? overlapUnifiedUsd / overlapWaUsd : median;
   const uplift = Math.max(median, volumeWeighted);
   return Math.min(Math.max(uplift, 1), 1.35);
+}
+
+/** True when at least one period day has both unified COSTS and WA pool above noise floor. */
+function hasOverlapDaysInPeriod(args: {
+  layers: OpenAiOrgEnvelopeLayers;
+  periodStart: Date;
+  periodEnd: Date;
+}): boolean {
+  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
+    const ymd = localYmd(day);
+    const unifiedUsd =
+      (args.layers.unifiedChatByYmd.get(ymd) ?? 0) + (args.layers.unifiedCodByYmd.get(ymd) ?? 0);
+    const waUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
+    if (unifiedUsd >= MIN_OVERLAP_DAY_USD && waUsd >= MIN_OVERLAP_DAY_USD) return true;
+  }
+  return false;
 }
 
 function splitEnvelopeUsdByUnifiedCoverage(args: {
@@ -281,8 +336,9 @@ export function sumOpenAiWaCalibratedEnvelopeUsd(args: {
   const { unifiedUsd, nonUnifiedUsd } = splitEnvelopeUsdByUnifiedCoverage(args);
   const splitCalibrated = unifiedUsd + uplift * nonUnifiedUsd;
   const fullCalibrated = dailyTotal * uplift;
+  const overlapDays = hasOverlapDaysInPeriod(args);
   const totalUsd =
-    nonUnifiedUsd > unifiedUsd
+    overlapDays && nonUnifiedUsd > unifiedUsd
       ? Math.max(splitCalibrated, fullCalibrated)
       : splitCalibrated;
 
@@ -390,12 +446,30 @@ export function resolveOpenAiPortalEnvelope(args: {
   periodEnd: Date;
   liveOrgCosts?: { chatgptUsd: number; codexUsd: number; totalUsd: number } | null;
 }): OpenAiPortalEnvelopeResolution {
-  const unifiedChat = sumMap(args.layers.unifiedChatByYmd);
-  const unifiedCod = sumMap(args.layers.unifiedCodByYmd);
+  const unifiedChat = sumProductMapsInPeriod({
+    chatByYmd: args.layers.unifiedChatByYmd,
+    codByYmd: new Map(),
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+  });
+  const unifiedCod = sumProductMapsInPeriod({
+    chatByYmd: new Map(),
+    codByYmd: args.layers.unifiedCodByYmd,
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+  });
   const unifiedTotal = unifiedChat + unifiedCod;
 
-  const mirrorOrgChat = sumMap(args.layers.orgCostsChatByYmd);
-  const mirrorOrgCod = sumMap(args.layers.orgCostsCodByYmd);
+  const mirrorOrgChat = sumMapInPeriod(
+    args.layers.orgCostsChatByYmd,
+    args.periodStart,
+    args.periodEnd,
+  );
+  const mirrorOrgCod = sumMapInPeriod(
+    args.layers.orgCostsCodByYmd,
+    args.periodStart,
+    args.periodEnd,
+  );
   const mirrorOrgTotal = mirrorOrgChat + mirrorOrgCod;
 
   const liveOrg = args.liveOrgCosts;
@@ -403,7 +477,11 @@ export function resolveOpenAiPortalEnvelope(args: {
   const orgCod = Math.max(mirrorOrgCod, liveOrg?.codexUsd ?? 0);
   const orgTotal = Math.max(mirrorOrgTotal, liveOrg?.totalUsd ?? 0, orgChat + orgCod);
 
-  const waTotal = sumMap(args.layers.workspacePoolByYmd);
+  const waTotal = sumMapInPeriod(
+    args.layers.workspacePoolByYmd,
+    args.periodStart,
+    args.periodEnd,
+  );
   const dailyTotal = sumOpenAiPortalAlignedEnvelopeUsd({
     merged: args.merged,
     layers: args.layers,
@@ -427,15 +505,7 @@ export function resolveOpenAiPortalEnvelope(args: {
     },
   ];
 
-  if (
-    calibrated.usesUplift &&
-    calibrated.totalUsd > dailyTotal + 0.01 &&
-    hasWaOnlyDaysInPeriod({
-      layers: args.layers,
-      periodStart: args.periodStart,
-      periodEnd: args.periodEnd,
-    })
-  ) {
+  if (calibrated.usesUplift && calibrated.totalUsd > dailyTotal + 0.01) {
     candidates.push({
       envelopeUsd: calibrated.totalUsd,
       chatgptUsd: unifiedChat,
