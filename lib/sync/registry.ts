@@ -4,7 +4,6 @@ import { syncWorkspaceAnalytics } from "@/lib/integrations/workspace-analytics";
 import { syncCodexEnterpriseAnalyticsDaily } from "@/lib/vendor-spend/sync-codex-enterprise-daily";
 import { syncCursorVendorDailySpendWindow } from "@/lib/vendor-spend/sync-cursor-vendor-daily";
 import { syncOpenAiVendorDailySpendWindow } from "@/lib/vendor-spend/sync-openai-vendor-daily";
-import { deltaLookbackDays } from "./delta-lookback";
 import { resolveVendorMirrorLookbackDays } from "./vendor-mirror-lookback";
 import type { SyncJobDefinition, SyncJobResult } from "./types";
 
@@ -17,14 +16,21 @@ const CURSOR_LOOKBACK = {
 
 const CODEX_LOOKBACK = {
   min: 1,
-  maxOnRefresh: 4,
-  maxOnCron: 14,
-  initial: 14,
+  maxOnRefresh: 31,
+  maxOnCron: 31,
+  initial: 31,
 } as const;
 
 const OPENAI_LOOKBACK = {
   min: 1,
-  maxOnRefresh: 7,
+  maxOnRefresh: 31,
+  maxOnCron: 31,
+  initial: 31,
+} as const;
+
+const OPENAI_COMPLIANCE_LOOKBACK = {
+  min: 1,
+  maxOnRefresh: 31,
   maxOnCron: 31,
   initial: 31,
 } as const;
@@ -69,7 +75,11 @@ export const SYNC_JOBS: SyncJobDefinition[] = [
     run: async (ctx): Promise<SyncJobResult> => {
       const lookbackDays =
         ctx.opts.lookbackDays ??
-        deltaLookbackDays(ctx.lastSuccessAt, ctx.trigger, CODEX_LOOKBACK);
+        resolveVendorMirrorLookbackDays(
+          ctx.lastSuccessAt,
+          ctx.trigger,
+          CODEX_LOOKBACK,
+        );
       try {
         const result = await syncCodexEnterpriseAnalyticsDaily(ctx.prisma, {
           lookbackDays,
@@ -96,14 +106,12 @@ export const SYNC_JOBS: SyncJobDefinition[] = [
     run: async (ctx): Promise<SyncJobResult> => {
       const initialLookbackDays =
         ctx.opts.initialLookbackDays ??
-        (ctx.trigger === "cron"
-          ? 7
-          : deltaLookbackDays(ctx.lastSuccessAt, ctx.trigger, {
-              min: 1,
-              maxOnRefresh: 7,
-              maxOnCron: 7,
-              initial: 7,
-            }));
+        ctx.opts.lookbackDays ??
+        resolveVendorMirrorLookbackDays(
+          ctx.lastSuccessAt,
+          ctx.trigger,
+          OPENAI_COMPLIANCE_LOOKBACK,
+        );
       const result = await syncWorkspaceAnalytics(ctx.prisma, {
         actorEmail: ctx.actorEmail,
         initialLookbackDays,
@@ -125,14 +133,12 @@ export const SYNC_JOBS: SyncJobDefinition[] = [
     run: async (ctx): Promise<SyncJobResult> => {
       const initialLookbackDays =
         ctx.opts.initialLookbackDays ??
-        (ctx.trigger === "cron"
-          ? 30
-          : deltaLookbackDays(ctx.lastSuccessAt, ctx.trigger, {
-              min: 1,
-              maxOnRefresh: 7,
-              maxOnCron: 30,
-              initial: 30,
-            }));
+        ctx.opts.lookbackDays ??
+        resolveVendorMirrorLookbackDays(
+          ctx.lastSuccessAt,
+          ctx.trigger,
+          OPENAI_COMPLIANCE_LOOKBACK,
+        );
       const result = await syncUnifiedCredits(ctx.prisma, {
         actorEmail: ctx.actorEmail,
         initialLookbackDays,
@@ -157,7 +163,11 @@ export const SYNC_JOBS: SyncJobDefinition[] = [
     run: async (ctx): Promise<SyncJobResult> => {
       const lookbackDays =
         ctx.opts.lookbackDays ??
-        deltaLookbackDays(ctx.lastSuccessAt, ctx.trigger, OPENAI_LOOKBACK);
+        resolveVendorMirrorLookbackDays(
+          ctx.lastSuccessAt,
+          ctx.trigger,
+          OPENAI_LOOKBACK,
+        );
       try {
         const result = await syncOpenAiVendorDailySpendWindow(ctx.prisma, {
           lookbackDays,

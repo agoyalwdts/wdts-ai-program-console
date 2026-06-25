@@ -327,6 +327,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               budget={combinedCreditsCap}
               unit="credits"
               warnAt={0.9}
+              progressLabel={openAiWindow === "billing" ? "Billing cycle" : spendLabel}
             />
             <p className="text-sm text-slate-600 tabular-nums">
               <span className="font-medium text-slate-800">
@@ -567,6 +568,13 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                       spend={mtdDisplay}
                       budget={budgetDisplay}
                       unit={isOpenAiProduct ? "credits" : "usd"}
+                      progressLabel={
+                        isOpenAiProduct
+                          ? openAiWindow === "billing"
+                            ? "Billing cycle"
+                            : spendLabel
+                          : spendLabel
+                      }
                     />
                   )}
                 </CardContent>

@@ -5,11 +5,14 @@ export function BudgetBar({
   budget,
   warnAt = 0.8,
   unit = "usd",
+  progressLabel = "MTD",
 }: {
   spend: number;
   budget: number;
   warnAt?: number;
   unit?: "usd" | "credits";
+  /** Shown beside the utilization % (e.g. "Month to date", "Billing cycle"). */
+  progressLabel?: string;
 }) {
   const ratio = budget > 0 ? spend / budget : 0;
   const widthPct = Math.min(ratio * 100, 100);
@@ -27,7 +30,9 @@ export function BudgetBar({
         />
       </div>
       <div className="flex items-center justify-between text-[11px] text-slate-500">
-        <span>{(ratio * 100).toFixed(1)}% MTD</span>
+        <span>
+          {(ratio * 100).toFixed(1)}% {progressLabel}
+        </span>
         <span>
           remaining{" "}
           {unit === "credits"

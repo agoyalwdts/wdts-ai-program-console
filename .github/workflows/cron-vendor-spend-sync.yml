@@ -126,7 +126,7 @@ jobs:
         env:
           CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
         run: |
-          BODY='{"lookbackDays":14}'
+          BODY='{"lookbackDays":31}'
           SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$CRON_SHARED_SECRET" | awk '{print $2}')
           URL="${DASHBOARD_BASE_URL}/api/cron/sync-codex-enterprise-spend"
           echo "## codex_enterprise — $URL" >> "$GITHUB_STEP_SUMMARY"
