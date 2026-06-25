@@ -182,6 +182,17 @@ export async function loadOpenAiOrgEnvelopeLayers(
 const MIN_OVERLAP_DAY_USD = 50;
 
 /**
+ * Unified COSTS can land mid-day with only a sliver synced. A tiny unified row must
+ * not block the WA pool fallback when WA already shows a full day of usage.
+ */
+export function isIncompleteUnifiedDaySync(unifiedUsd: number, waPoolUsd: number): boolean {
+  if (unifiedUsd <= 0) return false;
+  if (waPoolUsd < MIN_OVERLAP_DAY_USD) return false;
+  if (unifiedUsd < MIN_OVERLAP_DAY_USD) return true;
+  return unifiedUsd < waPoolUsd * 0.05;
+}
+
+/**
  * Fallback WA→portal uplift when unified and WA cover disjoint day ranges (no overlap
  * to measure). Derived from observed 504K WA vs 590K Admin Credits (Jun 2026).
  */
@@ -210,7 +221,11 @@ export function computeWaCreditUpliftRatio(args: {
     const unifiedUsd =
       (args.layers.unifiedChatByYmd.get(ymd) ?? 0) + (args.layers.unifiedCodByYmd.get(ymd) ?? 0);
     const waUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
-    if (unifiedUsd >= MIN_OVERLAP_DAY_USD && waUsd >= MIN_OVERLAP_DAY_USD) {
+    if (
+      unifiedUsd >= MIN_OVERLAP_DAY_USD &&
+      waUsd >= MIN_OVERLAP_DAY_USD &&
+      !isIncompleteUnifiedDaySync(unifiedUsd, waUsd)
+    ) {
       dailyRatios.push(unifiedUsd / waUsd);
       overlapUnifiedUsd += unifiedUsd;
       overlapWaUsd += waUsd;
@@ -248,7 +263,12 @@ export function hasWaOnlyDaysInPeriod(args: {
     const unifiedUsd =
       (args.layers.unifiedChatByYmd.get(ymd) ?? 0) + (args.layers.unifiedCodByYmd.get(ymd) ?? 0);
     const waUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
-    if (waUsd >= MIN_OVERLAP_DAY_USD && unifiedUsd <= 0) return true;
+    if (
+      waUsd >= MIN_OVERLAP_DAY_USD &&
+      (unifiedUsd <= 0 || isIncompleteUnifiedDaySync(unifiedUsd, waUsd))
+    ) {
+      return true;
+    }
   }
   return false;
 }
@@ -293,7 +313,10 @@ export function sumPortalEnvelopeProductUsd(args: {
     const uChat = args.layers.unifiedChatByYmd.get(ymd) ?? 0;
     const uCod = args.layers.unifiedCodByYmd.get(ymd) ?? 0;
     const unifiedDay = uChat + uCod;
-    if (unifiedDay > 0) {
+    const waPoolUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
+    const useUnified =
+      unifiedDay > 0 && !isIncompleteUnifiedDaySync(unifiedDay, waPoolUsd);
+    if (useUnified) {
       chatgptUsd += uChat;
       codexUsd += uCod;
       unifiedUsd += unifiedDay;
@@ -308,7 +331,6 @@ export function sumPortalEnvelopeProductUsd(args: {
       continue;
     }
 
-    const waPoolUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
     if (waPoolUsd > 0) {
       const poolUsd = waPoolUsd * uplift;
       const dayCodexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
@@ -423,14 +445,10 @@ export function resolveOpenAiPortalEnvelope(args: {
   });
   const uplift = computeWaCreditUpliftRatio(args);
 
-  const unifiedShare =
-    aligned.totalUsd > 0 ? aligned.unifiedUsd / aligned.totalUsd : 0;
-
   let product = aligned;
   const usedGapCalibration =
     waOnlyGaps &&
     uplift > 1.005 &&
-    unifiedShare < 0.85 &&
     (() => {
       const calibrated = sumPortalEnvelopeProductUsd({ ...args, waGapUplift: uplift });
       if (calibrated.totalUsd > aligned.totalUsd + 0.01) {
