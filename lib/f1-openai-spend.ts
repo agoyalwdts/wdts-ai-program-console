@@ -16,7 +16,9 @@ import {
   mergeManualVendorExportIntoF1,
 } from "@/lib/f1-manual-vendor-export";
 import type { ProductKey } from "@/lib/program";
-import { resolveOpenAiF1Credits, type OpenAiF1Credits } from "@/lib/f1-openai-credits";
+import { resolveOpenAiF1Credits, resolveOpenAiCreditsFromDailyMerge, type OpenAiF1Credits } from "@/lib/f1-openai-credits";
+import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
+import { resolveUsdPerCredit } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
 
 export type OpenAiF1SpendSources = {
   chatgpt: "gateway" | "vendor" | "manual_export" | "workspace_analytics" | "unified_credits";
@@ -100,27 +102,66 @@ export async function loadOpenAiSpendSnapshotForF1(
     vendorManualExport.chatgpt.used ||
     vendorManualExport.codex.used;
 
-  const credits = resolveOpenAiF1Credits({
-    chatgptUsd,
-    codexUsd,
-    budgetMonthMultiplier: args.budgetMonthMultiplier ?? 1,
-    workspaceChatgptUsed: merged.chatgpt.dominantSource === "workspace_analytics",
-    workspaceChatgptUsd: merged.chatgpt.periodTotalUsd,
-    manualChatgptUsed: vendorManualExport.chatgpt.used,
-    manualChatgptUsd: vendorManualExport.chatgpt.periodTotalUsd,
-    codexEnterpriseUsed: merged.codex.dominantSource === "codex_enterprise_analytics_sync",
-    codexEnterpriseUsd: merged.codex.periodTotalUsd,
-    unifiedChatgptUsed: merged.chatgpt.byYmd.size > 0 && [...merged.chatgpt.byYmd.values()].some((v) => v > 0),
-    unifiedChatgptUsd: merged.chatgpt.periodTotalUsd,
-    unifiedCodexUsed: merged.codex.byYmd.size > 0 && [...merged.codex.byYmd.values()].some((v) => v > 0),
-    unifiedCodexUsd: merged.codex.periodTotalUsd,
-    vendorMirrorCompositeUsed,
-  });
+  let credits: OpenAiF1Credits;
+  const hasUnifiedCreditsDays = [...merged.chatgpt.byYmdSource.values()].some(
+    (s) => s === "unified_credits",
+  );
+  if (vendorMirrorCompositeUsed) {
+    credits = resolveOpenAiCreditsFromDailyMerge({
+      merged,
+      periodStart: args.periodStart,
+      periodEnd: args.periodEnd,
+    });
+    // When the period is org-pool Workspace Analytics (no Unified Credits days),
+    // enforce pool − Codex at period level so misaligned day keys cannot skip subtraction.
+    if (
+      !hasUnifiedCreditsDays &&
+      (merged.chatgpt.dominantSource === "workspace_analytics" ||
+        vendorManualExport.chatgpt.used)
+    ) {
+      const poolCredits =
+        (vendorManualExport.chatgpt.used
+          ? vendorManualExport.chatgpt.periodTotalUsd
+          : merged.chatgpt.periodTotalUsd) / OPENAI_CREDIT_OVERAGE_USD;
+      if (poolCredits > 0 && credits.codexCredits > 0) {
+        credits = {
+          chatgptCredits: Math.max(0, poolCredits - credits.codexCredits),
+          codexCredits: credits.codexCredits,
+          combinedCredits: poolCredits,
+          mode: "direct",
+        };
+      }
+    }
+  } else {
+    credits = resolveOpenAiF1Credits({
+      chatgptUsd,
+      codexUsd,
+      budgetMonthMultiplier: args.budgetMonthMultiplier ?? 1,
+      workspaceChatgptUsed: merged.chatgpt.dominantSource === "workspace_analytics",
+      workspaceChatgptUsd: merged.chatgpt.periodTotalUsd,
+      manualChatgptUsed: vendorManualExport.chatgpt.used,
+      manualChatgptUsd: vendorManualExport.chatgpt.periodTotalUsd,
+      codexEnterpriseUsed: merged.codex.dominantSource === "codex_enterprise_analytics_sync",
+      codexEnterpriseUsd: merged.codex.periodTotalUsd,
+      unifiedChatgptUsed: hasUnifiedCreditsDays,
+      unifiedChatgptUsd: merged.chatgpt.periodTotalUsd,
+      unifiedCodexUsed: [...merged.codex.byYmdSource.values()].some((s) => s === "unified_credits"),
+      unifiedCodexUsd: merged.codex.periodTotalUsd,
+    });
+  }
+
+  const codexUsdPerCredit = resolveUsdPerCredit();
+  const displayChatgptUsd = credits.chatgptCredits * OPENAI_CREDIT_OVERAGE_USD;
+  const displayCodexUsd = credits.codexCredits * codexUsdPerCredit;
+  const displayCombinedUsd =
+    credits.mode === "direct" && vendorMirrorCompositeUsed
+      ? credits.combinedCredits * OPENAI_CREDIT_OVERAGE_USD
+      : chatgptUsd + codexUsd;
 
   return {
-    chatgptUsd,
-    codexUsd,
-    combinedUsd: chatgptUsd + codexUsd,
+    chatgptUsd: displayChatgptUsd,
+    codexUsd: displayCodexUsd,
+    combinedUsd: displayCombinedUsd,
     credits,
     sources,
   };

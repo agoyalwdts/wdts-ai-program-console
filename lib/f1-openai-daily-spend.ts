@@ -18,6 +18,8 @@ export type OpenAiDailyProductSeries = {
   periodTotalUsd: number;
   byChartDay: Map<string, number>;
   byYmd: Map<string, number>;
+  /** Winning vendor source per calendar day (YYYY-MM-DD). */
+  byYmdSource: Map<string, string>;
   usedVendorMirror: boolean;
   dominantSource: OpenAiF1SpendSources["chatgpt"] | OpenAiF1SpendSources["codex"] | "gateway";
 };
@@ -141,6 +143,7 @@ function mergeProductDaily(args: {
 }): OpenAiDailyProductSeries {
   const days = enumerateDays(args.periodStart, args.periodEnd);
   const byYmd = new Map<string, number>();
+  const byYmdSource = new Map<string, string>();
   const byChartDay = new Map<string, number>();
   const sourceTotals = new Map<string, number>();
   let periodTotalUsd = 0;
@@ -162,6 +165,7 @@ function mergeProductDaily(args: {
     }
 
     byYmd.set(ymd, usd);
+    byYmdSource.set(ymd, source);
     byChartDay.set(chartDayLabel(day), usd);
     periodTotalUsd += usd;
     sourceTotals.set(source, (sourceTotals.get(source) ?? 0) + usd);
@@ -176,7 +180,7 @@ function mergeProductDaily(args: {
     }
   }
 
-  return { periodTotalUsd, byChartDay, byYmd, usedVendorMirror, dominantSource };
+  return { periodTotalUsd, byChartDay, byYmd, byYmdSource, usedVendorMirror, dominantSource };
 }
 
 export async function loadOpenAiDailyMergedSpendForF1(
@@ -193,6 +197,7 @@ export async function loadOpenAiDailyMergedSpendForF1(
     periodTotalUsd: 0,
     byChartDay: new Map(),
     byYmd: new Map(),
+    byYmdSource: new Map(),
     usedVendorMirror: false,
     dominantSource: "gateway",
   };

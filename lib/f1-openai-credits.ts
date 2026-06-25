@@ -11,6 +11,33 @@ import {
   openAiCombinedCreditsUsedEstimate,
 } from "@/lib/program";
 import { resolveUsdPerCredit } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
+import type { OpenAiDailyMergedSpend } from "@/lib/f1-openai-daily-spend";
+import { localYmd } from "@/lib/f1-cursor-vendor";
+
+function startOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
+function enumerateDays(periodStart: Date, periodEnd: Date): Date[] {
+  const startDay = startOfLocalDay(periodStart);
+  const endDay = startOfLocalDay(periodEnd);
+  if (startDay.getTime() > endDay.getTime()) return [];
+  const out: Date[] = [];
+  for (let d = new Date(startDay); d.getTime() <= endDay.getTime(); d.setDate(d.getDate() + 1)) {
+    out.push(new Date(d));
+  }
+  return out;
+}
+
+/** Workspace Analytics / manual users CSV = org pool; ChatGPT tile = pool − Codex per day. */
+function isOrgPoolChatGptSource(source: string | undefined): boolean {
+  return source === "workspace_analytics" || source === "manual_export";
+}
+
+/** Unified Credits and org-costs API rows carry explicit product slices. */
+function isExplicitChatGptProductSource(source: string | undefined): boolean {
+  return source === "unified_credits" || source === "vendor";
+}
 
 export type OpenAiF1Credits = {
   chatgptCredits: number;
@@ -23,6 +50,50 @@ export type OpenAiF1Credits = {
 function usdToCredits(usd: number, usdPerCredit: number): number {
   if (usd <= 0 || usdPerCredit <= 0) return 0;
   return usd / usdPerCredit;
+}
+
+export function resolveOpenAiCreditsFromDailyMerge(args: {
+  merged: OpenAiDailyMergedSpend;
+  periodStart: Date;
+  periodEnd: Date;
+  env?: Record<string, string | undefined>;
+}): OpenAiF1Credits {
+  const codexUsdPerCredit = resolveUsdPerCredit(args.env ?? process.env);
+  let chatgptCredits = 0;
+  let codexCredits = 0;
+  let combinedCredits = 0;
+
+  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
+    const ymd = localYmd(day);
+    const chatgptUsd = args.merged.chatgpt.byYmd.get(ymd) ?? 0;
+    const codexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
+    const chatgptSource = args.merged.chatgpt.byYmdSource.get(ymd) ?? "gateway";
+    const codexCr = usdToCredits(codexUsd, codexUsdPerCredit);
+
+    if (isExplicitChatGptProductSource(chatgptSource)) {
+      const chatgptCr = usdToCredits(chatgptUsd, OPENAI_CREDIT_OVERAGE_USD);
+      chatgptCredits += chatgptCr;
+      codexCredits += codexCr;
+      combinedCredits += chatgptCr + codexCr;
+    } else if (isOrgPoolChatGptSource(chatgptSource) && chatgptUsd > 0) {
+      const poolCr = usdToCredits(chatgptUsd, OPENAI_CREDIT_OVERAGE_USD);
+      chatgptCredits += Math.max(0, poolCr - codexCr);
+      codexCredits += codexCr;
+      combinedCredits += poolCr;
+    } else {
+      const chatgptCr = usdToCredits(chatgptUsd, OPENAI_CREDIT_OVERAGE_USD);
+      chatgptCredits += chatgptCr;
+      codexCredits += codexCr;
+      combinedCredits += chatgptCr + codexCr;
+    }
+  }
+
+  return {
+    chatgptCredits,
+    codexCredits,
+    combinedCredits,
+    mode: args.merged.chatgpt.usedVendorMirror || args.merged.codex.usedVendorMirror ? "direct" : "estimated",
+  };
 }
 
 export function resolveOpenAiF1Credits(args: {
@@ -47,8 +118,27 @@ export function resolveOpenAiF1Credits(args: {
   const codexUsdPerCredit = resolveUsdPerCredit(env);
 
   if (args.vendorMirrorCompositeUsed) {
+    // Caller should prefer resolveOpenAiCreditsFromDailyMerge — this path is a fallback.
+    const orgPoolUsd =
+      args.workspaceChatgptUsed
+        ? args.workspaceChatgptUsd
+        : args.manualChatgptUsed
+          ? args.manualChatgptUsd
+          : 0;
+    const codexCreditsDirect = usdToCredits(args.codexUsd, codexUsdPerCredit);
+
+    if (orgPoolUsd > 0 && codexCreditsDirect > 0 && !args.unifiedChatgptUsed) {
+      const orgPoolCredits = usdToCredits(orgPoolUsd, OPENAI_CREDIT_OVERAGE_USD);
+      return {
+        chatgptCredits: Math.max(0, orgPoolCredits - codexCreditsDirect),
+        codexCredits: codexCreditsDirect,
+        combinedCredits: orgPoolCredits,
+        mode: "direct",
+      };
+    }
+
     const chatgptCredits = usdToCredits(args.chatgptUsd, OPENAI_CREDIT_OVERAGE_USD);
-    const codexCredits = usdToCredits(args.codexUsd, codexUsdPerCredit);
+    const codexCredits = codexCreditsDirect;
     return {
       chatgptCredits,
       codexCredits,
