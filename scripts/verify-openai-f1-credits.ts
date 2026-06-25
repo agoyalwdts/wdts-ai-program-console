@@ -23,9 +23,10 @@ import {
   loadOpenAiOrgEnvelopeLayers,
   mergeLiveUnifiedIntoEnvelopeLayers,
   resolveOpenAiPortalEnvelope,
+  sumOpenAiWaCalibratedEnvelopeUsd,
 } from "@/lib/f1-openai-org-envelope";
 import { fetchOpenAiOrgCostsPeriodEnvelope } from "@/lib/f1-openai-org-costs-live";
-import { fetchUnifiedCreditsPeriodLayers } from "@/lib/f1-unified-credits-live";
+import { fetchUnifiedCreditsPeriodLayersCached } from "@/lib/f1-unified-credits-live";
 import { OPENAI_ORG_COSTS_VENDOR_KEY } from "@/lib/integrations/openai/org-costs";
 import { UNIFIED_CREDITS_VENDOR_KEY } from "@/lib/integrations/unified-credits/constants";
 
@@ -134,17 +135,22 @@ async function main(): Promise<void> {
     loadOpenAiSpendSnapshotForF1(prisma, { periodStart, periodEnd }),
     loadOpenAiOrgEnvelopeLayers(prisma, { periodStart, periodEnd }),
     fetchOpenAiOrgCostsPeriodEnvelope({ periodStart, periodEnd }),
-    fetchUnifiedCreditsPeriodLayers({ periodStart, periodEnd }),
+    fetchUnifiedCreditsPeriodLayersCached({ periodStart, periodEnd }),
   ]);
 
   const mergedLayers = mergeLiveUnifiedIntoEnvelopeLayers(envelopeLayers, liveUnified);
   const orgPoolUsd = sumOpenAiOrgPoolUsdFromMerged({ merged, periodStart, periodEnd });
+  const calibrated = sumOpenAiWaCalibratedEnvelopeUsd({
+    merged,
+    layers: mergedLayers,
+    periodStart,
+    periodEnd,
+  });
   const portal = resolveOpenAiPortalEnvelope({
     merged,
     layers: mergedLayers,
     periodStart,
     periodEnd,
-    liveOrgCosts,
   });
   const portalEnvelopeUsd = portal.envelopeUsd;
 
@@ -182,6 +188,9 @@ async function main(): Promise<void> {
   console.log(`WA org pool USD: $${orgPoolUsd.toFixed(2)} → ${Math.round(orgPoolUsd / OPENAI_CREDIT_OVERAGE_USD).toLocaleString()} credits`);
   console.log(
     `Portal-aligned envelope USD: $${portalEnvelopeUsd.toFixed(2)} → ${Math.round(portalCredits).toLocaleString()} credits (source=${portal.source})`,
+  );
+  console.log(
+    `WA-calibrated envelope: $${calibrated.totalUsd.toFixed(2)} → ${Math.round(calibrated.totalUsd / OPENAI_CREDIT_OVERAGE_USD).toLocaleString()} credits (uplift=${calibrated.uplift.toFixed(3)}, usesUplift=${calibrated.usesUplift})`,
   );
   if (liveOrgCosts) {
     console.log(

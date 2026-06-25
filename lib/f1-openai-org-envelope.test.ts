@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { OpenAiDailyMergedSpend } from "./f1-openai-daily-spend";
 import {
+  computeWaCreditUpliftRatio,
   dominantOpenAiEnvelopeSource,
   resolveOpenAiPortalEnvelope,
   sumOpenAiPortalAlignedEnvelopeUsd,
+  sumOpenAiWaCalibratedEnvelopeUsd,
   type OpenAiOrgEnvelopeLayers,
 } from "./f1-openai-org-envelope";
+import { OPENAI_CREDIT_OVERAGE_USD } from "./program";
 
 function emptyMerged(): OpenAiDailyMergedSpend {
   return {
@@ -70,6 +73,63 @@ describe("sumOpenAiPortalAlignedEnvelopeUsd", () => {
     });
 
     expect(usd).toBe(100);
+  });
+});
+
+describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
+  it("scales hybrid envelope by unified/WA overlap uplift (~504K → ~590K credits)", () => {
+    const merged = emptyMerged();
+    const upliftRatio = 589_900 / 504_908;
+    const waDayUsd = (504_908 * OPENAI_CREDIT_OVERAGE_USD) / (20 + 5 * upliftRatio);
+    const unifiedDayUsd = waDayUsd * upliftRatio;
+    const overlapDays = ["2026-06-21", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25"];
+
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map(overlapDays.map((d) => [d, unifiedDayUsd * 0.4])),
+      unifiedCodByYmd: new Map(overlapDays.map((d) => [d, unifiedDayUsd * 0.6])),
+      orgCostsChatByYmd: new Map(),
+      orgCostsCodByYmd: new Map(),
+      workspacePoolByYmd: new Map(
+        Array.from({ length: 25 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, waDayUsd] as const;
+        }),
+      ),
+    };
+
+    expect(
+      computeWaCreditUpliftRatio({
+        layers,
+        periodStart: new Date(2026, 5, 1),
+        periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+      }),
+    ).toBeCloseTo(upliftRatio, 2);
+
+    const raw = sumOpenAiPortalAlignedEnvelopeUsd({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+    });
+    const calibrated = sumOpenAiWaCalibratedEnvelopeUsd({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+    });
+
+    expect(raw / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(504_908, -2);
+    expect(calibrated.totalUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(589_900, -2);
+    expect(calibrated.usesUplift).toBe(true);
+
+    const portal = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+    });
+    expect(portal.source).toBe("unified_credits");
+    expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(589_900, -2);
   });
 });
 

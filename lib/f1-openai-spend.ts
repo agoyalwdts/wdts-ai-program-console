@@ -22,8 +22,7 @@ import {
   mergeLiveUnifiedIntoEnvelopeLayers,
   resolveOpenAiPortalEnvelope,
 } from "@/lib/f1-openai-org-envelope";
-import { fetchOpenAiOrgCostsPeriodEnvelope } from "@/lib/f1-openai-org-costs-live";
-import { fetchUnifiedCreditsPeriodLayers } from "@/lib/f1-unified-credits-live";
+import { fetchUnifiedCreditsPeriodLayersCached } from "@/lib/f1-unified-credits-live";
 import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
 import { resolveUsdPerCredit } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
 
@@ -70,31 +69,22 @@ function gatewayProductMapsFromSpendPoints(args: {
   return { chatgpt, codex };
 }
 
-const LIVE_ENVELOPE_TIMEOUT_MS = 15_000;
+const LIVE_UNIFIED_TIMEOUT_MS = 20_000;
 
-async function loadLiveOpenAiEnvelopeInputs(args: {
+async function loadLiveUnifiedEnvelopeLayers(args: {
   periodStart: Date;
   periodEnd: Date;
-}): Promise<{
-  liveOrgCosts: Awaited<ReturnType<typeof fetchOpenAiOrgCostsPeriodEnvelope>>;
-  liveUnified: Awaited<ReturnType<typeof fetchUnifiedCreditsPeriodLayers>>;
-}> {
-  const empty = { liveOrgCosts: null, liveUnified: null } as const;
-
+}): Promise<Awaited<ReturnType<typeof fetchUnifiedCreditsPeriodLayersCached>>> {
   try {
-    const result = await Promise.race([
-      Promise.all([
-        fetchOpenAiOrgCostsPeriodEnvelope(args),
-        fetchUnifiedCreditsPeriodLayers({ ...args, maxFiles: 25 }),
-      ]).then(([liveOrgCosts, liveUnified]) => ({ liveOrgCosts, liveUnified })),
-      new Promise<typeof empty>((resolve) => {
-        setTimeout(() => resolve(empty), LIVE_ENVELOPE_TIMEOUT_MS);
+    return await Promise.race([
+      fetchUnifiedCreditsPeriodLayersCached(args),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), LIVE_UNIFIED_TIMEOUT_MS);
       }),
     ]);
-    return result;
   } catch (err) {
-    console.error("[f1/openai-spend] live envelope fetch failed", err);
-    return empty;
+    console.error("[f1/openai-spend] live unified COSTS fetch failed", err);
+    return null;
   }
 }
 
@@ -104,17 +94,14 @@ export async function loadOpenAiSpendSnapshotForF1(
   args: { periodStart: Date; periodEnd: Date; budgetMonthMultiplier?: number },
 ): Promise<OpenAiF1SpendSnapshot> {
   const gateway = getGatewayClient();
-  const [programAgg, merged, vendorManualExport, envelopeLayers, liveEnvelope] = await Promise.all([
+  const [programAgg, merged, vendorManualExport, envelopeLayers, liveUnified] = await Promise.all([
     gateway.aggregateByProgram({ periodStart: args.periodStart, periodEnd: args.periodEnd }),
     loadOpenAiDailyMergedSpendForF1(prisma, args),
     loadManualVendorExportSpendForF1(prisma, args),
     loadOpenAiOrgEnvelopeLayers(prisma, args),
-    loadLiveOpenAiEnvelopeInputs(args),
+    loadLiveUnifiedEnvelopeLayers(args),
   ]);
-  const mergedEnvelopeLayers = mergeLiveUnifiedIntoEnvelopeLayers(
-    envelopeLayers,
-    liveEnvelope.liveUnified,
-  );
+  const mergedEnvelopeLayers = mergeLiveUnifiedIntoEnvelopeLayers(envelopeLayers, liveUnified);
 
   const mtdMap = new Map<ProductKey, number>(
     programAgg
@@ -150,7 +137,6 @@ export async function loadOpenAiSpendSnapshotForF1(
       layers: mergedEnvelopeLayers,
       periodStart: args.periodStart,
       periodEnd: args.periodEnd,
-      liveOrgCosts: liveEnvelope.liveOrgCosts,
     });
     credits = resolveOpenAiF1CreditsFromMerged({
       merged,

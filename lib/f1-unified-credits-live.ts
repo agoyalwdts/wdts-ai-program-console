@@ -16,10 +16,17 @@ import { UNIFIED_CREDITS_EVENT_TYPE } from "@/lib/integrations/unified-credits/c
 import { productFromCostsRow } from "@/lib/integrations/unified-credits/ingest";
 import { mapCostsEnvelope, parseUnifiedCreditsJsonl } from "@/lib/integrations/unified-credits/parse-jsonl";
 import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
+import { localYmd } from "@/lib/f1-cursor-vendor";
 
 const LIST_LIMIT = 100;
 const MAX_LIST_PAGES = 30;
 const MAX_FILES_PER_FETCH = 120;
+const LIVE_CACHE_TTL_MS = 600_000;
+
+const liveUnifiedCache = new Map<
+  string,
+  { expiresAt: number; value: UnifiedCreditsPeriodLayers | null }
+>();
 
 function startOfLocalDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
@@ -135,4 +142,26 @@ export async function fetchUnifiedCreditsPeriodLayers(args: {
     totalCredits: chatgptCredits + codexCredits,
     source: "live",
   };
+}
+
+function liveCacheKey(periodStart: Date, periodEnd: Date): string {
+  return `${localYmd(periodStart)}_${localYmd(periodEnd)}`;
+}
+
+/** Cached live COSTS pull (10 min TTL; only caches successful non-null results). */
+export async function fetchUnifiedCreditsPeriodLayersCached(
+  args: Parameters<typeof fetchUnifiedCreditsPeriodLayers>[0],
+): Promise<UnifiedCreditsPeriodLayers | null> {
+  const key = liveCacheKey(args.periodStart, args.periodEnd);
+  const hit = liveUnifiedCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.value;
+
+  const value = await fetchUnifiedCreditsPeriodLayers({
+    ...args,
+    maxFiles: args.maxFiles ?? MAX_FILES_PER_FETCH,
+  });
+  if (value) {
+    liveUnifiedCache.set(key, { expiresAt: Date.now() + LIVE_CACHE_TTL_MS, value });
+  }
+  return value;
 }

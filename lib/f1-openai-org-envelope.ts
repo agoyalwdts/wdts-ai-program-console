@@ -11,8 +11,14 @@ import { Product, type PrismaClient } from "@prisma/client";
 import type { OpenAiDailyMergedSpend } from "@/lib/f1-openai-daily-spend";
 import { localYmd } from "@/lib/f1-cursor-vendor";
 import { OPENAI_ORG_COSTS_VENDOR_KEY } from "@/lib/integrations/openai/org-costs";
-import { UNIFIED_CREDITS_VENDOR_KEY } from "@/lib/integrations/unified-credits/constants";
+import {
+  UNIFIED_CREDITS_SNAPSHOT_KIND,
+  UNIFIED_CREDITS_VENDOR_KEY,
+} from "@/lib/integrations/unified-credits/constants";
+import { productFromCostsRow } from "@/lib/integrations/unified-credits/ingest";
+import type { UnifiedCreditsRow } from "@/lib/integrations/unified-credits/types";
 import { WORKSPACE_ANALYTICS_USER_VENDOR_KEY } from "@/lib/integrations/workspace-analytics/vendor-key";
+import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
 
 function vendorDayRange(periodStart: Date, periodEnd: Date): { rangeStart: Date; rangeEnd: Date } {
   const startDay = new Date(periodStart);
@@ -61,6 +67,60 @@ async function loadVendorUsdByYmd(
   return map;
 }
 
+function mergeMaxUsdByYmd(...maps: Map<string, number>[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const map of maps) {
+    for (const [ymd, usd] of map) {
+      out.set(ymd, Math.max(out.get(ymd) ?? 0, usd));
+    }
+  }
+  return out;
+}
+
+function ymdInPeriod(ymd: string, periodStart: Date, periodEnd: Date): boolean {
+  const day = startOfLocalDay(new Date(`${ymd}T12:00:00`));
+  const start = startOfLocalDay(periodStart);
+  const end = startOfLocalDay(periodEnd);
+  return day.getTime() >= start.getTime() && day.getTime() <= end.getTime();
+}
+
+/** Unified COSTS rows from snapshot payloads (richer than VendorDailySpend alone). */
+async function loadUnifiedCreditsLayersFromSnapshots(
+  prisma: PrismaClient,
+  args: { periodStart: Date; periodEnd: Date },
+): Promise<{ unifiedChatByYmd: Map<string, number>; unifiedCodByYmd: Map<string, number> }> {
+  const { rangeStart, rangeEnd } = vendorDayRange(args.periodStart, args.periodEnd);
+  const snaps = await prisma.programVendorExportSnapshot.findMany({
+    where: {
+      kind: UNIFIED_CREDITS_SNAPSHOT_KIND,
+      periodStart: { gte: rangeStart, lte: rangeEnd },
+    },
+    select: { payload: true },
+  });
+
+  const seenEventIds = new Set<string>();
+  const unifiedChatByYmd = new Map<string, number>();
+  const unifiedCodByYmd = new Map<string, number>();
+
+  for (const snap of snaps) {
+    const rows = (snap.payload as { rows?: UnifiedCreditsRow[] } | null)?.rows ?? [];
+    for (const row of rows) {
+      if (seenEventIds.has(row.event_id)) continue;
+      if (!ymdInPeriod(row.day, args.periodStart, args.periodEnd)) continue;
+      seenEventIds.add(row.event_id);
+
+      const product = productFromCostsRow(row);
+      if (!product || row.credits_total <= 0) continue;
+
+      const usd = row.credits_total * OPENAI_CREDIT_OVERAGE_USD;
+      const target = product === Product.CHATGPT ? unifiedChatByYmd : unifiedCodByYmd;
+      target.set(row.day, (target.get(row.day) ?? 0) + usd);
+    }
+  }
+
+  return { unifiedChatByYmd, unifiedCodByYmd };
+}
+
 export type OpenAiOrgEnvelopeLayers = {
   unifiedChatByYmd: Map<string, number>;
   unifiedCodByYmd: Map<string, number>;
@@ -73,7 +133,7 @@ export async function loadOpenAiOrgEnvelopeLayers(
   prisma: PrismaClient,
   args: { periodStart: Date; periodEnd: Date },
 ): Promise<OpenAiOrgEnvelopeLayers> {
-  const [unifiedChatByYmd, unifiedCodByYmd, orgCostsChatByYmd, orgCostsCodByYmd, workspacePoolByYmd] =
+  const [unifiedChatVendor, unifiedCodVendor, orgCostsChatByYmd, orgCostsCodByYmd, workspacePoolByYmd, snapshotUnified] =
     await Promise.all([
       loadVendorUsdByYmd(prisma, {
         ...args,
@@ -100,15 +160,65 @@ export async function loadOpenAiOrgEnvelopeLayers(
         vendor: WORKSPACE_ANALYTICS_USER_VENDOR_KEY,
         product: Product.CHATGPT,
       }),
+      loadUnifiedCreditsLayersFromSnapshots(prisma, args),
     ]);
 
   return {
-    unifiedChatByYmd,
-    unifiedCodByYmd,
+    unifiedChatByYmd: mergeMaxUsdByYmd(unifiedChatVendor, snapshotUnified.unifiedChatByYmd),
+    unifiedCodByYmd: mergeMaxUsdByYmd(unifiedCodVendor, snapshotUnified.unifiedCodByYmd),
     orgCostsChatByYmd,
     orgCostsCodByYmd,
     workspacePoolByYmd,
   };
+}
+
+/** Min daily USD on overlap days when deriving WA→portal uplift from unified COSTS. */
+const MIN_OVERLAP_DAY_USD = 50;
+
+/** Median unified/WA ratio on days where both feeds have data (WA undercounts vs portal). */
+export function computeWaCreditUpliftRatio(args: {
+  layers: OpenAiOrgEnvelopeLayers;
+  periodStart: Date;
+  periodEnd: Date;
+}): number {
+  const dailyRatios: number[] = [];
+
+  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
+    const ymd = localYmd(day);
+    const unifiedUsd =
+      (args.layers.unifiedChatByYmd.get(ymd) ?? 0) + (args.layers.unifiedCodByYmd.get(ymd) ?? 0);
+    const waUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
+    if (unifiedUsd >= MIN_OVERLAP_DAY_USD && waUsd >= MIN_OVERLAP_DAY_USD) {
+      dailyRatios.push(unifiedUsd / waUsd);
+    }
+  }
+
+  if (dailyRatios.length === 0) return 1;
+
+  dailyRatios.sort((a, b) => a - b);
+  const median = dailyRatios[Math.floor(dailyRatios.length / 2)]!;
+  return Math.min(Math.max(median, 1), 1.35);
+}
+
+/**
+ * Scale the hybrid envelope by unified/WA overlap uplift.
+ * When unified COSTS and WA disagree on the same days, WA undercounts ~15–17%;
+ * multiply the period hybrid total to approximate OpenAI Admin Credits.
+ */
+export function sumOpenAiWaCalibratedEnvelopeUsd(args: {
+  merged: OpenAiDailyMergedSpend;
+  layers: OpenAiOrgEnvelopeLayers;
+  periodStart: Date;
+  periodEnd: Date;
+}): { totalUsd: number; uplift: number; usesUplift: boolean } {
+  const uplift = computeWaCreditUpliftRatio(args);
+  const dailyTotal = sumOpenAiPortalAlignedEnvelopeUsd(args);
+
+  if (uplift <= 1.005) {
+    return { totalUsd: dailyTotal, uplift: 1, usesUplift: false };
+  }
+
+  return { totalUsd: dailyTotal * uplift, uplift, usesUplift: true };
 }
 
 /** Per-day org envelope USD using billing-aligned source priority. */
@@ -228,6 +338,12 @@ export function resolveOpenAiPortalEnvelope(args: {
     periodStart: args.periodStart,
     periodEnd: args.periodEnd,
   });
+  const calibrated = sumOpenAiWaCalibratedEnvelopeUsd({
+    merged: args.merged,
+    layers: args.layers,
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+  });
 
   type Candidate = OpenAiPortalEnvelopeResolution;
   const candidates: Candidate[] = [
@@ -237,12 +353,30 @@ export function resolveOpenAiPortalEnvelope(args: {
       codexUsd: unifiedCod,
       source: "unified_credits" as const,
     },
+  ];
+
+  if (
+    calibrated.usesUplift &&
+    calibrated.totalUsd > dailyTotal + 0.01 &&
+    unifiedTotal < dailyTotal * 0.85
+  ) {
+    candidates.push({
+      envelopeUsd: calibrated.totalUsd,
+      chatgptUsd: unifiedChat,
+      codexUsd: unifiedCod,
+      source: "unified_credits" as const,
+    });
+  }
+
+  candidates.push(
     { envelopeUsd: orgTotal, chatgptUsd: orgChat, codexUsd: orgCod, source: "org_costs" as const },
     { envelopeUsd: dailyTotal, chatgptUsd: 0, codexUsd: 0, source: "mixed" as const },
     { envelopeUsd: waTotal, chatgptUsd: waTotal, codexUsd: 0, source: "workspace_analytics" as const },
-  ].filter((c) => c.envelopeUsd > 0);
+  );
 
-  if (candidates.length === 0) {
+  const filtered = candidates.filter((c) => c.envelopeUsd > 0);
+
+  if (filtered.length === 0) {
     return { envelopeUsd: 0, chatgptUsd: 0, codexUsd: 0, source: "mixed" };
   }
 
@@ -253,8 +387,8 @@ export function resolveOpenAiPortalEnvelope(args: {
     "workspace_analytics",
   ];
 
-  let best = candidates[0]!;
-  for (const c of candidates.slice(1)) {
+  let best = filtered[0]!;
+  for (const c of filtered.slice(1)) {
     if (c.envelopeUsd > best.envelopeUsd + 0.01) {
       best = c;
       continue;
