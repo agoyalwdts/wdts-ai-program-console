@@ -17,6 +17,11 @@ import {
 } from "@/lib/f1-manual-vendor-export";
 import type { ProductKey } from "@/lib/program";
 import { resolveOpenAiF1Credits, resolveOpenAiF1CreditsFromMerged, type OpenAiF1Credits } from "@/lib/f1-openai-credits";
+import {
+  dominantOpenAiEnvelopeSource,
+  loadOpenAiOrgEnvelopeLayers,
+  sumOpenAiPortalAlignedEnvelopeUsd,
+} from "@/lib/f1-openai-org-envelope";
 import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
 import { resolveUsdPerCredit } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
 
@@ -69,10 +74,11 @@ export async function loadOpenAiSpendSnapshotForF1(
   args: { periodStart: Date; periodEnd: Date; budgetMonthMultiplier?: number },
 ): Promise<OpenAiF1SpendSnapshot> {
   const gateway = getGatewayClient();
-  const [programAgg, merged, vendorManualExport] = await Promise.all([
+  const [programAgg, merged, vendorManualExport, envelopeLayers] = await Promise.all([
     gateway.aggregateByProgram({ periodStart: args.periodStart, periodEnd: args.periodEnd }),
     loadOpenAiDailyMergedSpendForF1(prisma, args),
     loadManualVendorExportSpendForF1(prisma, args),
+    loadOpenAiOrgEnvelopeLayers(prisma, args),
   ]);
 
   const mtdMap = new Map<ProductKey, number>(
@@ -104,6 +110,12 @@ export async function loadOpenAiSpendSnapshotForF1(
 
   let credits: OpenAiF1Credits;
   if (vendorMirrorCompositeUsed) {
+    const portalAlignedEnvelopeUsd = sumOpenAiPortalAlignedEnvelopeUsd({
+      merged,
+      layers: envelopeLayers,
+      periodStart: args.periodStart,
+      periodEnd: args.periodEnd,
+    });
     credits = resolveOpenAiF1CreditsFromMerged({
       merged,
       periodStart: args.periodStart,
@@ -111,6 +123,8 @@ export async function loadOpenAiSpendSnapshotForF1(
       manualChatgptUsd: vendorManualExport.chatgpt.used
         ? vendorManualExport.chatgpt.periodTotalUsd
         : undefined,
+      portalAlignedEnvelopeUsd,
+      combinedSource: dominantOpenAiEnvelopeSource(envelopeLayers),
     });
   } else {
     credits = resolveOpenAiF1Credits({

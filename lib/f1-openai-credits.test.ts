@@ -229,6 +229,43 @@ describe("resolveOpenAiF1CreditsFromMerged", () => {
     expect(r.chatgptCredits).toBeCloseTo(38_806, 0);
   });
 
+  it("uses portal-aligned envelope when higher than WA pool (portal ~590K vs WA ~470K)", () => {
+    const waPoolUsd = 32_962.72;
+    const portalUsd = 41_293; // ~589.9K credits @ $0.07
+    const codexUsd = 27_421.73;
+    const merged: OpenAiDailyMergedSpend = {
+      chatgpt: {
+        ...emptySeries(),
+        periodTotalUsd: waPoolUsd,
+        usedVendorMirror: true,
+        dominantSource: "workspace_analytics",
+        byYmd: new Map([["2026-06-01", waPoolUsd]]),
+        byYmdSource: new Map([["2026-06-01", "workspace_analytics"]]),
+      },
+      codex: {
+        ...emptySeries(),
+        periodTotalUsd: codexUsd,
+        usedVendorMirror: true,
+        dominantSource: "codex_enterprise_analytics_sync",
+        byYmd: new Map([["2026-06-01", codexUsd]]),
+        byYmdSource: new Map([["2026-06-01", "codex_enterprise_analytics_sync"]]),
+      },
+    };
+
+    const r = resolveOpenAiF1CreditsFromMerged({
+      merged,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+      portalAlignedEnvelopeUsd: portalUsd,
+      combinedSource: "org_costs",
+    });
+
+    expect(r.combinedCredits).toBeCloseTo(589_900, -2);
+    expect(r.codexCredits).toBeCloseTo(391_739, 0);
+    expect(r.chatgptCredits).toBeCloseTo(198_161, -2);
+    expect(r.combinedSource).toBe("org_costs");
+  });
+
   it("adds unified-credits days to org pool as chat + cod slices", () => {
     const merged: OpenAiDailyMergedSpend = {
       chatgpt: {

@@ -83,6 +83,9 @@ export function resolveOpenAiF1CreditsFromMerged(args: {
   periodStart: Date;
   periodEnd: Date;
   manualChatgptUsd?: number;
+  /** Billing-aligned org envelope (Unified Credits / org-costs / WA). When higher than WA pool, drives combinedCredits. */
+  portalAlignedEnvelopeUsd?: number;
+  combinedSource?: OpenAiF1Credits["combinedSource"];
   env?: Record<string, string | undefined>;
 }): OpenAiF1Credits {
   const env = args.env ?? process.env;
@@ -94,29 +97,34 @@ export function resolveOpenAiF1CreditsFromMerged(args: {
     args.manualChatgptUsd && args.manualChatgptUsd > 0
       ? args.manualChatgptUsd
       : sumOpenAiOrgPoolUsdFromMerged(args);
-  const orgPoolCredits = usdToCredits(orgPoolUsd, OPENAI_CREDIT_OVERAGE_USD);
+  const waPoolCredits = usdToCredits(orgPoolUsd, OPENAI_CREDIT_OVERAGE_USD);
+
+  const envelopeUsd = args.portalAlignedEnvelopeUsd ?? orgPoolUsd;
+  const combinedCredits = usdToCredits(envelopeUsd, OPENAI_CREDIT_OVERAGE_USD);
 
   const hasUnifiedDays = [...args.merged.chatgpt.byYmdSource.values()].some(
     (s) => s === "unified_credits",
   );
   const hasOrgPoolDays =
-    orgPoolCredits > 0 ||
+    waPoolCredits > 0 ||
     [...args.merged.chatgpt.byYmdSource.values()].some((s) => isOrgPoolChatGptSource(s));
 
-  if (hasOrgPoolDays && codexCredits > 0) {
+  if ((hasOrgPoolDays || envelopeUsd > 0) && codexCredits > 0) {
     return {
-      chatgptCredits: Math.max(0, orgPoolCredits - codexCredits),
+      chatgptCredits: Math.max(0, combinedCredits - codexCredits),
       codexCredits,
-      combinedCredits: orgPoolCredits,
+      combinedCredits,
+      combinedSource: args.combinedSource,
       mode: "direct",
     };
   }
 
-  if (hasOrgPoolDays) {
+  if (hasOrgPoolDays || combinedCredits > 0) {
     return {
-      chatgptCredits: orgPoolCredits,
+      chatgptCredits: combinedCredits,
       codexCredits: 0,
-      combinedCredits: orgPoolCredits,
+      combinedCredits,
+      combinedSource: args.combinedSource,
       mode: "direct",
     };
   }
@@ -134,6 +142,8 @@ export type OpenAiF1Credits = {
   combinedCredits: number;
   /** direct = vendor credits; estimated = gateway / org-costs USD model */
   mode: "direct" | "estimated";
+  /** When set, combinedCredits uses billing-aligned envelope (org-costs / unified). */
+  combinedSource?: "workspace_analytics" | "unified_credits" | "org_costs" | "mixed";
 };
 
 function usdToCredits(usd: number, usdPerCredit: number): number {

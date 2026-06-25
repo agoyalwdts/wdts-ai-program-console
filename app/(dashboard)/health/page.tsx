@@ -258,6 +258,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const openAiChatgptCreditsMtd = data.openAiSpend.credits.chatgptCredits;
   const openAiCodexCreditsMtd = data.openAiSpend.credits.codexCredits;
   const openAiCreditsMode = data.openAiSpend.credits.mode;
+  const openAiCombinedSource = data.openAiSpend.credits.combinedSource;
   const openAiBaselineUsdPeriod = OPENAI_POOLED_BASELINE_USD_MONTH * openAiM;
   const openAiOverageUsdPeriod = Math.max(0, combinedUsd - openAiBaselineUsdPeriod);
   const spendLabel = f1PeriodSpendLabel(period);
@@ -359,6 +360,22 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               </span>
               {formatUsd(openAiOverageUsdPeriod, { decimals: 0 })} overage
             </p>
+            {openAiCombinedSource && openAiCombinedSource !== "workspace_analytics" ? (
+              <p className="text-[11px] text-violet-700">
+                Combined credits from{" "}
+                {openAiCombinedSource === "org_costs"
+                  ? "OpenAI Organization Costs API"
+                  : openAiCombinedSource === "unified_credits"
+                    ? "Unified Credits COSTS (compliance)"
+                    : "billing-aligned vendor mirrors"}{" "}
+                — aligned with OpenAI Admin Credits; Workspace Analytics alone can run lower.
+              </p>
+            ) : openAiCombinedSource === "workspace_analytics" ? (
+              <p className="text-[11px] text-slate-500">
+                Combined credits from Workspace Analytics org pool — may run below OpenAI Admin →
+                Credits until org-costs or Unified Credits mirrors cover the period.
+              </p>
+            ) : null}
           </CardContent>
         </Card>
 
