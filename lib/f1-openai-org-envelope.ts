@@ -327,16 +327,9 @@ export function sumPortalEnvelopeProductUsd(args: {
       continue;
     }
 
-    if (waPoolUsd > 0) {
-      const poolUsd = waPoolUsd * uplift;
-      const dayCodexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
-      const codSlice = Math.min(poolUsd, dayCodexUsd);
-      codexUsd += codSlice;
-      chatgptUsd += Math.max(0, poolUsd - codSlice);
-      continue;
-    }
-
-    if (isIncompleteUnifiedDaySync(unifiedDay, waPoolUsd)) {
+    const incompleteUnified =
+      unifiedDay > 0 && isIncompleteUnifiedDaySync(unifiedDay, waPoolUsd);
+    if (incompleteUnified) {
       const projectedUsd = medianCompleteUnifiedDayUsd({
         periodStart: args.periodStart,
         periodEnd: args.periodEnd,
@@ -345,14 +338,25 @@ export function sumPortalEnvelopeProductUsd(args: {
         workspacePoolByYmd: args.layers.workspacePoolByYmd,
         excludeYmd: ymd,
       });
-      if (projectedUsd > unifiedDay + 0.01) {
+      const waEstimate = waPoolUsd > 0 ? waPoolUsd * uplift : 0;
+      const dayUsd = Math.max(projectedUsd, waEstimate);
+      if (dayUsd > unifiedDay + 0.01) {
         const dayCodexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
         const codSlice =
-          dayCodexUsd > 0 ? Math.min(projectedUsd, dayCodexUsd) : projectedUsd * 0.65;
+          dayCodexUsd > 0 ? Math.min(dayUsd, dayCodexUsd) : dayUsd * 0.65;
         codexUsd += codSlice;
-        chatgptUsd += Math.max(0, projectedUsd - codSlice);
+        chatgptUsd += Math.max(0, dayUsd - codSlice);
         continue;
       }
+    }
+
+    if (waPoolUsd > 0) {
+      const poolUsd = waPoolUsd * uplift;
+      const dayCodexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
+      const codSlice = Math.min(poolUsd, dayCodexUsd);
+      codexUsd += codSlice;
+      chatgptUsd += Math.max(0, poolUsd - codSlice);
+      continue;
     }
 
     chatgptUsd += args.merged.chatgpt.byYmd.get(ymd) ?? 0;
