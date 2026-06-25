@@ -3,6 +3,7 @@ import type { OpenAiDailyMergedSpend } from "./f1-openai-daily-spend";
 import {
   computeWaCreditUpliftRatio,
   dominantOpenAiEnvelopeSource,
+  hasWaOnlyDaysInPeriod,
   resolveOpenAiPortalEnvelope,
   sumOpenAiPortalAlignedEnvelopeUsd,
   sumOpenAiWaCalibratedEnvelopeUsd,
@@ -130,6 +131,54 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
     });
     expect(portal.source).toBe("unified_credits");
     expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(589_900, -2);
+  });
+
+  it("calibrates when unified period sum is high but early month days are WA-only (~572K → ~590K)", () => {
+    const merged = emptyMerged();
+    const upliftRatio = 589_900 / 504_908;
+    const waDayUsd = 504_908 * OPENAI_CREDIT_OVERAGE_USD / 25;
+    const unifiedDayUsd = waDayUsd * upliftRatio;
+
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map(
+        Array.from({ length: 20 }, (_, i) => {
+          const d = String(i + 6).padStart(2, "0");
+          return [`2026-06-${d}`, unifiedDayUsd * 0.4] as const;
+        }),
+      ),
+      unifiedCodByYmd: new Map(
+        Array.from({ length: 20 }, (_, i) => {
+          const d = String(i + 6).padStart(2, "0");
+          return [`2026-06-${d}`, unifiedDayUsd * 0.6] as const;
+        }),
+      ),
+      orgCostsChatByYmd: new Map(),
+      orgCostsCodByYmd: new Map(),
+      workspacePoolByYmd: new Map(
+        Array.from({ length: 25 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, waDayUsd] as const;
+        }),
+      ),
+    };
+
+    expect(
+      hasWaOnlyDaysInPeriod({
+        layers,
+        periodStart: new Date(2026, 5, 1),
+        periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+      }),
+    ).toBe(true);
+
+    const portal = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+    });
+
+    expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(589_900, -2);
+    expect(portal.source).toBe("unified_credits");
   });
 });
 
