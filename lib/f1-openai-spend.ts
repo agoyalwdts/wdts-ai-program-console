@@ -16,7 +16,7 @@ import {
   mergeManualVendorExportIntoF1,
 } from "@/lib/f1-manual-vendor-export";
 import type { ProductKey } from "@/lib/program";
-import { resolveOpenAiF1Credits, resolveOpenAiCreditsFromDailyMerge, type OpenAiF1Credits } from "@/lib/f1-openai-credits";
+import { resolveOpenAiF1Credits, resolveOpenAiF1CreditsFromMerged, type OpenAiF1Credits } from "@/lib/f1-openai-credits";
 import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
 import { resolveUsdPerCredit } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
 
@@ -103,35 +103,15 @@ export async function loadOpenAiSpendSnapshotForF1(
     vendorManualExport.codex.used;
 
   let credits: OpenAiF1Credits;
-  const hasUnifiedCreditsDays = [...merged.chatgpt.byYmdSource.values()].some(
-    (s) => s === "unified_credits",
-  );
   if (vendorMirrorCompositeUsed) {
-    credits = resolveOpenAiCreditsFromDailyMerge({
+    credits = resolveOpenAiF1CreditsFromMerged({
       merged,
       periodStart: args.periodStart,
       periodEnd: args.periodEnd,
+      manualChatgptUsd: vendorManualExport.chatgpt.used
+        ? vendorManualExport.chatgpt.periodTotalUsd
+        : undefined,
     });
-    // When the period is org-pool Workspace Analytics (no Unified Credits days),
-    // enforce pool − Codex at period level so misaligned day keys cannot skip subtraction.
-    if (
-      !hasUnifiedCreditsDays &&
-      (merged.chatgpt.dominantSource === "workspace_analytics" ||
-        vendorManualExport.chatgpt.used)
-    ) {
-      const poolCredits =
-        (vendorManualExport.chatgpt.used
-          ? vendorManualExport.chatgpt.periodTotalUsd
-          : merged.chatgpt.periodTotalUsd) / OPENAI_CREDIT_OVERAGE_USD;
-      if (poolCredits > 0 && credits.codexCredits > 0) {
-        credits = {
-          chatgptCredits: Math.max(0, poolCredits - credits.codexCredits),
-          codexCredits: credits.codexCredits,
-          combinedCredits: poolCredits,
-          mode: "direct",
-        };
-      }
-    }
   } else {
     credits = resolveOpenAiF1Credits({
       chatgptUsd,
@@ -143,7 +123,9 @@ export async function loadOpenAiSpendSnapshotForF1(
       manualChatgptUsd: vendorManualExport.chatgpt.periodTotalUsd,
       codexEnterpriseUsed: merged.codex.dominantSource === "codex_enterprise_analytics_sync",
       codexEnterpriseUsd: merged.codex.periodTotalUsd,
-      unifiedChatgptUsed: hasUnifiedCreditsDays,
+      unifiedChatgptUsed: [...merged.chatgpt.byYmdSource.values()].some(
+        (s) => s === "unified_credits",
+      ),
       unifiedChatgptUsd: merged.chatgpt.periodTotalUsd,
       unifiedCodexUsed: [...merged.codex.byYmdSource.values()].some((s) => s === "unified_credits"),
       unifiedCodexUsd: merged.codex.periodTotalUsd,

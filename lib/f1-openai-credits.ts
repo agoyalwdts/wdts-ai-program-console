@@ -39,6 +39,95 @@ function isExplicitChatGptProductSource(source: string | undefined): boolean {
   return source === "unified_credits" || source === "vendor";
 }
 
+/** Sum org-pool USD: WA/manual daily pool rows + unified days (chat + cod slices). */
+export function sumOpenAiOrgPoolUsdFromMerged(args: {
+  merged: OpenAiDailyMergedSpend;
+  periodStart: Date;
+  periodEnd: Date;
+}): number {
+  let poolUsd = 0;
+  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
+    const ymd = localYmd(day);
+    const chatgptUsd = args.merged.chatgpt.byYmd.get(ymd) ?? 0;
+    const codexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
+    const chatgptSource = args.merged.chatgpt.byYmdSource.get(ymd) ?? "gateway";
+
+    if (chatgptSource === "unified_credits") {
+      poolUsd += chatgptUsd + codexUsd;
+    } else if (isOrgPoolChatGptSource(chatgptSource)) {
+      poolUsd += chatgptUsd;
+    }
+  }
+  return poolUsd;
+}
+
+function sumOpenAiCodexUsdFromMerged(args: {
+  merged: OpenAiDailyMergedSpend;
+  periodStart: Date;
+  periodEnd: Date;
+}): number {
+  let codexUsd = 0;
+  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
+    const ymd = localYmd(day);
+    codexUsd += args.merged.codex.byYmd.get(ymd) ?? 0;
+  }
+  return codexUsd;
+}
+
+/**
+ * Resolve F1 OpenAI credits from merged vendor daily series.
+ * Workspace Analytics = org pool → ChatGPT tile is pool − Codex for the period.
+ */
+export function resolveOpenAiF1CreditsFromMerged(args: {
+  merged: OpenAiDailyMergedSpend;
+  periodStart: Date;
+  periodEnd: Date;
+  manualChatgptUsd?: number;
+  env?: Record<string, string | undefined>;
+}): OpenAiF1Credits {
+  const env = args.env ?? process.env;
+  const codexUsdPerCredit = resolveUsdPerCredit(env);
+  const codexUsd = sumOpenAiCodexUsdFromMerged(args);
+  const codexCredits = usdToCredits(codexUsd, codexUsdPerCredit);
+
+  const orgPoolUsd =
+    args.manualChatgptUsd && args.manualChatgptUsd > 0
+      ? args.manualChatgptUsd
+      : sumOpenAiOrgPoolUsdFromMerged(args);
+  const orgPoolCredits = usdToCredits(orgPoolUsd, OPENAI_CREDIT_OVERAGE_USD);
+
+  const hasUnifiedDays = [...args.merged.chatgpt.byYmdSource.values()].some(
+    (s) => s === "unified_credits",
+  );
+  const hasOrgPoolDays =
+    orgPoolCredits > 0 ||
+    [...args.merged.chatgpt.byYmdSource.values()].some((s) => isOrgPoolChatGptSource(s));
+
+  if (hasOrgPoolDays && codexCredits > 0) {
+    return {
+      chatgptCredits: Math.max(0, orgPoolCredits - codexCredits),
+      codexCredits,
+      combinedCredits: orgPoolCredits,
+      mode: "direct",
+    };
+  }
+
+  if (hasOrgPoolDays) {
+    return {
+      chatgptCredits: orgPoolCredits,
+      codexCredits: 0,
+      combinedCredits: orgPoolCredits,
+      mode: "direct",
+    };
+  }
+
+  if (hasUnifiedDays) {
+    return resolveOpenAiCreditsFromDailyMerge(args);
+  }
+
+  return resolveOpenAiCreditsFromDailyMerge(args);
+}
+
 export type OpenAiF1Credits = {
   chatgptCredits: number;
   codexCredits: number;

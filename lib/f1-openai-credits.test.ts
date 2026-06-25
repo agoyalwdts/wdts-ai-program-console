@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveOpenAiF1Credits, resolveOpenAiCreditsFromDailyMerge } from "./f1-openai-credits";
+import { resolveOpenAiF1Credits, resolveOpenAiCreditsFromDailyMerge, resolveOpenAiF1CreditsFromMerged } from "./f1-openai-credits";
 import type { OpenAiDailyMergedSpend } from "./f1-openai-daily-spend";
 
 
@@ -174,5 +174,89 @@ describe("resolveOpenAiCreditsFromDailyMerge", () => {
     expect(r.chatgptCredits).toBeCloseTo(10_000, 0);
     expect(r.codexCredits).toBeCloseTo(4_285.7, 0);
     expect(r.combinedCredits).toBeCloseTo(14_285.7, 0);
+  });
+});
+
+describe("resolveOpenAiF1CreditsFromMerged", () => {
+  function emptySeries() {
+    return {
+      periodTotalUsd: 0,
+      byChartDay: new Map<string, number>(),
+      byYmd: new Map<string, number>(),
+      byYmdSource: new Map<string, string>(),
+      usedVendorMirror: false,
+      dominantSource: "gateway" as const,
+    };
+  }
+
+  it("uses WA org-pool rows only for pool − Codex (ignores vendor slice inflation)", () => {
+    const waPoolUsd = 30_138.15; // 430545 credits @ $0.07
+    const vendorSliceUsd = 3_512.41; // would inflate merged.chatgpt.periodTotalUsd
+    const codexUsd = 27_421.73; // 391739 credits @ $0.07
+    const merged: OpenAiDailyMergedSpend = {
+      chatgpt: {
+        ...emptySeries(),
+        periodTotalUsd: waPoolUsd + vendorSliceUsd,
+        usedVendorMirror: true,
+        dominantSource: "workspace_analytics",
+        byYmd: new Map([
+          ["2026-06-01", waPoolUsd],
+          ["2026-06-02", vendorSliceUsd],
+        ]),
+        byYmdSource: new Map([
+          ["2026-06-01", "workspace_analytics"],
+          ["2026-06-02", "vendor"],
+        ]),
+      },
+      codex: {
+        ...emptySeries(),
+        periodTotalUsd: codexUsd,
+        usedVendorMirror: true,
+        dominantSource: "codex_enterprise_analytics_sync",
+        byYmd: new Map([["2026-06-01", codexUsd]]),
+        byYmdSource: new Map([["2026-06-01", "codex_enterprise_analytics_sync"]]),
+      },
+    };
+
+    const r = resolveOpenAiF1CreditsFromMerged({
+      merged,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 2, 23, 59, 59),
+    });
+
+    expect(r.combinedCredits).toBeCloseTo(430_545, 0);
+    expect(r.codexCredits).toBeCloseTo(391_739, 0);
+    expect(r.chatgptCredits).toBeCloseTo(38_806, 0);
+  });
+
+  it("adds unified-credits days to org pool as chat + cod slices", () => {
+    const merged: OpenAiDailyMergedSpend = {
+      chatgpt: {
+        ...emptySeries(),
+        periodTotalUsd: 700,
+        usedVendorMirror: true,
+        dominantSource: "unified_credits",
+        byYmd: new Map([["2026-06-21", 700]]),
+        byYmdSource: new Map([["2026-06-21", "unified_credits"]]),
+      },
+      codex: {
+        ...emptySeries(),
+        periodTotalUsd: 300,
+        usedVendorMirror: true,
+        dominantSource: "unified_credits",
+        byYmd: new Map([["2026-06-21", 300]]),
+        byYmdSource: new Map([["2026-06-21", "unified_credits"]]),
+      },
+    };
+
+    const r = resolveOpenAiF1CreditsFromMerged({
+      merged,
+      periodStart: new Date(2026, 5, 21),
+      periodEnd: new Date(2026, 5, 21, 23, 59, 59),
+    });
+
+    expect(r.combinedCredits).toBeCloseTo(14_285.7, 0);
+    expect(r.chatgptCredits).toBeCloseTo(10_000, 0);
+    expect(r.codexCredits).toBeCloseTo(4_285.7, 0);
   });
 });
