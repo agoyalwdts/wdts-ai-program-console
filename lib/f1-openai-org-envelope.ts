@@ -245,60 +245,6 @@ export function computeWaCreditUpliftRatio(args: {
   return Math.min(Math.max(uplift, 1), 1.35);
 }
 
-/** True when at least one period day has both unified COSTS and WA pool above noise floor. */
-function hasOverlapDaysInPeriod(args: {
-  layers: OpenAiOrgEnvelopeLayers;
-  periodStart: Date;
-  periodEnd: Date;
-}): boolean {
-  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
-    const ymd = localYmd(day);
-    const unifiedUsd =
-      (args.layers.unifiedChatByYmd.get(ymd) ?? 0) + (args.layers.unifiedCodByYmd.get(ymd) ?? 0);
-    const waUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
-    if (unifiedUsd >= MIN_OVERLAP_DAY_USD && waUsd >= MIN_OVERLAP_DAY_USD) return true;
-  }
-  return false;
-}
-
-function splitEnvelopeUsdByUnifiedCoverage(args: {
-  merged: OpenAiDailyMergedSpend;
-  layers: OpenAiOrgEnvelopeLayers;
-  periodStart: Date;
-  periodEnd: Date;
-}): { unifiedUsd: number; nonUnifiedUsd: number } {
-  let unifiedUsd = 0;
-  let nonUnifiedUsd = 0;
-
-  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
-    const ymd = localYmd(day);
-    const dayUnified =
-      (args.layers.unifiedChatByYmd.get(ymd) ?? 0) + (args.layers.unifiedCodByYmd.get(ymd) ?? 0);
-    if (dayUnified > 0) {
-      unifiedUsd += dayUnified;
-      continue;
-    }
-
-    const orgCostsUsd =
-      (args.layers.orgCostsChatByYmd.get(ymd) ?? 0) + (args.layers.orgCostsCodByYmd.get(ymd) ?? 0);
-    if (orgCostsUsd > 0) {
-      nonUnifiedUsd += orgCostsUsd;
-      continue;
-    }
-
-    const waPoolUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
-    if (waPoolUsd > 0) {
-      nonUnifiedUsd += waPoolUsd;
-      continue;
-    }
-
-    nonUnifiedUsd +=
-      (args.merged.chatgpt.byYmd.get(ymd) ?? 0) + (args.merged.codex.byYmd.get(ymd) ?? 0);
-  }
-
-  return { unifiedUsd, nonUnifiedUsd };
-}
-
 /** True when at least one period day has WA pool but no unified COSTS row. */
 export function hasWaOnlyDaysInPeriod(args: {
   layers: OpenAiOrgEnvelopeLayers;
@@ -316,9 +262,8 @@ export function hasWaOnlyDaysInPeriod(args: {
 }
 
 /**
- * Scale the hybrid envelope by unified/WA overlap uplift.
- * When unified COSTS and WA disagree on the same days, WA undercounts ~15–17%;
- * multiply the period hybrid total to approximate OpenAI Admin Credits.
+ * Scale WA-only gap days toward OpenAI Admin Credits.
+ * Unified COSTS days are billing-native and are never re-uplifted.
  */
 export function sumOpenAiWaCalibratedEnvelopeUsd(args: {
   merged: OpenAiDailyMergedSpend;
@@ -326,21 +271,49 @@ export function sumOpenAiWaCalibratedEnvelopeUsd(args: {
   periodStart: Date;
   periodEnd: Date;
 }): { totalUsd: number; uplift: number; usesUplift: boolean } {
-  const uplift = computeWaCreditUpliftRatio(args);
   const dailyTotal = sumOpenAiPortalAlignedEnvelopeUsd(args);
 
+  if (
+    !hasWaOnlyDaysInPeriod({
+      layers: args.layers,
+      periodStart: args.periodStart,
+      periodEnd: args.periodEnd,
+    })
+  ) {
+    return { totalUsd: dailyTotal, uplift: 1, usesUplift: false };
+  }
+
+  const uplift = computeWaCreditUpliftRatio(args);
   if (uplift <= 1.005) {
     return { totalUsd: dailyTotal, uplift: 1, usesUplift: false };
   }
 
-  const { unifiedUsd, nonUnifiedUsd } = splitEnvelopeUsdByUnifiedCoverage(args);
-  const splitCalibrated = unifiedUsd + uplift * nonUnifiedUsd;
-  const fullCalibrated = dailyTotal * uplift;
-  const overlapDays = hasOverlapDaysInPeriod(args);
-  const totalUsd =
-    overlapDays && nonUnifiedUsd > unifiedUsd
-      ? Math.max(splitCalibrated, fullCalibrated)
-      : splitCalibrated;
+  let totalUsd = 0;
+  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
+    const ymd = localYmd(day);
+    const unifiedUsd =
+      (args.layers.unifiedChatByYmd.get(ymd) ?? 0) + (args.layers.unifiedCodByYmd.get(ymd) ?? 0);
+    if (unifiedUsd > 0) {
+      totalUsd += unifiedUsd;
+      continue;
+    }
+
+    const waPoolUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
+    if (waPoolUsd > 0) {
+      totalUsd += waPoolUsd * uplift;
+      continue;
+    }
+
+    const orgCostsUsd =
+      (args.layers.orgCostsChatByYmd.get(ymd) ?? 0) + (args.layers.orgCostsCodByYmd.get(ymd) ?? 0);
+    if (orgCostsUsd > 0) {
+      totalUsd += orgCostsUsd;
+      continue;
+    }
+
+    totalUsd +=
+      (args.merged.chatgpt.byYmd.get(ymd) ?? 0) + (args.merged.codex.byYmd.get(ymd) ?? 0);
+  }
 
   return {
     totalUsd,
@@ -505,7 +478,15 @@ export function resolveOpenAiPortalEnvelope(args: {
     },
   ];
 
-  if (calibrated.usesUplift && calibrated.totalUsd > dailyTotal + 0.01) {
+  if (
+    calibrated.usesUplift &&
+    hasWaOnlyDaysInPeriod({
+      layers: args.layers,
+      periodStart: args.periodStart,
+      periodEnd: args.periodEnd,
+    }) &&
+    calibrated.totalUsd > unifiedTotal + 0.01
+  ) {
     candidates.push({
       envelopeUsd: calibrated.totalUsd,
       chatgptUsd: unifiedChat,

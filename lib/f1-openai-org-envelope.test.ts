@@ -78,7 +78,7 @@ describe("sumOpenAiPortalAlignedEnvelopeUsd", () => {
 });
 
 describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
-  it("scales hybrid envelope by unified/WA overlap uplift (~504K → ~590K credits)", () => {
+  it("uplifts only WA-only gap days when unified covers the overlap (~504K → ~571K)", () => {
     const merged = emptyMerged();
     const upliftRatio = 589_900 / 504_908;
     const waDayUsd = (504_908 * OPENAI_CREDIT_OVERAGE_USD) / (20 + 5 * upliftRatio);
@@ -120,7 +120,7 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
     });
 
     expect(raw / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(504_908, -2);
-    expect(calibrated.totalUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(589_900, -2);
+    expect(calibrated.totalUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(570_687, -2);
     expect(calibrated.usesUplift).toBe(true);
 
     const portal = resolveOpenAiPortalEnvelope({
@@ -130,7 +130,35 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
       periodEnd: new Date(2026, 5, 25, 23, 59, 59),
     });
     expect(portal.source).toBe("unified_credits");
+    expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(570_687, -2);
+  });
+
+  it("uplifts every WA-only day when unified COSTS has not synced (~504K → ~590K)", () => {
+    const merged = emptyMerged();
+    const upliftRatio = 589_900 / 504_908;
+    const waDayUsd = (504_908 * OPENAI_CREDIT_OVERAGE_USD) / 25;
+
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map(),
+      unifiedCodByYmd: new Map(),
+      orgCostsChatByYmd: new Map(),
+      orgCostsCodByYmd: new Map(),
+      workspacePoolByYmd: new Map(
+        Array.from({ length: 25 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, waDayUsd] as const;
+        }),
+      ),
+    };
+
+    const portal = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+    });
     expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(589_900, -2);
+    expect(portal.source).toBe("unified_credits");
   });
 
   it("calibrates when unified period sum is high but early month days are WA-only (~572K → ~590K)", () => {
@@ -225,6 +253,55 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
     });
 
     expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(589_900, -2);
+    expect(portal.source).toBe("unified_credits");
+  });
+
+  it("does not re-uplift when every day has unified COSTS (~600.5K portal)", () => {
+    const merged = emptyMerged();
+    const portalCredits = 600_500;
+    const dayUsd = (portalCredits * OPENAI_CREDIT_OVERAGE_USD) / 25;
+    const waDayUsd = dayUsd * 0.85;
+
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map(
+        Array.from({ length: 25 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, dayUsd * 0.35] as const;
+        }),
+      ),
+      unifiedCodByYmd: new Map(
+        Array.from({ length: 25 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, dayUsd * 0.65] as const;
+        }),
+      ),
+      orgCostsChatByYmd: new Map(),
+      orgCostsCodByYmd: new Map(),
+      workspacePoolByYmd: new Map(
+        Array.from({ length: 25 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, waDayUsd] as const;
+        }),
+      ),
+    };
+
+    expect(
+      hasWaOnlyDaysInPeriod({
+        layers,
+        periodStart: new Date(2026, 5, 1),
+        periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+      }),
+    ).toBe(false);
+
+    const portal = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+    });
+
+    expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(portalCredits, -2);
+    expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeLessThan(642_391);
     expect(portal.source).toBe("unified_credits");
   });
 });
