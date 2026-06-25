@@ -4,7 +4,6 @@ import {
   computeWaCreditUpliftRatio,
   dominantOpenAiEnvelopeSource,
   hasWaOnlyDaysInPeriod,
-  isIncompleteUnifiedDaySync,
   preferVendorUnifiedUsdByYmd,
   resolveOpenAiPortalEnvelope,
   sumOpenAiPortalAlignedEnvelopeUsd,
@@ -34,19 +33,6 @@ function emptyMerged(): OpenAiDailyMergedSpend {
     },
   };
 }
-
-describe("isIncompleteUnifiedDaySync", () => {
-  it("flags a sliver unified row when WA already shows a full day", () => {
-    const partialUnifiedUsd = 399 * OPENAI_CREDIT_OVERAGE_USD;
-    const waDayUsd = (504_908 * OPENAI_CREDIT_OVERAGE_USD) / 25;
-    expect(isIncompleteUnifiedDaySync(partialUnifiedUsd, waDayUsd)).toBe(true);
-  });
-
-  it("trusts unified when it matches most of the WA pool", () => {
-    const waDayUsd = 2_000;
-    expect(isIncompleteUnifiedDaySync(1_500, waDayUsd)).toBe(false);
-  });
-});
 
 describe("preferVendorUnifiedUsdByYmd", () => {
   it("uses vendor daily totals when present and snapshot only for gaps", () => {
@@ -443,6 +429,58 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
     expect(day25Delta).toBeGreaterThan(10_000);
     expect(day25Delta).not.toBeCloseTo(399, -1);
     expect(jun25Credits).toBeCloseTo(589_900, -2);
+  });
+
+  it("projects a trailing incomplete day from median unified when WA has not synced", () => {
+    const merged = emptyMerged();
+    const unifiedDayUsd = 2_000;
+    const partialJun25UnifiedUsd = 399 * OPENAI_CREDIT_OVERAGE_USD;
+    merged.codex.byYmd.set("2026-06-25", unifiedDayUsd * 0.65);
+
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map([
+        ...Array.from({ length: 24 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, unifiedDayUsd * 0.4] as const;
+        }),
+        ["2026-06-25", partialJun25UnifiedUsd * 0.4],
+      ]),
+      unifiedCodByYmd: new Map([
+        ...Array.from({ length: 24 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, unifiedDayUsd * 0.6] as const;
+        }),
+        ["2026-06-25", partialJun25UnifiedUsd * 0.6],
+      ]),
+      orgCostsChatByYmd: new Map(),
+      orgCostsCodByYmd: new Map(),
+      workspacePoolByYmd: new Map(
+        Array.from({ length: 24 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, 1_500] as const;
+        }),
+      ),
+    };
+
+    const throughJun24 = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 24, 23, 59, 59),
+    });
+    const throughJun25 = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+    });
+
+    expect(
+      throughJun25.envelopeUsd - throughJun24.envelopeUsd,
+    ).toBeGreaterThan(1_000);
+    expect(throughJun25.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeGreaterThan(
+      throughJun24.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD + 10_000,
+    );
   });
 });
 

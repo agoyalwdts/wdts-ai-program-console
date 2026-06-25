@@ -11,6 +11,7 @@ import { OPENAI_ORG_COSTS_VENDOR_KEY } from "@/lib/integrations/openai/org-costs
 import { UNIFIED_CREDITS_VENDOR_KEY } from "@/lib/integrations/unified-credits/constants";
 import { WORKSPACE_ANALYTICS_USER_VENDOR_KEY } from "@/lib/integrations/workspace-analytics/vendor-key";
 import { localYmd } from "@/lib/f1-cursor-vendor";
+import { incompleteUnifiedDayYmds } from "@/lib/f1-openai-unified-sync";
 import type { ProductKey } from "@/lib/program";
 import type { OpenAiF1SpendSources } from "@/lib/f1-openai-spend";
 
@@ -140,6 +141,7 @@ function mergeProductDaily(args: {
   layers: VendorLayer[];
   layerMaps: Map<string, Map<string, number>>;
   gatewayByYmd?: Map<string, number>;
+  skipUnifiedYmds?: Set<string>;
 }): OpenAiDailyProductSeries {
   const days = enumerateDays(args.periodStart, args.periodEnd);
   const byYmd = new Map<string, number>();
@@ -155,6 +157,7 @@ function mergeProductDaily(args: {
     let source: string = "gateway";
 
     for (const layer of [...args.layers].sort((a, b) => b.priority - a.priority)) {
+      if (layer.source === "unified_credits" && args.skipUnifiedYmds?.has(ymd)) continue;
       const layerUsd = args.layerMaps.get(layer.mapKey)?.get(ymd) ?? 0;
       if (layerUsd > 0) {
         usd = layerUsd;
@@ -241,6 +244,21 @@ export async function loadOpenAiDailyMergedSpendForF1(
 
   await Promise.all(loads);
 
+  const unifiedChat =
+    layerMaps.get(`${UNIFIED_CREDITS_VENDOR_KEY}:${Product.CHATGPT}`) ?? new Map<string, number>();
+  const unifiedCod =
+    layerMaps.get(`${UNIFIED_CREDITS_VENDOR_KEY}:${Product.CODEX}`) ?? new Map<string, number>();
+  const workspacePool =
+    layerMaps.get(`${WORKSPACE_ANALYTICS_USER_VENDOR_KEY}:${Product.CHATGPT}`) ??
+    new Map<string, number>();
+  const skipUnifiedYmds = incompleteUnifiedDayYmds({
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+    unifiedChatByYmd: unifiedChat,
+    unifiedCodByYmd: unifiedCod,
+    workspacePoolByYmd: workspacePool,
+  });
+
   return {
     chatgpt: mergeProductDaily({
       periodStart: args.periodStart,
@@ -248,6 +266,7 @@ export async function loadOpenAiDailyMergedSpendForF1(
       layers: CHATGPT_LAYERS,
       layerMaps,
       gatewayByYmd: args.gatewayChatgptByYmd,
+      skipUnifiedYmds,
     }),
     codex: mergeProductDaily({
       periodStart: args.periodStart,
@@ -255,6 +274,7 @@ export async function loadOpenAiDailyMergedSpendForF1(
       layers: CODEX_LAYERS,
       layerMaps,
       gatewayByYmd: args.gatewayCodexByYmd,
+      skipUnifiedYmds,
     }),
   };
 }

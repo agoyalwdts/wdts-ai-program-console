@@ -19,6 +19,13 @@ import { productFromCostsRow } from "@/lib/integrations/unified-credits/ingest";
 import type { UnifiedCreditsRow } from "@/lib/integrations/unified-credits/types";
 import { WORKSPACE_ANALYTICS_USER_VENDOR_KEY } from "@/lib/integrations/workspace-analytics/vendor-key";
 import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
+import {
+  isIncompleteUnifiedDaySync,
+  medianCompleteUnifiedDayUsd,
+  MIN_UNIFIED_COMPLETE_DAY_USD,
+} from "@/lib/f1-openai-unified-sync";
+
+export { isIncompleteUnifiedDaySync } from "@/lib/f1-openai-unified-sync";
 
 function vendorDayRange(periodStart: Date, periodEnd: Date): { rangeStart: Date; rangeEnd: Date } {
   const startDay = new Date(periodStart);
@@ -178,19 +185,8 @@ export async function loadOpenAiOrgEnvelopeLayers(
   };
 }
 
-/** Min daily USD on overlap days when deriving WA→portal uplift from unified COSTS. */
-const MIN_OVERLAP_DAY_USD = 50;
-
-/**
- * Unified COSTS can land mid-day with only a sliver synced. A tiny unified row must
- * not block the WA pool fallback when WA already shows a full day of usage.
- */
-export function isIncompleteUnifiedDaySync(unifiedUsd: number, waPoolUsd: number): boolean {
-  if (unifiedUsd <= 0) return false;
-  if (waPoolUsd < MIN_OVERLAP_DAY_USD) return false;
-  if (unifiedUsd < MIN_OVERLAP_DAY_USD) return true;
-  return unifiedUsd < waPoolUsd * 0.05;
-}
+/** @deprecated alias — use MIN_UNIFIED_COMPLETE_DAY_USD */
+const MIN_OVERLAP_DAY_USD = MIN_UNIFIED_COMPLETE_DAY_USD;
 
 /**
  * Fallback WA→portal uplift when unified and WA cover disjoint day ranges (no overlap
@@ -338,6 +334,25 @@ export function sumPortalEnvelopeProductUsd(args: {
       codexUsd += codSlice;
       chatgptUsd += Math.max(0, poolUsd - codSlice);
       continue;
+    }
+
+    if (isIncompleteUnifiedDaySync(unifiedDay, waPoolUsd)) {
+      const projectedUsd = medianCompleteUnifiedDayUsd({
+        periodStart: args.periodStart,
+        periodEnd: args.periodEnd,
+        unifiedChatByYmd: args.layers.unifiedChatByYmd,
+        unifiedCodByYmd: args.layers.unifiedCodByYmd,
+        workspacePoolByYmd: args.layers.workspacePoolByYmd,
+        excludeYmd: ymd,
+      });
+      if (projectedUsd > unifiedDay + 0.01) {
+        const dayCodexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
+        const codSlice =
+          dayCodexUsd > 0 ? Math.min(projectedUsd, dayCodexUsd) : projectedUsd * 0.65;
+        codexUsd += codSlice;
+        chatgptUsd += Math.max(0, projectedUsd - codSlice);
+        continue;
+      }
     }
 
     chatgptUsd += args.merged.chatgpt.byYmd.get(ymd) ?? 0;

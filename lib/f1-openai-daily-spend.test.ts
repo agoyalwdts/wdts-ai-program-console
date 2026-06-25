@@ -23,14 +23,14 @@ describe("loadOpenAiDailyMergedSpendForF1", () => {
           const { vendor, product } = args.where;
           if (vendor === UNIFIED_CREDITS_VENDOR_KEY && product === Product.CHATGPT) {
             return [
-              { day: noonYmd("2026-06-21"), spendUsd: 10 },
-              { day: noonYmd("2026-06-22"), spendUsd: 20 },
+              { day: noonYmd("2026-06-21"), spendUsd: 30 },
+              { day: noonYmd("2026-06-22"), spendUsd: 40 },
             ];
           }
           if (vendor === UNIFIED_CREDITS_VENDOR_KEY && product === Product.CODEX) {
             return [
-              { day: noonYmd("2026-06-21"), spendUsd: 30 },
-              { day: noonYmd("2026-06-22"), spendUsd: 40 },
+              { day: noonYmd("2026-06-21"), spendUsd: 50 },
+              { day: noonYmd("2026-06-22"), spendUsd: 60 },
             ];
           }
           if (vendor === WORKSPACE_ANALYTICS_USER_VENDOR_KEY) {
@@ -76,10 +76,10 @@ describe("loadOpenAiDailyMergedSpendForF1", () => {
 
     expect(full.chatgpt.periodTotalUsd).toBeGreaterThan(short.chatgpt.periodTotalUsd);
     expect(full.codex.periodTotalUsd).toBeGreaterThan(short.codex.periodTotalUsd);
-    expect(short.chatgpt.periodTotalUsd).toBe(30);
-    expect(short.codex.periodTotalUsd).toBe(70);
-    expect(full.chatgpt.periodTotalUsd).toBe(330);
-    expect(full.codex.periodTotalUsd).toBe(770);
+    expect(short.chatgpt.periodTotalUsd).toBe(70);
+    expect(short.codex.periodTotalUsd).toBe(110);
+    expect(full.chatgpt.periodTotalUsd).toBe(370);
+    expect(full.codex.periodTotalUsd).toBe(810);
   });
 });
 
