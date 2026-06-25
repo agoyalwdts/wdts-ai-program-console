@@ -11,8 +11,13 @@ import {
 } from "@/lib/f1-period";
 import {
   describeOpenAiBillingPeriodToDate,
+  endOfOpenAiChatGptCodexBillingPeriod,
   startOfOpenAiChatGptCodexBillingPeriod,
 } from "@/lib/openai-billing-period";
+
+function startOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
 
 export type OpenAiF1Window = "follow" | "billing";
 
@@ -42,8 +47,18 @@ export function planOpenAiF1Spend(args: {
   window: OpenAiF1Window;
 }): OpenAiF1SpendPlan {
   if (args.window === "billing") {
-    const periodStart = startOfOpenAiChatGptCodexBillingPeriod(args.now);
-    const periodEnd = args.pagePlan.periodEnd;
+    const billingStart = startOfOpenAiChatGptCodexBillingPeriod(args.now);
+    const billingEndExclusive = endOfOpenAiChatGptCodexBillingPeriod(args.now);
+    const billingEnd = new Date(billingEndExclusive);
+    billingEnd.setMilliseconds(billingEnd.getMilliseconds() - 1);
+
+    const pageStart = startOfLocalDay(args.pagePlan.periodStart);
+    const pageEnd = new Date(
+      Math.min(args.pagePlan.periodEnd.getTime(), billingEnd.getTime(), args.now.getTime()),
+    );
+    const periodStart = new Date(Math.max(billingStart.getTime(), pageStart.getTime()));
+    const periodEnd = pageEnd;
+
     return {
       periodStart,
       periodEnd,

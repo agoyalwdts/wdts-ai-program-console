@@ -39,10 +39,23 @@ export function resolveOpenAiF1Credits(args: {
   unifiedChatgptUsd: number;
   unifiedCodexUsed: boolean;
   unifiedCodexUsd: number;
+  /** Per-day vendor composite (Unified Credits + fallbacks by day). */
+  vendorMirrorCompositeUsed?: boolean;
   env?: Record<string, string | undefined>;
 }): OpenAiF1Credits {
   const env = args.env ?? process.env;
   const codexUsdPerCredit = resolveUsdPerCredit(env);
+
+  if (args.vendorMirrorCompositeUsed) {
+    const chatgptCredits = usdToCredits(args.chatgptUsd, OPENAI_CREDIT_OVERAGE_USD);
+    const codexCredits = usdToCredits(args.codexUsd, codexUsdPerCredit);
+    return {
+      chatgptCredits,
+      codexCredits,
+      combinedCredits: chatgptCredits + codexCredits,
+      mode: "direct",
+    };
+  }
 
   if (args.unifiedChatgptUsed || args.unifiedCodexUsed) {
     const chatgptCredits = args.unifiedChatgptUsed

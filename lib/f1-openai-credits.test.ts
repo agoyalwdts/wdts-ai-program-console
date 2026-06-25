@@ -10,7 +10,30 @@ describe("resolveOpenAiF1Credits", () => {
     unifiedCodexUsd: 0,
   };
 
-  it("uses Unified Credits COSTS product slices when synced", () => {
+  it("uses composite merged USD for credits when vendorMirrorCompositeUsed", () => {
+    const r = resolveOpenAiF1Credits({
+      chatgptUsd: 500,
+      codexUsd: 800,
+      budgetMonthMultiplier: 1,
+      workspaceChatgptUsed: false,
+      workspaceChatgptUsd: 0,
+      manualChatgptUsed: false,
+      manualChatgptUsd: 0,
+      codexEnterpriseUsed: false,
+      codexEnterpriseUsd: 0,
+      unifiedChatgptUsed: true,
+      unifiedChatgptUsd: 30,
+      unifiedCodexUsed: true,
+      unifiedCodexUsd: 70,
+      vendorMirrorCompositeUsed: true,
+    });
+    expect(r.mode).toBe("direct");
+    expect(r.chatgptCredits).toBeCloseTo(500 / 0.07, 0);
+    expect(r.codexCredits).toBeGreaterThan(0);
+    expect(r.combinedCredits).toBeCloseTo(r.chatgptCredits + r.codexCredits, 0);
+  });
+
+  it("uses Unified Credits COSTS product slices when synced (legacy whole-period path)", () => {
     const r = resolveOpenAiF1Credits({
       chatgptUsd: 999,
       codexUsd: 999,

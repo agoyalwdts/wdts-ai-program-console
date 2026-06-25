@@ -7,23 +7,14 @@ import type { PrismaClient } from "@prisma/client";
 import type { SpendPoint } from "@/components/charts/spend-trend-chart";
 import { getGatewayClient } from "@/lib/integrations";
 import {
-  loadCodexEnterpriseSpendForF1,
-  mergeCodexEnterpriseVendorIntoF1,
-} from "@/lib/f1-codex-enterprise-analytics";
-import {
-  loadChatGptWorkspaceAnalyticsSpendForF1,
-  mergeChatGptWorkspaceAnalyticsIntoF1,
-} from "@/lib/f1-chatgpt-workspace-analytics";
+  applyOpenAiDailyMergedSpendToF1,
+  loadOpenAiDailyMergedSpendForF1,
+  openAiSourcesFromDailyMerge,
+} from "@/lib/f1-openai-daily-spend";
 import {
   loadManualVendorExportSpendForF1,
   mergeManualVendorExportIntoF1,
 } from "@/lib/f1-manual-vendor-export";
-import {
-  loadUnifiedCreditsSpendForF1,
-  mergeUnifiedCreditsChatGptIntoF1,
-  mergeUnifiedCreditsCodexIntoF1,
-} from "@/lib/f1-unified-credits-spend";
-import { loadOpenAiVendorSpendForF1, mergeOpenAiVendorIntoF1 } from "@/lib/f1-openai-vendor";
 import type { ProductKey } from "@/lib/program";
 import { resolveOpenAiF1Credits, type OpenAiF1Credits } from "@/lib/f1-openai-credits";
 
@@ -46,33 +37,26 @@ export type OpenAiF1SpendSnapshot = {
   sources: OpenAiF1SpendSources;
 };
 
-function resolveOpenAiSources(args: {
-  manualChatgptUsed: boolean;
-  workspaceAnalyticsChatgptUsed: boolean;
-  unifiedChatgptUsed: boolean;
-  manualCodexUsed: boolean;
-  openAiChatgptVendor: boolean;
-  openAiCodexVendor: boolean;
-  codexEnterpriseUsed: boolean;
-  codexEnterpriseSource: "none" | "live" | "sync";
-  unifiedCodexUsed: boolean;
-}): OpenAiF1SpendSources {
-  let chatgpt: OpenAiF1SpendSources["chatgpt"] = "gateway";
-  if (args.manualChatgptUsed) chatgpt = "manual_export";
-  if (args.openAiChatgptVendor) chatgpt = "vendor";
-  if (args.workspaceAnalyticsChatgptUsed) chatgpt = "workspace_analytics";
-  if (args.unifiedChatgptUsed) chatgpt = "unified_credits";
+function gatewayProductMapsFromSpendPoints(args: {
+  periodStart: Date;
+  periodEnd: Date;
+  days: SpendPoint[];
+}): { chatgpt: Map<string, number>; codex: Map<string, number> } {
+  const chatgpt = new Map<string, number>();
+  const codex = new Map<string, number>();
+  const startDay = new Date(args.periodStart);
+  startDay.setHours(0, 0, 0, 0);
+  const endDay = new Date(args.periodEnd);
+  endDay.setHours(0, 0, 0, 0);
 
-  let codex: OpenAiF1SpendSources["codex"] = "gateway";
-  if (args.manualCodexUsed) codex = "manual_export";
-  if (args.openAiCodexVendor) codex = "openai_org_costs";
-  if (args.codexEnterpriseUsed) {
-    codex =
-      args.codexEnterpriseSource === "live"
-        ? "codex_enterprise_analytics_live"
-        : "codex_enterprise_analytics_sync";
+  for (let d = new Date(startDay); d.getTime() <= endDay.getTime(); d.setDate(d.getDate() + 1)) {
+    const label = `${d.getMonth() + 1}/${d.getDate()}`;
+    const row = args.days.find((r) => r.day === label);
+    if (!row) continue;
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    chatgpt.set(ymd, row.CHATGPT);
+    codex.set(ymd, row.CODEX);
   }
-  if (args.unifiedCodexUsed) codex = "unified_credits";
 
   return { chatgpt, codex };
 }
@@ -83,15 +67,11 @@ export async function loadOpenAiSpendSnapshotForF1(
   args: { periodStart: Date; periodEnd: Date; budgetMonthMultiplier?: number },
 ): Promise<OpenAiF1SpendSnapshot> {
   const gateway = getGatewayClient();
-  const [programAgg, vendorManualExport, vendorOpenAi, vendorCodexEnterprise, workspaceChatgpt, unifiedCredits] =
-    await Promise.all([
-      gateway.aggregateByProgram({ periodStart: args.periodStart, periodEnd: args.periodEnd }),
-      loadManualVendorExportSpendForF1(prisma, args),
-      loadOpenAiVendorSpendForF1(prisma, args),
-      loadCodexEnterpriseSpendForF1(prisma, args),
-      loadChatGptWorkspaceAnalyticsSpendForF1(prisma, args),
-      loadUnifiedCreditsSpendForF1(prisma, args),
-    ]);
+  const [programAgg, merged, vendorManualExport] = await Promise.all([
+    gateway.aggregateByProgram({ periodStart: args.periodStart, periodEnd: args.periodEnd }),
+    loadOpenAiDailyMergedSpendForF1(prisma, args),
+    loadManualVendorExportSpendForF1(prisma, args),
+  ]);
 
   const mtdMap = new Map<ProductKey, number>(
     programAgg
@@ -99,66 +79,42 @@ export async function loadOpenAiSpendSnapshotForF1(
       .map((r) => [r.product as ProductKey, r.totalUsd]),
   );
 
+  applyOpenAiDailyMergedSpendToF1({ mtdMap, days: [], merged });
   mergeManualVendorExportIntoF1({
     mtdMap,
     days: [],
     chatgpt: vendorManualExport.chatgpt,
     codex: vendorManualExport.codex,
   });
-  mergeOpenAiVendorIntoF1({
-    mtdMap,
-    days: [],
-    chatgptVendorTotal: vendorOpenAi.chatgpt.periodTotalUsd,
-    chatgptByChartDay: vendorOpenAi.chatgpt.byChartDay,
-    useChatgptVendor: vendorOpenAi.chatgpt.usedVendor,
-    codexVendorTotal: vendorOpenAi.codex.periodTotalUsd,
-    codexByChartDay: vendorOpenAi.codex.byChartDay,
-    useCodexVendor: vendorOpenAi.codex.usedVendor,
-  });
-  mergeChatGptWorkspaceAnalyticsIntoF1({
-    mtdMap,
-    days: [],
-    chatgpt: workspaceChatgpt,
-  });
-  mergeCodexEnterpriseVendorIntoF1({
-    mtdMap,
-    days: [],
-    codexVendorTotal: vendorCodexEnterprise.periodTotalUsd,
-    codexByChartDay: vendorCodexEnterprise.byChartDay,
-    useVendor: vendorCodexEnterprise.usedVendor,
-  });
-  mergeUnifiedCreditsChatGptIntoF1({ mtdMap, days: [], chatgpt: unifiedCredits.chatgpt });
-  mergeUnifiedCreditsCodexIntoF1({ mtdMap, days: [], codex: unifiedCredits.codex });
 
   const chatgptUsd = mtdMap.get("CHATGPT") ?? 0;
   const codexUsd = mtdMap.get("CODEX") ?? 0;
 
-  const sources = resolveOpenAiSources({
-    manualChatgptUsed: vendorManualExport.chatgpt.used,
-    workspaceAnalyticsChatgptUsed: workspaceChatgpt.used,
-    unifiedChatgptUsed: unifiedCredits.chatgpt.used,
-    manualCodexUsed: vendorManualExport.codex.used,
-    openAiChatgptVendor: vendorOpenAi.chatgpt.usedVendor,
-    openAiCodexVendor: vendorOpenAi.codex.usedVendor,
-    codexEnterpriseUsed: vendorCodexEnterprise.usedVendor,
-    codexEnterpriseSource: vendorCodexEnterprise.source,
-    unifiedCodexUsed: unifiedCredits.codex.used,
-  });
+  let sources = openAiSourcesFromDailyMerge(merged);
+  if (vendorManualExport.chatgpt.used) sources = { ...sources, chatgpt: "manual_export" };
+  if (vendorManualExport.codex.used) sources = { ...sources, codex: "manual_export" };
+
+  const vendorMirrorCompositeUsed =
+    merged.chatgpt.usedVendorMirror ||
+    merged.codex.usedVendorMirror ||
+    vendorManualExport.chatgpt.used ||
+    vendorManualExport.codex.used;
 
   const credits = resolveOpenAiF1Credits({
     chatgptUsd,
     codexUsd,
     budgetMonthMultiplier: args.budgetMonthMultiplier ?? 1,
-    workspaceChatgptUsed: workspaceChatgpt.used,
-    workspaceChatgptUsd: workspaceChatgpt.periodTotalUsd,
+    workspaceChatgptUsed: merged.chatgpt.dominantSource === "workspace_analytics",
+    workspaceChatgptUsd: merged.chatgpt.periodTotalUsd,
     manualChatgptUsed: vendorManualExport.chatgpt.used,
     manualChatgptUsd: vendorManualExport.chatgpt.periodTotalUsd,
-    codexEnterpriseUsed: vendorCodexEnterprise.usedVendor,
-    codexEnterpriseUsd: vendorCodexEnterprise.periodTotalUsd,
-    unifiedChatgptUsed: unifiedCredits.chatgpt.used,
-    unifiedChatgptUsd: unifiedCredits.chatgpt.periodTotalUsd,
-    unifiedCodexUsed: unifiedCredits.codex.used,
-    unifiedCodexUsd: unifiedCredits.codex.periodTotalUsd,
+    codexEnterpriseUsed: merged.codex.dominantSource === "codex_enterprise_analytics_sync",
+    codexEnterpriseUsd: merged.codex.periodTotalUsd,
+    unifiedChatgptUsed: merged.chatgpt.byYmd.size > 0 && [...merged.chatgpt.byYmd.values()].some((v) => v > 0),
+    unifiedChatgptUsd: merged.chatgpt.periodTotalUsd,
+    unifiedCodexUsed: merged.codex.byYmd.size > 0 && [...merged.codex.byYmd.values()].some((v) => v > 0),
+    unifiedCodexUsd: merged.codex.periodTotalUsd,
+    vendorMirrorCompositeUsed,
   });
 
   return {
@@ -180,51 +136,26 @@ export async function mergeOpenAiSpendIntoPagePeriodF1(
     days: SpendPoint[];
   },
 ): Promise<void> {
-  const [vendorManualExport, vendorOpenAi, vendorCodexEnterprise, workspaceChatgpt, unifiedCredits] =
-    await Promise.all([
-      loadManualVendorExportSpendForF1(prisma, args),
-      loadOpenAiVendorSpendForF1(prisma, args),
-      loadCodexEnterpriseSpendForF1(prisma, args),
-      loadChatGptWorkspaceAnalyticsSpendForF1(prisma, args),
-      loadUnifiedCreditsSpendForF1(prisma, args),
-    ]);
+  const gatewayMaps = gatewayProductMapsFromSpendPoints(args);
+  const [merged, vendorManualExport] = await Promise.all([
+    loadOpenAiDailyMergedSpendForF1(prisma, {
+      periodStart: args.periodStart,
+      periodEnd: args.periodEnd,
+      gatewayChatgptByYmd: gatewayMaps.chatgpt,
+      gatewayCodexByYmd: gatewayMaps.codex,
+    }),
+    loadManualVendorExportSpendForF1(prisma, args),
+  ]);
 
+  applyOpenAiDailyMergedSpendToF1({
+    mtdMap: args.mtdMap,
+    days: args.days,
+    merged,
+  });
   mergeManualVendorExportIntoF1({
     mtdMap: args.mtdMap,
     days: args.days,
     chatgpt: vendorManualExport.chatgpt,
     codex: vendorManualExport.codex,
-  });
-  mergeOpenAiVendorIntoF1({
-    mtdMap: args.mtdMap,
-    days: args.days,
-    chatgptVendorTotal: vendorOpenAi.chatgpt.periodTotalUsd,
-    chatgptByChartDay: vendorOpenAi.chatgpt.byChartDay,
-    useChatgptVendor: vendorOpenAi.chatgpt.usedVendor,
-    codexVendorTotal: vendorOpenAi.codex.periodTotalUsd,
-    codexByChartDay: vendorOpenAi.codex.byChartDay,
-    useCodexVendor: vendorOpenAi.codex.usedVendor,
-  });
-  mergeChatGptWorkspaceAnalyticsIntoF1({
-    mtdMap: args.mtdMap,
-    days: args.days,
-    chatgpt: workspaceChatgpt,
-  });
-  mergeCodexEnterpriseVendorIntoF1({
-    mtdMap: args.mtdMap,
-    days: args.days,
-    codexVendorTotal: vendorCodexEnterprise.periodTotalUsd,
-    codexByChartDay: vendorCodexEnterprise.byChartDay,
-    useVendor: vendorCodexEnterprise.usedVendor,
-  });
-  mergeUnifiedCreditsChatGptIntoF1({
-    mtdMap: args.mtdMap,
-    days: args.days,
-    chatgpt: unifiedCredits.chatgpt,
-  });
-  mergeUnifiedCreditsCodexIntoF1({
-    mtdMap: args.mtdMap,
-    days: args.days,
-    codex: unifiedCredits.codex,
   });
 }
