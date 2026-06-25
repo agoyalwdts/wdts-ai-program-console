@@ -14,6 +14,7 @@ import {
   normCursorUserEmail,
 } from "@/lib/integrations/cursor/team-admin-usage";
 import { UNIFIED_CREDITS_VENDOR_KEY } from "@/lib/integrations/unified-credits/constants";
+import { loadUnifiedCreditsBreakdown } from "@/lib/analytics/unified-credits-breakdown";
 import { WORKSPACE_ANALYTICS_USER_VENDOR_KEY } from "@/lib/integrations/workspace-analytics/vendor-key";
 import type { UsageAggregate } from "@/lib/integrations/gateway/types";
 import { OPENAI_CREDIT_OVERAGE_USD, type ProductKey } from "@/lib/program";
@@ -24,6 +25,8 @@ export type ChargebackSpendMeta = {
   usedVendorMirror: boolean;
   /** Human-readable labels for the page subtitle. */
   dataSources: string[];
+  /** Top Unified Credits SKU in window (when COSTS snapshots exist). */
+  topUnifiedCreditsSku?: string;
 };
 
 function vendorDayRange(periodStart: Date, periodEnd: Date): {
@@ -252,10 +255,20 @@ export async function aggregateChargebackSpendByUserId(args: {
   dataSources.add("Codex sessions snapshot");
   dataSources.add("OpenAI Unified Credits COSTS (when synced)");
 
-  const [chatgptByEmail, codexByEmail] = await Promise.all([
+  const [chatgptByEmail, codexByEmail, unifiedBreakdown] = await Promise.all([
     batchChatGptUsdFromSnapshots(args.prisma, args.periodStart, args.periodEnd),
     batchCodexUsdFromSnapshot(args.prisma, args.periodStart, args.periodEnd),
+    loadUnifiedCreditsBreakdown(args.prisma, {
+      periodStart: args.periodStart,
+      periodEnd: args.periodEnd,
+    }),
   ]);
+
+  if (unifiedBreakdown?.bySku[0]) {
+    dataSources.add(
+      `Unified Credits top SKU: ${unifiedBreakdown.bySku[0].key} (${unifiedBreakdown.bySku[0].credits.toLocaleString()} credits)`,
+    );
+  }
 
   if (chatgptByEmail.size > 0) usedVendorMirror = true;
   if (codexByEmail.size > 0) usedVendorMirror = true;
@@ -315,6 +328,7 @@ export async function aggregateChargebackSpendByUserId(args: {
     meta: {
       usedVendorMirror,
       dataSources: [...dataSources],
+      topUnifiedCreditsSku: unifiedBreakdown?.bySku[0]?.key,
     },
   };
 }

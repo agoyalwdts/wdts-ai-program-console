@@ -40,6 +40,9 @@ export async function summarizeComplianceAuthLogIpsForEmail(args: {
   const after = new Date(Date.now() - lookbackDays * 86_400_000).toISOString();
 
   const ips = new Set<string>();
+  const clients = new Set<string>();
+  const userAgents = new Set<string>();
+  const devices = new Set<string>();
   let authEventCount = 0;
   let logFilesScanned = 0;
   let cursor = after;
@@ -57,6 +60,9 @@ export async function summarizeComplianceAuthLogIpsForEmail(args: {
       return {
         available: true,
         distinctIps: [],
+        distinctClients: [],
+        distinctUserAgents: [],
+        distinctDevices: [],
         authEventCount: 0,
         lookbackDays,
         logFilesScanned: 0,
@@ -74,6 +80,9 @@ export async function summarizeComplianceAuthLogIpsForEmail(args: {
       const hit = extractAuthEventsFromLogBody(body, email);
       authEventCount += hit.eventCount;
       for (const ip of hit.ips) ips.add(ip);
+      for (const c of hit.clients) clients.add(c);
+      for (const ua of hit.userAgents) userAgents.add(ua);
+      for (const d of hit.devices) devices.add(d);
     }
 
     if (logFilesScanned >= MAX_LOG_FILES_PER_USER) break;
@@ -84,6 +93,9 @@ export async function summarizeComplianceAuthLogIpsForEmail(args: {
   return {
     available: true,
     distinctIps: [...ips].sort(),
+    distinctClients: [...clients].sort(),
+    distinctUserAgents: [...userAgents].sort(),
+    distinctDevices: [...devices].sort(),
     authEventCount,
     lookbackDays,
     logFilesScanned,

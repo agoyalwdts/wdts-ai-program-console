@@ -1,4 +1,5 @@
 import { getIntegrationMode } from "@/lib/integrations/env";
+import { syncOpenAiAdminAuditLogs } from "@/lib/integrations/openai/sync-admin-audit-logs";
 import { syncUnifiedCredits } from "@/lib/integrations/unified-credits";
 import { syncWorkspaceAnalytics } from "@/lib/integrations/workspace-analytics";
 import { syncCodexEnterpriseAnalyticsDaily } from "@/lib/vendor-spend/sync-codex-enterprise-daily";
@@ -182,6 +183,33 @@ export const SYNC_JOBS: SyncJobDefinition[] = [
           reason: e instanceof Error ? e.message : String(e),
         };
       }
+    },
+  },
+  {
+    key: "openai_admin_audit",
+    label: "OpenAI admin audit logs",
+    tier: "warm",
+    staleAfterMs: 6 * 60 * 60_000,
+    isEnabled: (env) => getIntegrationMode("openai", env) === "real",
+    run: async (ctx): Promise<SyncJobResult> => {
+      const lookbackDays =
+        ctx.opts.lookbackDays ??
+        resolveVendorMirrorLookbackDays(ctx.lastSuccessAt, ctx.trigger, {
+          min: 1,
+          maxOnRefresh: 14,
+          maxOnCron: 14,
+          initial: 7,
+        });
+      const result = await syncOpenAiAdminAuditLogs(ctx.prisma, {
+        actorEmail: ctx.actorEmail,
+        lookbackDays,
+        env: ctx.env,
+        skipDecision: ctx.opts.skipDecision === true,
+      });
+      if (!result.ok) {
+        return { ok: false, reason: result.reason ?? "openai admin audit sync failed" };
+      }
+      return { ok: true, summary: result as unknown as Record<string, unknown> };
     },
   },
 ];

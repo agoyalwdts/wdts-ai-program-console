@@ -749,6 +749,26 @@ function UserDetail({
                 {complianceFootprint.authEventCount === 1 ? "" : "s"} (
                 {complianceFootprint.logFilesScanned} log file
                 {complianceFootprint.logFilesScanned === 1 ? "" : "s"} scanned).
+                {complianceFootprint.distinctClients.length > 0 ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Clients: {complianceFootprint.distinctClients.join(", ")}
+                  </p>
+                ) : null}
+                {complianceFootprint.distinctDevices.length > 0 ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Devices: {complianceFootprint.distinctDevices.join(", ")}
+                  </p>
+                ) : null}
+                {complianceFootprint.distinctUserAgents.length > 0 ? (
+                  <details className="mt-2 text-xs text-slate-500">
+                    <summary className="cursor-pointer">User agents ({complianceFootprint.distinctUserAgents.length})</summary>
+                    <ul className="mt-1 list-disc pl-5 font-mono text-[10px] text-slate-600 max-h-32 overflow-auto">
+                      {complianceFootprint.distinctUserAgents.map((ua) => (
+                        <li key={ua}>{ua}</li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
                 {complianceFootprint.distinctIps.length > 0 ? (
                   <ul className="mt-2 list-disc pl-5 font-mono text-xs text-slate-600">
                     {complianceFootprint.distinctIps.map((ip) => (

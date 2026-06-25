@@ -6,7 +6,8 @@ export type SyncJobKey =
   | "codex_enterprise_spend"
   | "workspace_analytics"
   | "unified_credits"
-  | "openai_org_costs";
+  | "openai_org_costs"
+  | "openai_admin_audit";
 
 export type SyncTrigger = "cron" | "page_load" | "manual_refresh" | "admin";
 

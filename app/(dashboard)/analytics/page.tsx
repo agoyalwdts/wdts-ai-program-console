@@ -13,7 +13,10 @@ import { formatUsd } from "@/lib/utils";
 import { loadCursorApiOverview } from "@/lib/integrations/cursor/cursor-api-overview";
 import { getIntegrationMode } from "@/lib/integrations/env";
 import { loadLatestProgramVendorExportSnapshots } from "@/lib/analytics/manual-vendor-snapshots";
+import { loadChatgptAdoptionSummary } from "@/lib/analytics/chatgpt-user-adoption";
+import { loadUnifiedCreditsBreakdown } from "@/lib/analytics/unified-credits-breakdown";
 import { AnalyticsManualVendorCharts } from "@/components/dashboard/analytics-manual-vendor-charts";
+import { AnalyticsOpenAiPanels } from "@/components/dashboard/analytics-openai-panels";
 import { analyticsWindowForF1Plan } from "@/lib/cursor-analytics-window";
 import {
   formatLocalYmd,
@@ -55,7 +58,7 @@ export default async function AnalyticsPage(props: { searchParams: Promise<F1Sea
     plan.periodEnd.getDate(),
   );
 
-  const [cursorOverview, vendorRollup, openAiMode, codexEaMode, manualVendorSnapshots] =
+  const [cursorOverview, vendorRollup, openAiMode, codexEaMode, manualVendorSnapshots, unifiedCredits, chatgptAdoption] =
     await Promise.all([
       loadCursorApiOverview({ analyticsWindow }),
       prisma.vendorDailySpend.groupBy({
@@ -66,6 +69,14 @@ export default async function AnalyticsPage(props: { searchParams: Promise<F1Sea
       Promise.resolve(getIntegrationMode("openai")),
       Promise.resolve(getIntegrationMode("codexenterprise")),
       loadLatestProgramVendorExportSnapshots(prisma),
+      loadUnifiedCreditsBreakdown(prisma, {
+        periodStart: dayStart,
+        periodEnd: dayEnd,
+      }),
+      loadChatgptAdoptionSummary(prisma, {
+        periodStart: dayStart,
+        periodEnd: dayEnd,
+      }),
     ]);
 
   const sortedRollup = [...vendorRollup].sort((a, b) => {
@@ -146,6 +157,12 @@ export default async function AnalyticsPage(props: { searchParams: Promise<F1Sea
             start: formatLocalYmd(plan.periodStart),
             end: formatLocalYmd(plan.periodEnd),
           }}
+        />
+
+        <AnalyticsOpenAiPanels
+          unifiedCredits={unifiedCredits}
+          adoption={chatgptAdoption}
+          billingCycleNote
         />
 
         <Card>

@@ -15,6 +15,7 @@ import {
   Legend,
 } from "recharts";
 import type { ManualVendorSnapshotDTO } from "@/lib/analytics/manual-vendor-snapshots";
+import { findSnapshotPreferring, snapshotSourceLabel } from "@/lib/analytics/snapshot-source";
 import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
 
 export type AnalyticsClipYmd = { start: string; end: string };
@@ -271,17 +272,20 @@ function ChatgptUsersTable({
   clip,
   exportPeriodStart,
   exportPeriodEnd,
+  isDailySync,
 }: {
   payload: unknown;
   clip?: AnalyticsClipYmd;
   exportPeriodStart: string | null;
   exportPeriodEnd: string | null;
+  isDailySync?: boolean;
 }) {
   const p = payload as {
     users?: { email: string; name: string; credits_used: number; messages: number }[];
   };
-  const factor = clip ? clipOverlapFactor(clip, exportPeriodStart, exportPeriodEnd) : 1;
-  if (clip && factor <= 0) {
+  const factor =
+    clip && !isDailySync ? clipOverlapFactor(clip, exportPeriodStart, exportPeriodEnd) : 1;
+  if (clip && !isDailySync && factor <= 0) {
     return (
       <p className="text-sm text-slate-500">
         ChatGPT users export does not overlap the selected period ({clip.start}–{clip.end}).
@@ -315,6 +319,64 @@ function ChatgptUsersTable({
               {formatUsd(u.credits_used * OPENAI_CREDIT_OVERAGE_USD, { decimals: 2 })}
             </TD>
             <TD className="text-right tabular-nums">{u.messages}</TD>
+          </TR>
+        ))}
+      </TBody>
+    </Table>
+  );
+}
+
+function ChatgptGptTable({ payload }: { payload: unknown }) {
+  const p = payload as {
+    rows?: { gpt_name?: string; gpt_id?: string; messages?: number; active_users?: number }[];
+  };
+  const rows = [...(p.rows ?? [])].sort((a, b) => (b.messages ?? 0) - (a.messages ?? 0)).slice(0, 15);
+  if (rows.length === 0) return <p className="text-sm text-slate-500">No GPT rows.</p>;
+  return (
+    <Table>
+      <THead>
+        <TR>
+          <TH>GPT</TH>
+          <TH className="text-right">Messages</TH>
+          <TH className="text-right">Active users</TH>
+        </TR>
+      </THead>
+      <TBody>
+        {rows.map((r) => (
+          <TR key={r.gpt_id ?? r.gpt_name}>
+            <TD>{r.gpt_name ?? r.gpt_id ?? "—"}</TD>
+            <TD className="text-right tabular-nums">{r.messages ?? 0}</TD>
+            <TD className="text-right tabular-nums">{r.active_users ?? 0}</TD>
+          </TR>
+        ))}
+      </TBody>
+    </Table>
+  );
+}
+
+function ChatgptProjectTable({ payload }: { payload: unknown }) {
+  const p = payload as {
+    rows?: { project_name?: string; project_id?: string; messages?: number; active_users?: number }[];
+  };
+  const rows = [...(p.rows ?? [])]
+    .sort((a, b) => (b.messages ?? 0) - (a.messages ?? 0))
+    .slice(0, 15);
+  if (rows.length === 0) return <p className="text-sm text-slate-500">No project rows.</p>;
+  return (
+    <Table>
+      <THead>
+        <TR>
+          <TH>Project</TH>
+          <TH className="text-right">Messages</TH>
+          <TH className="text-right">Active users</TH>
+        </TR>
+      </THead>
+      <TBody>
+        {rows.map((r) => (
+          <TR key={r.project_id ?? r.project_name}>
+            <TD>{r.project_name ?? r.project_id ?? "—"}</TD>
+            <TD className="text-right tabular-nums">{r.messages ?? 0}</TD>
+            <TD className="text-right tabular-nums">{r.active_users ?? 0}</TD>
           </TR>
         ))}
       </TBody>
@@ -396,17 +458,30 @@ export function AnalyticsManualVendorCharts({
   const sessions = findSnapshot(snapshots, "CODEX_SESSIONS_JSON");
   const codeReview = findSnapshot(snapshots, "CODEX_CODE_REVIEW_JSON");
   const codeReviewResponses = findSnapshot(snapshots, "CODEX_CODE_REVIEW_RESPONSES_JSON");
-  const chatgptUsers = findSnapshot(snapshots, "CHATGPT_USERS_CSV");
-  const gpts = findSnapshot(snapshots, "CHATGPT_GPTS_CSV");
-  const projects = findSnapshot(snapshots, "CHATGPT_PROJECTS_CSV");
-  const survey = findSnapshot(snapshots, "CHATGPT_IMPACT_SURVEY_CSV");
+  const chatgptUsers = findSnapshotPreferring(
+    snapshots,
+    "CHATGPT_USER_ANALYTICS",
+    "CHATGPT_USERS_CSV",
+  );
+  const gpts = findSnapshotPreferring(snapshots, "CHATGPT_GPT_ANALYTICS", "CHATGPT_GPTS_CSV");
+  const projects = findSnapshotPreferring(
+    snapshots,
+    "CHATGPT_PROJECT_ANALYTICS",
+    "CHATGPT_PROJECTS_CSV",
+  );
+  const survey = findSnapshotPreferring(
+    snapshots,
+    "CHATGPT_SURVEY_ANALYTICS",
+    "CHATGPT_IMPACT_SURVEY_CSV",
+  );
   const cursorTeam = findSnapshot(snapshots, "CURSOR_ANALYTICS_TEAM_CSV");
 
   function meta(s: ManualVendorSnapshotDTO | undefined) {
     if (!s) return null;
     return (
       <p className="text-xs text-slate-500 mb-2">
-        File <span className="font-mono">{s.filename}</span> · imported{" "}
+        Source: {snapshotSourceLabel(s.kind)} ·{" "}
+        <span className="font-mono">{s.filename}</span> ·{" "}
         {s.createdAt.slice(0, 16).replace("T", " ")} UTC
         {s.periodStart && s.periodEnd ? (
           <>
@@ -425,12 +500,9 @@ export function AnalyticsManualVendorCharts({
           ChatGPT and Codex (imported exports)
         </h2>
         <p className="text-xs text-slate-500 max-w-3xl mb-3">
-          Latest snapshot per export type from{" "}
-          <Link href="/settings/imports" className="underline underline-offset-2 text-slate-800">
-            Settings → Data imports
-          </Link>{" "}
-          or the hourly Codex Enterprise Analytics sync. Re-upload or wait for cron to refresh.
-          Time-series charts are clipped to the selected Program Health period above.
+          Latest snapshot per export type from manual CSV imports, Workspace Analytics API sync, or
+          Codex Enterprise Analytics sync. Compliance sync kinds are preferred over manual CSV when
+          both exist. Time-series charts are clipped to the selected Program Health period above.
         </p>
         <PeriodClipHint clip={clipRangeYmd} />
       </div>
@@ -489,8 +561,10 @@ export function AnalyticsManualVendorCharts({
 
             <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">ChatGPT — top users by credits (import)</CardTitle>
-                <CardDescription>From the Business users CSV.</CardDescription>
+                <CardTitle className="text-base">ChatGPT — top users by credits</CardTitle>
+                <CardDescription>
+                  Workspace Analytics sync or Business users CSV (compliance preferred).
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {meta(chatgptUsers)}
@@ -500,9 +574,10 @@ export function AnalyticsManualVendorCharts({
                     clip={clipRangeYmd}
                     exportPeriodStart={chatgptUsers.periodStart}
                     exportPeriodEnd={chatgptUsers.periodEnd}
+                    isDailySync={chatgptUsers.kind === "CHATGPT_USER_ANALYTICS"}
                   />
                 ) : (
-                  <p className="text-sm text-slate-500">No users CSV imported.</p>
+                  <p className="text-sm text-slate-500">No users snapshot yet.</p>
                 )}
               </CardContent>
             </Card>
@@ -548,8 +623,14 @@ export function AnalyticsManualVendorCharts({
               </CardHeader>
               <CardContent>
                 {meta(gpts)}
-                {gpts ? <GenericCsvPreview payload={gpts.payload} title="GPTs" /> : null}
-                {!gpts ? <p className="text-sm text-slate-500">No GPTs CSV.</p> : null}
+                {gpts ? (
+                  gpts.kind === "CHATGPT_GPT_ANALYTICS" ? (
+                    <ChatgptGptTable payload={gpts.payload} />
+                  ) : (
+                    <GenericCsvPreview payload={gpts.payload} title="GPTs" />
+                  )
+                ) : null}
+                {!gpts ? <p className="text-sm text-slate-500">No GPTs snapshot.</p> : null}
               </CardContent>
             </Card>
 
@@ -559,8 +640,14 @@ export function AnalyticsManualVendorCharts({
               </CardHeader>
               <CardContent>
                 {meta(projects)}
-                {projects ? <GenericCsvPreview payload={projects.payload} title="Projects" /> : null}
-                {!projects ? <p className="text-sm text-slate-500">No projects CSV.</p> : null}
+                {projects ? (
+                  projects.kind === "CHATGPT_PROJECT_ANALYTICS" ? (
+                    <ChatgptProjectTable payload={projects.payload} />
+                  ) : (
+                    <GenericCsvPreview payload={projects.payload} title="Projects" />
+                  )
+                ) : null}
+                {!projects ? <p className="text-sm text-slate-500">No projects snapshot.</p> : null}
               </CardContent>
             </Card>
 

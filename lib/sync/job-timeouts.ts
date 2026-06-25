@@ -44,6 +44,11 @@ const JOB_TIMEOUT_MS: Partial<
     admin: 120_000,
     default: 15_000,
   },
+  openai_admin_audit: {
+    cron: 90_000,
+    admin: 90_000,
+    default: 20_000,
+  },
 };
 
 export function resolveSyncJobTimeoutMs(

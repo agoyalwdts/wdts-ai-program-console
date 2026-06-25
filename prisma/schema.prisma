@@ -104,6 +104,8 @@ enum DecisionType {
   OPENAI_VENDOR_SPEND_SYNC
   /// Codex Enterprise Analytics API (api.chatgpt.com) → VendorDailySpend (CODEX only).
   CODEX_ENTERPRISE_ANALYTICS_SYNC
+  /// OpenAI Organization Admin audit_logs API → snapshot + Decision ledger.
+  OPENAI_ADMIN_AUDIT_SYNC
   /// Operator-uploaded ChatGPT / Codex / Cursor admin exports (CSV/JSON).
   PROGRAM_VENDOR_EXPORT_IMPORT
   /// Automated guardrail monitor findings (model posture / cloud controls).

@@ -18,6 +18,11 @@ type UserSnapshotUser = {
   credits_used: number;
   messages: number;
   user_status: string;
+  gpt_messages?: number;
+  project_messages?: number;
+  tool_messages?: number;
+  last_day_active?: string;
+  event_date?: string;
 };
 
 function userRowToSnapshotUser(row: ChatgptUserAnalyticsRow): UserSnapshotUser | null {
@@ -30,6 +35,11 @@ function userRowToSnapshotUser(row: ChatgptUserAnalyticsRow): UserSnapshotUser |
     credits_used: row.credits_used ?? 0,
     messages: row.messages ?? 0,
     user_status: row.user_status ?? "",
+    gpt_messages: row.gpt_messages,
+    project_messages: row.project_messages,
+    tool_messages: row.tool_messages,
+    last_day_active: row.last_day_active,
+    event_date: row.event_date,
   };
 }
 

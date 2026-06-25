@@ -516,6 +516,12 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                       OpenAI Unified Credits COSTS — compliance sync (org-scoped, per-user)
                     </p>
                   ) : null}
+                  {key === "CHATGPT" && openAiChatgptSpendSource === "unified_credits" ? (
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      Org costs API and Workspace Analytics sync remain for diagnostics; F1 uses
+                      Unified Credits when mirrored.
+                    </p>
+                  ) : null}
                   {key === "CODEX" && codexSpendSource === "codex_enterprise_analytics_live" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
                       Codex Enterprise Analytics — live API (mirror empty; api.chatgpt.com)
@@ -539,6 +545,12 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   {key === "CODEX" && codexSpendSource === "unified_credits" ? (
                     <p className="text-[11px] text-violet-700 mt-1">
                       OpenAI Unified Credits COSTS — compliance sync (org-scoped, per-user)
+                    </p>
+                  ) : null}
+                  {key === "CODEX" && codexSpendSource === "unified_credits" ? (
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      Codex Enterprise Analytics and org costs API are superseded for F1 when Unified
+                      Credits mirror rows exist.
                     </p>
                   ) : null}
                   {key === "M365_COPILOT" ? (

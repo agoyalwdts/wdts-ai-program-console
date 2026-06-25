@@ -23,6 +23,9 @@ export type ComplianceAuthLogIpSummary =
   | {
       available: true;
       distinctIps: string[];
+      distinctClients: string[];
+      distinctUserAgents: string[];
+      distinctDevices: string[];
       authEventCount: number;
       lookbackDays: number;
       logFilesScanned: number;

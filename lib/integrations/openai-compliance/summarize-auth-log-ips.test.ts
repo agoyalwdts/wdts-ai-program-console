@@ -45,6 +45,7 @@ describe("summarizeComplianceAuthLogIpsForEmail", () => {
     expect(summary.available).toBe(true);
     if (summary.available) {
       expect(summary.distinctIps).toEqual(["10.0.0.8", "10.0.0.9"]);
+      expect(summary.distinctClients).toEqual([]);
       expect(summary.authEventCount).toBe(2);
       expect(summary.logFilesScanned).toBe(1);
     }
