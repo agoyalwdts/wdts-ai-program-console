@@ -24,8 +24,6 @@ import {
 } from "@/lib/f1-openai-org-envelope";
 import { fetchOpenAiOrgCostsPeriodEnvelope } from "@/lib/f1-openai-org-costs-live";
 import { fetchUnifiedCreditsPeriodLayers } from "@/lib/f1-unified-credits-live";
-import { unstable_cache } from "next/cache";
-import { localYmd } from "@/lib/f1-cursor-vendor";
 import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
 import { resolveUsdPerCredit } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
 
@@ -72,9 +70,7 @@ function gatewayProductMapsFromSpendPoints(args: {
   return { chatgpt, codex };
 }
 
-function liveOpenAiEnvelopeCacheKey(periodStart: Date, periodEnd: Date): string {
-  return `${localYmd(periodStart)}_${localYmd(periodEnd)}`;
-}
+const LIVE_ENVELOPE_TIMEOUT_MS = 15_000;
 
 async function loadLiveOpenAiEnvelopeInputs(args: {
   periodStart: Date;
@@ -83,18 +79,23 @@ async function loadLiveOpenAiEnvelopeInputs(args: {
   liveOrgCosts: Awaited<ReturnType<typeof fetchOpenAiOrgCostsPeriodEnvelope>>;
   liveUnified: Awaited<ReturnType<typeof fetchUnifiedCreditsPeriodLayers>>;
 }> {
-  const cacheKey = liveOpenAiEnvelopeCacheKey(args.periodStart, args.periodEnd);
-  return unstable_cache(
-    async () => {
-      const [liveOrgCosts, liveUnified] = await Promise.all([
+  const empty = { liveOrgCosts: null, liveUnified: null } as const;
+
+  try {
+    const result = await Promise.race([
+      Promise.all([
         fetchOpenAiOrgCostsPeriodEnvelope(args),
-        fetchUnifiedCreditsPeriodLayers(args),
-      ]);
-      return { liveOrgCosts, liveUnified };
-    },
-    ["f1-openai-live-envelope", cacheKey],
-    { revalidate: 300 },
-  )();
+        fetchUnifiedCreditsPeriodLayers({ ...args, maxFiles: 25 }),
+      ]).then(([liveOrgCosts, liveUnified]) => ({ liveOrgCosts, liveUnified })),
+      new Promise<typeof empty>((resolve) => {
+        setTimeout(() => resolve(empty), LIVE_ENVELOPE_TIMEOUT_MS);
+      }),
+    ]);
+    return result;
+  } catch (err) {
+    console.error("[f1/openai-spend] live envelope fetch failed", err);
+    return empty;
+  }
 }
 
 /** Totals only — for the OpenAI card, per-product tiles, and leaderboard. */
