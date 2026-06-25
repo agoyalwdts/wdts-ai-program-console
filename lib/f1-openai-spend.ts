@@ -23,8 +23,13 @@ import {
   resolveOpenAiPortalEnvelope,
 } from "@/lib/f1-openai-org-envelope";
 import { fetchUnifiedCreditsPeriodLayersCached } from "@/lib/f1-unified-credits-live";
-import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
 import { resolveUsdPerCredit } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
+import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
+
+/** Opt-in live Compliance COSTS pull on /health (blocks up to 45s). Cron mirrors are default. */
+function f1LiveUnifiedEnabled(): boolean {
+  return process.env.F1_OPENAI_LIVE_UNIFIED === "1";
+}
 
 export type OpenAiF1SpendSources = {
   chatgpt: "gateway" | "vendor" | "manual_export" | "workspace_analytics" | "unified_credits";
@@ -99,9 +104,11 @@ export async function loadOpenAiSpendSnapshotForF1(
     loadOpenAiDailyMergedSpendForF1(prisma, args),
     loadManualVendorExportSpendForF1(prisma, args),
     loadOpenAiOrgEnvelopeLayers(prisma, args),
-    loadLiveUnifiedEnvelopeLayers(args),
+    f1LiveUnifiedEnabled() ? loadLiveUnifiedEnvelopeLayers(args) : Promise.resolve(null),
   ]);
-  const mergedEnvelopeLayers = mergeLiveUnifiedIntoEnvelopeLayers(envelopeLayers, liveUnified);
+  const mergedEnvelopeLayers = f1LiveUnifiedEnabled()
+    ? mergeLiveUnifiedIntoEnvelopeLayers(envelopeLayers, liveUnified)
+    : envelopeLayers;
 
   const mtdMap = new Map<ProductKey, number>(
     programAgg

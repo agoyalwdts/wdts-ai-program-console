@@ -37,4 +37,14 @@ describe("planOpenAiF1Spend", () => {
     expect(openAi.budgetMonthMultiplier).toBe(1);
     expect(openAi.rangeDescription).toContain("Jun 16");
   });
+
+  it("billing ignores page period start when page window is narrower than the cycle", () => {
+    const now = new Date(2026, 5, 25, 12, 0, 0);
+    const pagePlan = planF1Period(now, "month");
+    pagePlan.periodStart = new Date(2026, 5, 20, 0, 0, 0, 0);
+    const openAi = planOpenAiF1Spend({ now, period: "month", pagePlan, window: "billing" });
+    expect(openAi.periodStart.getDate()).toBe(16);
+    expect(openAi.periodEnd.getDate()).toBe(25);
+    expect(openAi.rangeDescription).toContain("Jun 16");
+  });
 });

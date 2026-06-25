@@ -4,6 +4,7 @@ import {
   computeWaCreditUpliftRatio,
   dominantOpenAiEnvelopeSource,
   hasWaOnlyDaysInPeriod,
+  preferVendorUnifiedUsdByYmd,
   resolveOpenAiPortalEnvelope,
   sumOpenAiPortalAlignedEnvelopeUsd,
   sumOpenAiWaCalibratedEnvelopeUsd,
@@ -31,6 +32,21 @@ function emptyMerged(): OpenAiDailyMergedSpend {
     },
   };
 }
+
+describe("preferVendorUnifiedUsdByYmd", () => {
+  it("uses vendor daily totals when present and snapshot only for gaps", () => {
+    const vendor = new Map([["2026-06-01", 100], ["2026-06-02", 200]]);
+    const snapshot = new Map([
+      ["2026-06-01", 150],
+      ["2026-06-02", 180],
+      ["2026-06-03", 75],
+    ]);
+    const merged = preferVendorUnifiedUsdByYmd(vendor, snapshot);
+    expect(merged.get("2026-06-01")).toBe(100);
+    expect(merged.get("2026-06-02")).toBe(200);
+    expect(merged.get("2026-06-03")).toBe(75);
+  });
+});
 
 describe("sumOpenAiPortalAlignedEnvelopeUsd", () => {
   it("prefers org-costs over Workspace Analytics when both exist for a day", () => {
@@ -135,7 +151,6 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
 
   it("uplifts every WA-only day when unified COSTS has not synced (~504K → ~590K)", () => {
     const merged = emptyMerged();
-    const upliftRatio = 589_900 / 504_908;
     const waDayUsd = (504_908 * OPENAI_CREDIT_OVERAGE_USD) / 25;
 
     const layers: OpenAiOrgEnvelopeLayers = {

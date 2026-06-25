@@ -15,10 +15,6 @@ import {
   startOfOpenAiChatGptCodexBillingPeriod,
 } from "@/lib/openai-billing-period";
 
-function startOfLocalDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-}
-
 export type OpenAiF1Window = "follow" | "billing";
 
 export const OPENAI_F1_WINDOW_OPTIONS: { value: OpenAiF1Window; label: string }[] = [
@@ -49,21 +45,15 @@ export function planOpenAiF1Spend(args: {
   if (args.window === "billing") {
     const billingStart = startOfOpenAiChatGptCodexBillingPeriod(args.now);
     const billingEndExclusive = endOfOpenAiChatGptCodexBillingPeriod(args.now);
-    const billingEnd = new Date(billingEndExclusive);
-    billingEnd.setMilliseconds(billingEnd.getMilliseconds() - 1);
-
-    const pageStart = startOfLocalDay(args.pagePlan.periodStart);
-    const pageEnd = new Date(
-      Math.min(args.pagePlan.periodEnd.getTime(), billingEnd.getTime(), args.now.getTime()),
+    const periodEnd = new Date(
+      Math.min(args.now.getTime(), billingEndExclusive.getTime() - 1),
     );
-    const periodStart = new Date(Math.max(billingStart.getTime(), pageStart.getTime()));
-    const periodEnd = pageEnd;
 
     return {
-      periodStart,
+      periodStart: billingStart,
       periodEnd,
       budgetMonthMultiplier: 1,
-      rangeDescription: formatF1DateRange(periodStart, periodEnd),
+      rangeDescription: formatF1DateRange(billingStart, periodEnd),
       spendLabel: `Billing cycle · ${describeOpenAiBillingPeriodToDate(args.now)}`,
     };
   }

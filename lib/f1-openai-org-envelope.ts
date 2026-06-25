@@ -67,12 +67,15 @@ async function loadVendorUsdByYmd(
   return map;
 }
 
-function mergeMaxUsdByYmd(...maps: Map<string, number>[]): Map<string, number> {
+/** Cron upserts VendorDailySpend authoritatively; snapshots only fill missing days. */
+export function preferVendorUnifiedUsdByYmd(
+  vendor: Map<string, number>,
+  snapshot: Map<string, number>,
+): Map<string, number> {
   const out = new Map<string, number>();
-  for (const map of maps) {
-    for (const [ymd, usd] of map) {
-      out.set(ymd, Math.max(out.get(ymd) ?? 0, usd));
-    }
+  for (const ymd of new Set([...vendor.keys(), ...snapshot.keys()])) {
+    const vendorUsd = vendor.get(ymd) ?? 0;
+    out.set(ymd, vendorUsd > 0 ? vendorUsd : (snapshot.get(ymd) ?? 0));
   }
   return out;
 }
@@ -164,8 +167,11 @@ export async function loadOpenAiOrgEnvelopeLayers(
     ]);
 
   return {
-    unifiedChatByYmd: mergeMaxUsdByYmd(unifiedChatVendor, snapshotUnified.unifiedChatByYmd),
-    unifiedCodByYmd: mergeMaxUsdByYmd(unifiedCodVendor, snapshotUnified.unifiedCodByYmd),
+    unifiedChatByYmd: preferVendorUnifiedUsdByYmd(
+      unifiedChatVendor,
+      snapshotUnified.unifiedChatByYmd,
+    ),
+    unifiedCodByYmd: preferVendorUnifiedUsdByYmd(unifiedCodVendor, snapshotUnified.unifiedCodByYmd),
     orgCostsChatByYmd,
     orgCostsCodByYmd,
     workspacePoolByYmd,
@@ -417,9 +423,15 @@ export function resolveOpenAiPortalEnvelope(args: {
   });
   const uplift = computeWaCreditUpliftRatio(args);
 
+  const unifiedShare =
+    aligned.totalUsd > 0 ? aligned.unifiedUsd / aligned.totalUsd : 0;
+
   let product = aligned;
   const usedGapCalibration =
-    waOnlyGaps && uplift > 1.005 && (() => {
+    waOnlyGaps &&
+    uplift > 1.005 &&
+    unifiedShare < 0.85 &&
+    (() => {
       const calibrated = sumPortalEnvelopeProductUsd({ ...args, waGapUplift: uplift });
       if (calibrated.totalUsd > aligned.totalUsd + 0.01) {
         product = calibrated;
