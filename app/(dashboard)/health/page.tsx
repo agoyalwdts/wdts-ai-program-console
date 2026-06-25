@@ -52,6 +52,11 @@ import {
   mirrorTopSpendersByProducts,
   type F1LeaderboardRow,
 } from "@/lib/f1-health-leaderboards";
+import {
+  calendarYearToDateWindow,
+  loadProgramObservedSpendUsd,
+  programObservedTotalUsd,
+} from "@/lib/f1-program-observed-spend";
 import { Product } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -240,7 +245,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const { plan, period } = resolveF1PlanFromSearchParams(now, sp);
   const openAiWindow = parseOpenAiF1Window(sp.openaiWindow);
   const openAiSpendPlan = planOpenAiF1Spend({ now, period, pagePlan: plan, window: openAiWindow });
-  const data = await getF1Data(period, plan, openAiSpendPlan);
+  const ytdWindow = calendarYearToDateWindow(now);
+  const [data, ytdObserved] = await Promise.all([
+    getF1Data(period, plan, openAiSpendPlan),
+    loadProgramObservedSpendUsd(prisma, ytdWindow),
+  ]);
   const m = data.plan.budgetMonthMultiplier;
   const openAiM = data.openAiSpendPlan.budgetMonthMultiplier;
   const combinedCreditsCap = OPENAI_TARGET_CREDITS_MONTH * openAiM;
@@ -256,13 +265,20 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const openAiChatgptSpendSource = data.openAiSpend.sources.chatgpt;
   const codexSpendSource = data.openAiSpend.sources.codex;
   const programPlanningPeriodUsd = PROGRAM_MONTHLY_PLANNING_USD_TOTAL * m;
+  const programPlanningYtdUsd =
+    PROGRAM_MONTHLY_PLANNING_USD_TOTAL * ytdObserved.budgetMonthMultiplier;
   /** Copilot is EA prepaid — economic outlay follows commit, not gateway “usage USD”. */
-  const observedProgramPeriodUsd = PRODUCTS.reduce((acc, { key }) => {
-    if (key === "M365_COPILOT") {
-      return acc + MONTHLY_BUDGET_USD.M365_COPILOT * m;
-    }
-    return acc + (data.mtdMap.get(key) ?? 0);
-  }, 0);
+  const observedProgramPeriodUsd = programObservedTotalUsd({
+    byProduct: data.mtdMap,
+    budgetMonthMultiplier: m,
+  });
+  const observedProgramYtdUsd = ytdObserved.totalUsd;
+  const ytdVarianceUsd = observedProgramYtdUsd - programPlanningYtdUsd;
+  const annualizedActualUsd =
+    ytdObserved.budgetMonthMultiplier > 0
+      ? (observedProgramYtdUsd / ytdObserved.budgetMonthMultiplier) * 12
+      : 0;
+  const annualVarianceUsd = annualizedActualUsd - PROGRAM_ANNUAL_PLANNING_USD_TOTAL;
 
   return (
     <>
@@ -387,7 +403,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                 {formatUsd(programPlanningPeriodUsd, { decimals: 0 })}
               </p>
               <p className="text-sm text-slate-600">
-                Annual run-rate:{" "}
+                Annual envelope (planned):{" "}
                 <span className="font-medium text-slate-800 tabular-nums">
                   {formatUsd(PROGRAM_ANNUAL_PLANNING_USD_TOTAL, { decimals: 0 })}
                 </span>
@@ -421,7 +437,69 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
               </li>
             </ul>
           </CardContent>
-          <CardContent className="pt-0 border-t border-slate-200/80">
+          <CardContent className="pt-0 border-t border-slate-200/80 space-y-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 mb-3">
+                Calendar year · planned vs actual
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <p className="text-xs text-slate-500">Planned (full year)</p>
+                  <p className="text-xl font-semibold tabular-nums text-slate-900">
+                    {formatUsd(PROGRAM_ANNUAL_PLANNING_USD_TOTAL, { decimals: 0 })}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">
+                    Actual YTD · {ytdObserved.rangeDescription}
+                  </p>
+                  <p className="text-xl font-semibold tabular-nums text-slate-900">
+                    {formatUsd(observedProgramYtdUsd, { decimals: 0 })}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    vs {formatUsd(programPlanningYtdUsd, { decimals: 0 })} prorated plan
+                    <span
+                      className={
+                        ytdVarianceUsd > 0
+                          ? " text-amber-800 font-medium"
+                          : " text-emerald-800 font-medium"
+                      }
+                    >
+                      {" "}
+                      ({ytdVarianceUsd >= 0 ? "+" : ""}
+                      {formatUsd(ytdVarianceUsd, { decimals: 0 })})
+                    </span>
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Actual (annualized from YTD)</p>
+                  <p className="text-xl font-semibold tabular-nums text-slate-900">
+                    {formatUsd(annualizedActualUsd, { decimals: 0 })}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    vs {formatUsd(PROGRAM_ANNUAL_PLANNING_USD_TOTAL, { decimals: 0 })} envelope
+                    <span
+                      className={
+                        annualVarianceUsd > 0
+                          ? " text-amber-800 font-medium"
+                          : " text-emerald-800 font-medium"
+                      }
+                    >
+                      {" "}
+                      ({annualVarianceUsd >= 0 ? "+" : ""}
+                      {formatUsd(annualVarianceUsd, { decimals: 0 })})
+                    </span>
+                  </p>
+                </div>
+                <div className="sm:col-span-2 lg:col-span-1">
+                  <BudgetBar
+                    spend={observedProgramYtdUsd}
+                    budget={programPlanningYtdUsd}
+                    progressLabel="Year to date"
+                  />
+                </div>
+              </div>
+            </div>
             <p className="text-xs text-slate-600">
               <span className="font-medium text-slate-700">Period outlay (est.)</span> — Cursor,
               OpenAI, Claude from gateway or vendor; M365 Copilot at EA monthly commit (prepaid, not
