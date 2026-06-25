@@ -9,6 +9,7 @@ import {
   sumOpenAiPortalAlignedEnvelopeUsd,
   sumOpenAiWaCalibratedEnvelopeUsd,
   sumPortalEnvelopeProductUsd,
+  volumeWeightedUnifiedCodShare,
   type OpenAiOrgEnvelopeLayers,
 } from "./f1-openai-org-envelope";
 import { OPENAI_CREDIT_OVERAGE_USD } from "./program";
@@ -569,6 +570,55 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
     expect(capped.totalUsd).toBeLessThan(
       unifiedDayUsd * 24 + Math.max(unifiedDayUsd, fullWaJun25Usd * uplift),
     );
+  });
+
+  it("keeps ChatGPT/Codex split aligned with Unified COSTS when Codex EA lags on Jun 25", () => {
+    const merged = emptyMerged();
+    const portalCredits = 645_717;
+    const dayUsd = (portalCredits * OPENAI_CREDIT_OVERAGE_USD) / 25;
+    const partialJun25UnifiedUsd = 516;
+    const partialCodexEaUsd = 120;
+    merged.codex.byYmd.set("2026-06-25", partialCodexEaUsd);
+
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map([
+        ...Array.from({ length: 24 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, dayUsd * 0.35] as const;
+        }),
+        ["2026-06-25", partialJun25UnifiedUsd * 0.35],
+      ]),
+      unifiedCodByYmd: new Map([
+        ...Array.from({ length: 24 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, dayUsd * 0.65] as const;
+        }),
+        ["2026-06-25", partialJun25UnifiedUsd * 0.65],
+      ]),
+      orgCostsChatByYmd: new Map(),
+      orgCostsCodByYmd: new Map(),
+      workspacePoolByYmd: new Map([["2026-06-25", dayUsd * 0.85]]),
+    };
+
+    const portal = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+    });
+
+    const chatShare = portal.chatgptUsd / portal.envelopeUsd;
+    const codShare = portal.codexUsd / portal.envelopeUsd;
+    expect(portal.chatgptUsd + portal.codexUsd).toBeCloseTo(portal.envelopeUsd, 2);
+    expect(chatShare).toBeGreaterThan(0.32);
+    expect(chatShare).toBeLessThan(0.38);
+    expect(codShare).toBeGreaterThan(0.62);
+    expect(codShare).toBeLessThan(0.68);
+    expect(volumeWeightedUnifiedCodShare({
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+    })).toBeCloseTo(0.65, 2);
   });
 });
 

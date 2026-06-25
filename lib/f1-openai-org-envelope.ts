@@ -139,6 +139,79 @@ export type OpenAiOrgEnvelopeLayers = {
   workspacePoolByYmd: Map<string, number>;
 };
 
+/** Codex share (0–1) from complete Unified COSTS days in the period. */
+export function volumeWeightedUnifiedCodShare(args: {
+  layers: OpenAiOrgEnvelopeLayers;
+  periodStart: Date;
+  periodEnd: Date;
+}): number {
+  let chatUsd = 0;
+  let codUsd = 0;
+  const medianLoose = medianCompleteUnifiedDayUsd({
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+    unifiedChatByYmd: args.layers.unifiedChatByYmd,
+    unifiedCodByYmd: args.layers.unifiedCodByYmd,
+    workspacePoolByYmd: args.layers.workspacePoolByYmd,
+  });
+
+  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
+    const ymd = localYmd(day);
+    const uChat = args.layers.unifiedChatByYmd.get(ymd) ?? 0;
+    const uCod = args.layers.unifiedCodByYmd.get(ymd) ?? 0;
+    const unifiedDay = uChat + uCod;
+    const waPoolUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
+    const medianExcludingDay = medianCompleteUnifiedDayUsd({
+      periodStart: args.periodStart,
+      periodEnd: args.periodEnd,
+      unifiedChatByYmd: args.layers.unifiedChatByYmd,
+      unifiedCodByYmd: args.layers.unifiedCodByYmd,
+      workspacePoolByYmd: args.layers.workspacePoolByYmd,
+      excludeYmd: ymd,
+    });
+    if (
+      unifiedDay > 0 &&
+      !isIncompleteUnifiedDaySync(unifiedDay, waPoolUsd, medianExcludingDay || medianLoose)
+    ) {
+      chatUsd += uChat;
+      codUsd += uCod;
+    }
+  }
+
+  const total = chatUsd + codUsd;
+  if (total <= 0) return 0.65;
+  return codUsd / total;
+}
+
+/** Split a daily envelope USD using Unified COSTS ratios (not lagging Codex EA). */
+export function splitPortalEnvelopeDayUsd(args: {
+  dayUsd: number;
+  uChat: number;
+  uCod: number;
+  periodCodShare: number;
+  /** When set, trust EA only if it covers most of the billing-aligned cod slice. */
+  dayCodexEaUsd?: number;
+}): { chatgptUsd: number; codexUsd: number } {
+  const unifiedTotal = args.uChat + args.uCod;
+  const codShare = unifiedTotal > 0 ? args.uCod / unifiedTotal : args.periodCodShare;
+  const expectedCodUsd = args.dayUsd * codShare;
+
+  if (args.dayCodexEaUsd != null && args.dayCodexEaUsd > 0) {
+    if (args.dayCodexEaUsd >= expectedCodUsd * 0.75) {
+      const codSlice = Math.min(args.dayUsd, args.dayCodexEaUsd);
+      return {
+        codexUsd: codSlice,
+        chatgptUsd: Math.max(0, args.dayUsd - codSlice),
+      };
+    }
+  }
+
+  return {
+    codexUsd: expectedCodUsd,
+    chatgptUsd: args.dayUsd - expectedCodUsd,
+  };
+}
+
 export async function loadOpenAiOrgEnvelopeLayers(
   prisma: PrismaClient,
   args: { periodStart: Date; periodEnd: Date },
@@ -316,6 +389,11 @@ export function sumPortalEnvelopeProductUsd(args: {
   waGapUplift?: number;
 }): PortalEnvelopeProductSum {
   const uplift = args.waGapUplift ?? 1;
+  const periodCodShare = volumeWeightedUnifiedCodShare({
+    layers: args.layers,
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+  });
   let chatgptUsd = 0;
   let codexUsd = 0;
   let unifiedUsd = 0;
@@ -364,21 +442,33 @@ export function sumPortalEnvelopeProductUsd(args: {
         dayUsd = waEstimate;
       }
       if (dayUsd > unifiedDay + 0.01) {
-        const dayCodexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
-        const codSlice =
-          dayCodexUsd > 0 ? Math.min(dayUsd, dayCodexUsd) : dayUsd * 0.65;
-        codexUsd += codSlice;
-        chatgptUsd += Math.max(0, dayUsd - codSlice);
+        const split = splitPortalEnvelopeDayUsd({
+          dayUsd,
+          uChat,
+          uCod,
+          periodCodShare,
+        });
+        chatgptUsd += split.chatgptUsd;
+        codexUsd += split.codexUsd;
         continue;
       }
+      chatgptUsd += uChat;
+      codexUsd += uCod;
+      continue;
     }
 
     if (waPoolUsd > 0) {
       const poolUsd = waPoolUsd * uplift;
       const dayCodexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
-      const codSlice = Math.min(poolUsd, dayCodexUsd);
-      codexUsd += codSlice;
-      chatgptUsd += Math.max(0, poolUsd - codSlice);
+      const split = splitPortalEnvelopeDayUsd({
+        dayUsd: poolUsd,
+        uChat,
+        uCod,
+        periodCodShare,
+        dayCodexEaUsd: dayCodexUsd,
+      });
+      chatgptUsd += split.chatgptUsd;
+      codexUsd += split.codexUsd;
       continue;
     }
 
