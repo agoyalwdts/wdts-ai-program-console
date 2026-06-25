@@ -8,7 +8,7 @@ function normEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function productFromCostsRow(row: UnifiedCreditsRow): Product | null {
+export function productFromCostsRow(row: UnifiedCreditsRow): Product | null {
   const p = row.product?.trim().toLowerCase() ?? "";
   if (p.includes("codex")) return Product.CODEX;
   if (p.includes("chatgpt") || p.includes("chat")) return Product.CHATGPT;

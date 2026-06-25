@@ -64,6 +64,7 @@ export async function fetchOpenAiOrgCostsPeriodEnvelope(args: {
       classifier,
       toLocalYmd: (utcMs) => localYmd(new Date(utcMs)),
       fetchImpl: args.fetchImpl ?? globalThis.fetch.bind(globalThis),
+      maxPages: 200,
     });
 
     let chatgptUsd = 0;

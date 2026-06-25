@@ -180,6 +180,26 @@ export type OpenAiPortalEnvelopeResolution = {
   source: OpenAiEnvelopeSource;
 };
 
+/** Overlay live Unified Credits COSTS (credit-native) onto mirror layers. */
+export function mergeLiveUnifiedIntoEnvelopeLayers(
+  layers: OpenAiOrgEnvelopeLayers,
+  live: { unifiedChatByYmd: Map<string, number>; unifiedCodByYmd: Map<string, number> } | null,
+): OpenAiOrgEnvelopeLayers {
+  if (!live) return layers;
+
+  const unifiedChatByYmd = new Map(layers.unifiedChatByYmd);
+  const unifiedCodByYmd = new Map(layers.unifiedCodByYmd);
+
+  for (const [ymd, usd] of live.unifiedChatByYmd) {
+    unifiedChatByYmd.set(ymd, Math.max(unifiedChatByYmd.get(ymd) ?? 0, usd));
+  }
+  for (const [ymd, usd] of live.unifiedCodByYmd) {
+    unifiedCodByYmd.set(ymd, Math.max(unifiedCodByYmd.get(ymd) ?? 0, usd));
+  }
+
+  return { ...layers, unifiedChatByYmd, unifiedCodByYmd };
+}
+
 /** Pick the highest-fidelity org envelope for the period (matches OpenAI Admin Credits). */
 export function resolveOpenAiPortalEnvelope(args: {
   merged: OpenAiDailyMergedSpend;

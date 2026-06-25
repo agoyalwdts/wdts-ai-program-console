@@ -21,9 +21,11 @@ import {
 import { WORKSPACE_ANALYTICS_USER_VENDOR_KEY } from "@/lib/integrations/workspace-analytics/vendor-key";
 import {
   loadOpenAiOrgEnvelopeLayers,
+  mergeLiveUnifiedIntoEnvelopeLayers,
   resolveOpenAiPortalEnvelope,
 } from "@/lib/f1-openai-org-envelope";
 import { fetchOpenAiOrgCostsPeriodEnvelope } from "@/lib/f1-openai-org-costs-live";
+import { fetchUnifiedCreditsPeriodLayers } from "@/lib/f1-unified-credits-live";
 import { OPENAI_ORG_COSTS_VENDOR_KEY } from "@/lib/integrations/openai/org-costs";
 import { UNIFIED_CREDITS_VENDOR_KEY } from "@/lib/integrations/unified-credits/constants";
 
@@ -90,7 +92,7 @@ async function main(): Promise<void> {
   const { periodStart, periodEnd } = parseArgs();
   const codexUsdPerCredit = resolveUsdPerCredit();
 
-  const [wa, codexEa, unifiedChat, unifiedCodex, orgCostsChat, orgCostsCodex, merged, snapshot, envelopeLayers, liveOrgCosts] =
+  const [wa, codexEa, unifiedChat, unifiedCodex, orgCostsChat, orgCostsCodex, merged, snapshot, envelopeLayers, liveOrgCosts, liveUnified] =
     await Promise.all([
     rawVendorSum({
       periodStart,
@@ -132,12 +134,14 @@ async function main(): Promise<void> {
     loadOpenAiSpendSnapshotForF1(prisma, { periodStart, periodEnd }),
     loadOpenAiOrgEnvelopeLayers(prisma, { periodStart, periodEnd }),
     fetchOpenAiOrgCostsPeriodEnvelope({ periodStart, periodEnd }),
+    fetchUnifiedCreditsPeriodLayers({ periodStart, periodEnd }),
   ]);
 
+  const mergedLayers = mergeLiveUnifiedIntoEnvelopeLayers(envelopeLayers, liveUnified);
   const orgPoolUsd = sumOpenAiOrgPoolUsdFromMerged({ merged, periodStart, periodEnd });
   const portal = resolveOpenAiPortalEnvelope({
     merged,
-    layers: envelopeLayers,
+    layers: mergedLayers,
     periodStart,
     periodEnd,
     liveOrgCosts,
@@ -182,6 +186,11 @@ async function main(): Promise<void> {
   if (liveOrgCosts) {
     console.log(
       `Live org-costs API: chat $${liveOrgCosts.chatgptUsd.toFixed(2)} + cod $${liveOrgCosts.codexUsd.toFixed(2)} → $${liveOrgCosts.totalUsd.toFixed(2)}`,
+    );
+  }
+  if (liveUnified) {
+    console.log(
+      `Live Unified Credits COSTS: chat ${Math.round(liveUnified.chatgptCredits).toLocaleString()} + cod ${Math.round(liveUnified.codexCredits).toLocaleString()} → ${Math.round(liveUnified.totalCredits).toLocaleString()} credits`,
     );
   }
   console.log("");

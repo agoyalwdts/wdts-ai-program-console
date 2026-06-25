@@ -19,9 +19,13 @@ import type { ProductKey } from "@/lib/program";
 import { resolveOpenAiF1Credits, resolveOpenAiF1CreditsFromMerged, type OpenAiF1Credits } from "@/lib/f1-openai-credits";
 import {
   loadOpenAiOrgEnvelopeLayers,
+  mergeLiveUnifiedIntoEnvelopeLayers,
   resolveOpenAiPortalEnvelope,
 } from "@/lib/f1-openai-org-envelope";
 import { fetchOpenAiOrgCostsPeriodEnvelope } from "@/lib/f1-openai-org-costs-live";
+import { fetchUnifiedCreditsPeriodLayers } from "@/lib/f1-unified-credits-live";
+import { unstable_cache } from "next/cache";
+import { localYmd } from "@/lib/f1-cursor-vendor";
 import { OPENAI_CREDIT_OVERAGE_USD } from "@/lib/program";
 import { resolveUsdPerCredit } from "@/lib/integrations/codex-enterprise-analytics/fetch-workspace-usage";
 
@@ -68,19 +72,48 @@ function gatewayProductMapsFromSpendPoints(args: {
   return { chatgpt, codex };
 }
 
+function liveOpenAiEnvelopeCacheKey(periodStart: Date, periodEnd: Date): string {
+  return `${localYmd(periodStart)}_${localYmd(periodEnd)}`;
+}
+
+async function loadLiveOpenAiEnvelopeInputs(args: {
+  periodStart: Date;
+  periodEnd: Date;
+}): Promise<{
+  liveOrgCosts: Awaited<ReturnType<typeof fetchOpenAiOrgCostsPeriodEnvelope>>;
+  liveUnified: Awaited<ReturnType<typeof fetchUnifiedCreditsPeriodLayers>>;
+}> {
+  const cacheKey = liveOpenAiEnvelopeCacheKey(args.periodStart, args.periodEnd);
+  return unstable_cache(
+    async () => {
+      const [liveOrgCosts, liveUnified] = await Promise.all([
+        fetchOpenAiOrgCostsPeriodEnvelope(args),
+        fetchUnifiedCreditsPeriodLayers(args),
+      ]);
+      return { liveOrgCosts, liveUnified };
+    },
+    ["f1-openai-live-envelope", cacheKey],
+    { revalidate: 300 },
+  )();
+}
+
 /** Totals only — for the OpenAI card, per-product tiles, and leaderboard. */
 export async function loadOpenAiSpendSnapshotForF1(
   prisma: PrismaClient,
   args: { periodStart: Date; periodEnd: Date; budgetMonthMultiplier?: number },
 ): Promise<OpenAiF1SpendSnapshot> {
   const gateway = getGatewayClient();
-  const [programAgg, merged, vendorManualExport, envelopeLayers, liveOrgCosts] = await Promise.all([
+  const [programAgg, merged, vendorManualExport, envelopeLayers, liveEnvelope] = await Promise.all([
     gateway.aggregateByProgram({ periodStart: args.periodStart, periodEnd: args.periodEnd }),
     loadOpenAiDailyMergedSpendForF1(prisma, args),
     loadManualVendorExportSpendForF1(prisma, args),
     loadOpenAiOrgEnvelopeLayers(prisma, args),
-    fetchOpenAiOrgCostsPeriodEnvelope(args),
+    loadLiveOpenAiEnvelopeInputs(args),
   ]);
+  const mergedEnvelopeLayers = mergeLiveUnifiedIntoEnvelopeLayers(
+    envelopeLayers,
+    liveEnvelope.liveUnified,
+  );
 
   const mtdMap = new Map<ProductKey, number>(
     programAgg
@@ -113,10 +146,10 @@ export async function loadOpenAiSpendSnapshotForF1(
   if (vendorMirrorCompositeUsed) {
     const portal = resolveOpenAiPortalEnvelope({
       merged,
-      layers: envelopeLayers,
+      layers: mergedEnvelopeLayers,
       periodStart: args.periodStart,
       periodEnd: args.periodEnd,
-      liveOrgCosts,
+      liveOrgCosts: liveEnvelope.liveOrgCosts,
     });
     credits = resolveOpenAiF1CreditsFromMerged({
       merged,
