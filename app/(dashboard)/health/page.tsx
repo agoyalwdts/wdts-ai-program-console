@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { BudgetBar } from "@/components/charts/budget-bar";
 import { SpendTrendChart, type SpendPoint } from "@/components/charts/spend-trend-chart";
+import { YtdProductComparisonChart } from "@/components/charts/ytd-product-comparison-chart";
 import {
   OPENAI_AVERAGE_OVERAGE_CREDITS_MONTH,
   OPENAI_POOLED_CREDITS_MONTH,
@@ -58,6 +59,7 @@ import {
   loadProgramYtdObservedSpendUsd,
   programObservedTotalUsd,
   programPlanningYtdUsdForActuals,
+  programYtdComparisonRows,
 } from "@/lib/f1-program-observed-spend";
 import { Product } from "@prisma/client";
 
@@ -275,6 +277,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   });
   const observedProgramYtdUsd = ytdObserved.totalUsd;
   const ytdVarianceUsd = observedProgramYtdUsd - programPlanningYtdUsd;
+  const ytdProductRows = programYtdComparisonRows({ observed: ytdObserved, now });
   const annualizedActualUsd = annualizedProgramActualUsdForYtd({
     observedYtdUsd: observedProgramYtdUsd,
     planningYtdUsd: programPlanningYtdUsd,
@@ -520,6 +523,14 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                 Actual YTD excludes Claude.ai (not yet in scope). Cursor actuals count from May 1,
                 2026 only; prorated plan matches that window.
               </p>
+              <div className="mt-4 rounded-lg border border-slate-100 bg-white p-4">
+                <p className="text-xs font-medium text-slate-700 mb-1">By tool · actual vs prorated plan</p>
+                <p className="text-[11px] text-slate-500 mb-3">
+                  Calendar YTD through {ytdObserved.rangeDescription}. OpenAI plan split uses the
+                  ChatGPT : Codex monthly budget ratio.
+                </p>
+                <YtdProductComparisonChart rows={ytdProductRows} />
+              </div>
             </div>
             <p className="text-xs text-slate-600">
               <span className="font-medium text-slate-700">Period outlay (est.)</span> — Cursor,

@@ -5,6 +5,8 @@ import {
   effectiveCursorYtdWindow,
   programObservedTotalUsd,
   programPlanningYtdUsdForActuals,
+  programYtdActualUsdForProduct,
+  programYtdComparisonRows,
 } from "./f1-program-observed-spend";
 import {
   cursorProgramStartDate,
@@ -87,6 +89,59 @@ describe("programPlanningYtdUsdForActuals", () => {
       MONTHLY_BUDGET_USD.M365_COPILOT * janToNow +
       MONTHLY_BUDGET_USD.CURSOR * mayToNow;
     expect(total).toBeCloseTo(expected, 2);
+  });
+});
+
+describe("programYtdComparisonRows", () => {
+  it("splits OpenAI plan 1:3 and uses M365 commit for actual", () => {
+    const now = new Date(2026, 5, 25, 12, 0, 0);
+    const m = budgetMonthMultiplierForWindow(new Date(2026, 0, 1), now);
+    const rows = programYtdComparisonRows({
+      observed: {
+        byProduct: new Map([
+          ["CHATGPT", 10_000],
+          ["CODEX", 30_000],
+          ["CURSOR", 50_000],
+          ["M365_COPILOT", 0],
+        ]),
+        budgetMonthMultiplier: m,
+      },
+      now,
+    });
+    const chat = rows.find((r) => r.key === "CHATGPT")!;
+    const cod = rows.find((r) => r.key === "CODEX")!;
+    const m365 = rows.find((r) => r.key === "M365_COPILOT")!;
+    expect(chat.actualUsd).toBe(10_000);
+    expect(cod.actualUsd).toBe(30_000);
+    expect(m365.actualUsd).toBeCloseTo(MONTHLY_BUDGET_USD.M365_COPILOT * m, 2);
+    expect(chat.plannedUsd + cod.plannedUsd).toBeCloseTo(
+      OPENAI_COMBINED_MONTHLY_PLANNING_USD * m,
+      2,
+    );
+    expect(rows.find((r) => r.key === "CLAUDE_AI")?.included).toBe(false);
+  });
+
+  it("programYtdActualUsdForProduct matches programObservedTotalUsd per line", () => {
+    const byProduct = new Map<ProductKey, number>([
+      ["CURSOR", 1000],
+      ["CHATGPT", 200],
+      ["CODEX", 300],
+      ["CLAUDE_AI", 50],
+      ["M365_COPILOT", 0],
+    ]);
+    const m = 1;
+    const total = programObservedTotalUsd({
+      byProduct,
+      budgetMonthMultiplier: m,
+      excludeProducts: YTD_ACTUALS_EXCLUDED_PRODUCTS,
+    });
+    const sum = programYtdComparisonRows({ observed: { byProduct, budgetMonthMultiplier: m } })
+      .filter((r) => r.included)
+      .reduce((s, r) => s + r.actualUsd, 0);
+    expect(sum).toBeCloseTo(total, 2);
+    expect(
+      programYtdActualUsdForProduct({ key: "CLAUDE_AI", byProduct, budgetMonthMultiplier: m }),
+    ).toBe(0);
   });
 });
 

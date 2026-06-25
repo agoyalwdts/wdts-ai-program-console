@@ -125,24 +125,82 @@ export function effectiveCursorYtdWindow(args: {
 
 /** Prorated planning USD for the calendar-YTD actuals scope (no Claude; Cursor from go-live). */
 export function programPlanningYtdUsdForActuals(now: Date = new Date()): number {
+  return programYtdComparisonRows({
+    observed: { byProduct: new Map(), budgetMonthMultiplier: 0 },
+    now,
+  })
+    .filter((r) => r.included)
+    .reduce((sum, r) => sum + r.plannedUsd, 0);
+}
+
+export type ProgramYtdProductRow = {
+  key: ProductKey;
+  label: string;
+  actualUsd: number;
+  plannedUsd: number;
+  /** Included in the YTD actual vs plan roll-up (Claude is omitted). */
+  included: boolean;
+};
+
+/** Counted YTD actual USD for one product (matches {@link programObservedTotalUsd}). */
+export function programYtdActualUsdForProduct(args: {
+  key: ProductKey;
+  byProduct: Map<ProductKey, number>;
+  budgetMonthMultiplier: number;
+}): number {
+  if (YTD_ACTUALS_EXCLUDED_PRODUCTS.includes(args.key)) return 0;
+  if (args.key === "M365_COPILOT") {
+    return MONTHLY_BUDGET_USD.M365_COPILOT * args.budgetMonthMultiplier;
+  }
+  return args.byProduct.get(args.key) ?? 0;
+}
+
+/** Per-tool rows for YTD planned vs actual comparison charts. */
+export function programYtdComparisonRows(args: {
+  observed: Pick<ProgramObservedSpend, "byProduct" | "budgetMonthMultiplier">;
+  now?: Date;
+}): ProgramYtdProductRow[] {
+  const now = args.now ?? new Date();
   const { periodStart, periodEnd } = calendarYearToDateWindow(now);
   const openAiAndCopilotMultiplier = budgetMonthMultiplierForWindow(periodStart, periodEnd);
-
-  let total =
-    OPENAI_COMBINED_MONTHLY_PLANNING_USD * openAiAndCopilotMultiplier +
-    MONTHLY_BUDGET_USD.M365_COPILOT * openAiAndCopilotMultiplier;
+  const openAiCombinedPlan =
+    OPENAI_COMBINED_MONTHLY_PLANNING_USD * openAiAndCopilotMultiplier;
+  const m365Plan = MONTHLY_BUDGET_USD.M365_COPILOT * openAiAndCopilotMultiplier;
 
   const cursorWindow = effectiveCursorYtdWindow({
     ytdPeriodStart: periodStart,
     ytdPeriodEnd: periodEnd,
   });
-  if (cursorWindow) {
-    total +=
-      MONTHLY_BUDGET_USD.CURSOR *
-      budgetMonthMultiplierForWindow(cursorWindow.periodStart, cursorWindow.periodEnd);
-  }
+  const cursorPlan = cursorWindow
+    ? MONTHLY_BUDGET_USD.CURSOR *
+      budgetMonthMultiplierForWindow(cursorWindow.periodStart, cursorWindow.periodEnd)
+    : 0;
 
-  return total;
+  const chatgptPlan =
+    openAiCombinedPlan *
+    (MONTHLY_BUDGET_USD.CHATGPT / OPENAI_COMBINED_MONTHLY_PLANNING_USD);
+  const codexPlan =
+    openAiCombinedPlan * (MONTHLY_BUDGET_USD.CODEX / OPENAI_COMBINED_MONTHLY_PLANNING_USD);
+
+  const plannedByKey: Record<ProductKey, number> = {
+    CURSOR: cursorPlan,
+    CHATGPT: chatgptPlan,
+    CODEX: codexPlan,
+    CLAUDE_AI: 0,
+    M365_COPILOT: m365Plan,
+  };
+
+  return PRODUCTS.map(({ key, label }) => ({
+    key,
+    label,
+    actualUsd: programYtdActualUsdForProduct({
+      key,
+      byProduct: args.observed.byProduct,
+      budgetMonthMultiplier: args.observed.budgetMonthMultiplier,
+    }),
+    plannedUsd: plannedByKey[key],
+    included: !YTD_ACTUALS_EXCLUDED_PRODUCTS.includes(key),
+  }));
 }
 
 /**
