@@ -527,6 +527,49 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
     expect(day25Delta).toBeGreaterThan(partialWaUsd);
     expect(day25Delta).toBeCloseTo(unifiedDayUsd, -1);
   });
+
+  it("caps incomplete unified days at median when WA shows a full-day pool mid-sync", () => {
+    const merged = emptyMerged();
+    const unifiedDayUsd = 2_000;
+    const partialJun25UnifiedUsd = 516;
+    const fullWaJun25Usd = 3_300;
+    const uplift = 1.35;
+    merged.codex.byYmd.set("2026-06-25", unifiedDayUsd * 0.65);
+
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map([
+        ...Array.from({ length: 24 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, unifiedDayUsd * 0.4] as const;
+        }),
+        ["2026-06-25", partialJun25UnifiedUsd * 0.4],
+      ]),
+      unifiedCodByYmd: new Map([
+        ...Array.from({ length: 24 }, (_, i) => {
+          const d = String(i + 1).padStart(2, "0");
+          return [`2026-06-${d}`, unifiedDayUsd * 0.6] as const;
+        }),
+        ["2026-06-25", partialJun25UnifiedUsd * 0.6],
+      ]),
+      orgCostsChatByYmd: new Map(),
+      orgCostsCodByYmd: new Map(),
+      workspacePoolByYmd: new Map([["2026-06-25", fullWaJun25Usd]]),
+    };
+
+    const periodEnd = new Date(2026, 5, 25, 23, 59, 59);
+    const capped = sumPortalEnvelopeProductUsd({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd,
+      waGapUplift: uplift,
+    });
+
+    expect(capped.totalUsd).toBeCloseTo(unifiedDayUsd * 25, -1);
+    expect(capped.totalUsd).toBeLessThan(
+      unifiedDayUsd * 24 + Math.max(unifiedDayUsd, fullWaJun25Usd * uplift),
+    );
+  });
 });
 
 describe("resolveOpenAiPortalEnvelope", () => {

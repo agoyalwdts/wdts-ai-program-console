@@ -357,7 +357,12 @@ export function sumPortalEnvelopeProductUsd(args: {
     if (incompleteUnified) {
       const projectedUsd = medianExcludingDay;
       const waEstimate = waPoolUsd > 0 ? waPoolUsd * uplift : 0;
-      const dayUsd = Math.max(projectedUsd, waEstimate);
+      // Prefer median for mid-sync unified rows. WA can show a full-day pool while
+      // Unified COSTS is still catching up — never let WA×uplift exceed median.
+      let dayUsd = projectedUsd;
+      if (waEstimate > unifiedDay && waEstimate < projectedUsd) {
+        dayUsd = waEstimate;
+      }
       if (dayUsd > unifiedDay + 0.01) {
         const dayCodexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
         const codSlice =
