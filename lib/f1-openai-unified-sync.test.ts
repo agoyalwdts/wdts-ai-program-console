@@ -21,6 +21,13 @@ describe("isIncompleteUnifiedDaySync", () => {
   it("trusts unified when it matches most of the WA pool", () => {
     expect(isIncompleteUnifiedDaySync(1_500, 2_000)).toBe(false);
   });
+
+  it("flags partial mid-sync rows below 75% of the median complete day", () => {
+    const partialUsd = 516;
+    const medianUsd = 2_000;
+    expect(isIncompleteUnifiedDaySync(partialUsd, 10_000, medianUsd)).toBe(true);
+    expect(isIncompleteUnifiedDaySync(1_600, 10_000, medianUsd)).toBe(false);
+  });
 });
 
 describe("medianCompleteUnifiedDayUsd", () => {

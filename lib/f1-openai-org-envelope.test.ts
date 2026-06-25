@@ -486,7 +486,7 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
   it("uses median projection over partial WA when unified sync is incomplete", () => {
     const merged = emptyMerged();
     const unifiedDayUsd = 2_000;
-    const partialJun25UnifiedUsd = 399 * OPENAI_CREDIT_OVERAGE_USD;
+    const partialJun25UnifiedUsd = 516;
     const partialWaUsd = 500;
     merged.codex.byYmd.set("2026-06-25", unifiedDayUsd * 0.65);
 

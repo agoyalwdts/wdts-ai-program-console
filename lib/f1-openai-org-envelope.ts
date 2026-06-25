@@ -211,6 +211,13 @@ export function computeWaCreditUpliftRatio(args: {
   const dailyRatios: number[] = [];
   let overlapUnifiedUsd = 0;
   let overlapWaUsd = 0;
+  const medianLoose = medianCompleteUnifiedDayUsd({
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+    unifiedChatByYmd: args.layers.unifiedChatByYmd,
+    unifiedCodByYmd: args.layers.unifiedCodByYmd,
+    workspacePoolByYmd: args.layers.workspacePoolByYmd,
+  });
 
   for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
     const ymd = localYmd(day);
@@ -220,7 +227,7 @@ export function computeWaCreditUpliftRatio(args: {
     if (
       unifiedUsd >= MIN_OVERLAP_DAY_USD &&
       waUsd >= MIN_OVERLAP_DAY_USD &&
-      !isIncompleteUnifiedDaySync(unifiedUsd, waUsd)
+      !isIncompleteUnifiedDaySync(unifiedUsd, waUsd, medianLoose)
     ) {
       dailyRatios.push(unifiedUsd / waUsd);
       overlapUnifiedUsd += unifiedUsd;
@@ -259,9 +266,18 @@ export function hasWaOnlyDaysInPeriod(args: {
     const unifiedUsd =
       (args.layers.unifiedChatByYmd.get(ymd) ?? 0) + (args.layers.unifiedCodByYmd.get(ymd) ?? 0);
     const waUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
+    const medianExcludingDay = medianCompleteUnifiedDayUsd({
+      periodStart: args.periodStart,
+      periodEnd: args.periodEnd,
+      unifiedChatByYmd: args.layers.unifiedChatByYmd,
+      unifiedCodByYmd: args.layers.unifiedCodByYmd,
+      workspacePoolByYmd: args.layers.workspacePoolByYmd,
+      excludeYmd: ymd,
+    });
     if (
       waUsd >= MIN_OVERLAP_DAY_USD &&
-      (unifiedUsd <= 0 || isIncompleteUnifiedDaySync(unifiedUsd, waUsd))
+      (unifiedUsd <= 0 ||
+        isIncompleteUnifiedDaySync(unifiedUsd, waUsd, medianExcludingDay))
     ) {
       return true;
     }
@@ -310,8 +326,17 @@ export function sumPortalEnvelopeProductUsd(args: {
     const uCod = args.layers.unifiedCodByYmd.get(ymd) ?? 0;
     const unifiedDay = uChat + uCod;
     const waPoolUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
+    const medianExcludingDay = medianCompleteUnifiedDayUsd({
+      periodStart: args.periodStart,
+      periodEnd: args.periodEnd,
+      unifiedChatByYmd: args.layers.unifiedChatByYmd,
+      unifiedCodByYmd: args.layers.unifiedCodByYmd,
+      workspacePoolByYmd: args.layers.workspacePoolByYmd,
+      excludeYmd: ymd,
+    });
     const useUnified =
-      unifiedDay > 0 && !isIncompleteUnifiedDaySync(unifiedDay, waPoolUsd);
+      unifiedDay > 0 &&
+      !isIncompleteUnifiedDaySync(unifiedDay, waPoolUsd, medianExcludingDay);
     if (useUnified) {
       chatgptUsd += uChat;
       codexUsd += uCod;
@@ -328,16 +353,9 @@ export function sumPortalEnvelopeProductUsd(args: {
     }
 
     const incompleteUnified =
-      unifiedDay > 0 && isIncompleteUnifiedDaySync(unifiedDay, waPoolUsd);
+      unifiedDay > 0 && isIncompleteUnifiedDaySync(unifiedDay, waPoolUsd, medianExcludingDay);
     if (incompleteUnified) {
-      const projectedUsd = medianCompleteUnifiedDayUsd({
-        periodStart: args.periodStart,
-        periodEnd: args.periodEnd,
-        unifiedChatByYmd: args.layers.unifiedChatByYmd,
-        unifiedCodByYmd: args.layers.unifiedCodByYmd,
-        workspacePoolByYmd: args.layers.workspacePoolByYmd,
-        excludeYmd: ymd,
-      });
+      const projectedUsd = medianExcludingDay;
       const waEstimate = waPoolUsd > 0 ? waPoolUsd * uplift : 0;
       const dayUsd = Math.max(projectedUsd, waEstimate);
       if (dayUsd > unifiedDay + 0.01) {
