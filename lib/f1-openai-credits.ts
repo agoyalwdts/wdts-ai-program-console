@@ -83,21 +83,23 @@ export function resolveOpenAiF1CreditsFromMerged(args: {
   periodStart: Date;
   periodEnd: Date;
   manualChatgptUsd?: number;
-  /** Billing-aligned org envelope (Unified Credits / org-costs / WA). When higher than WA pool, drives combinedCredits. */
+  /** Billing-aligned org envelope (Unified Credits / org-costs / WA). */
   portalAlignedEnvelopeUsd?: number;
+  /** Product split USD when envelope source is org-costs or unified credits. */
+  portalChatgptUsd?: number;
+  portalCodexUsd?: number;
   combinedSource?: OpenAiF1Credits["combinedSource"];
   env?: Record<string, string | undefined>;
 }): OpenAiF1Credits {
   const env = args.env ?? process.env;
   const codexUsdPerCredit = resolveUsdPerCredit(env);
-  const codexUsd = sumOpenAiCodexUsdFromMerged(args);
-  const codexCredits = usdToCredits(codexUsd, codexUsdPerCredit);
+  const codexUsdFromEa = sumOpenAiCodexUsdFromMerged(args);
+  let codexCredits = usdToCredits(codexUsdFromEa, codexUsdPerCredit);
 
   const orgPoolUsd =
     args.manualChatgptUsd && args.manualChatgptUsd > 0
       ? args.manualChatgptUsd
       : sumOpenAiOrgPoolUsdFromMerged(args);
-  const waPoolCredits = usdToCredits(orgPoolUsd, OPENAI_CREDIT_OVERAGE_USD);
 
   const envelopeUsd = args.portalAlignedEnvelopeUsd ?? orgPoolUsd;
   const combinedCredits = usdToCredits(envelopeUsd, OPENAI_CREDIT_OVERAGE_USD);
@@ -106,8 +108,25 @@ export function resolveOpenAiF1CreditsFromMerged(args: {
     (s) => s === "unified_credits",
   );
   const hasOrgPoolDays =
-    waPoolCredits > 0 ||
+    orgPoolUsd > 0 ||
     [...args.merged.chatgpt.byYmdSource.values()].some((s) => isOrgPoolChatGptSource(s));
+
+  if (
+    (args.combinedSource === "org_costs" || args.combinedSource === "unified_credits") &&
+    envelopeUsd > 0 &&
+    (args.portalChatgptUsd ?? 0) + (args.portalCodexUsd ?? 0) > 0
+  ) {
+    const chatgptCredits = usdToCredits(args.portalChatgptUsd ?? 0, OPENAI_CREDIT_OVERAGE_USD);
+    const portalCodexCredits = usdToCredits(args.portalCodexUsd ?? 0, codexUsdPerCredit);
+    codexCredits = Math.max(codexCredits, portalCodexCredits);
+    return {
+      chatgptCredits,
+      codexCredits,
+      combinedCredits: Math.max(combinedCredits, chatgptCredits + codexCredits),
+      combinedSource: args.combinedSource,
+      mode: "direct",
+    };
+  }
 
   if ((hasOrgPoolDays || envelopeUsd > 0) && codexCredits > 0) {
     return {

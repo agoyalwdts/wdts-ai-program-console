@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { OpenAiDailyMergedSpend } from "./f1-openai-daily-spend";
 import {
   dominantOpenAiEnvelopeSource,
+  resolveOpenAiPortalEnvelope,
   sumOpenAiPortalAlignedEnvelopeUsd,
   type OpenAiOrgEnvelopeLayers,
 } from "./f1-openai-org-envelope";
@@ -69,6 +70,57 @@ describe("sumOpenAiPortalAlignedEnvelopeUsd", () => {
     });
 
     expect(usd).toBe(100);
+  });
+});
+
+describe("resolveOpenAiPortalEnvelope", () => {
+  it("prefers live org-costs over WA when live total is higher", () => {
+    const merged = emptyMerged();
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map(),
+      unifiedCodByYmd: new Map(),
+      orgCostsChatByYmd: new Map(),
+      orgCostsCodByYmd: new Map(),
+      workspacePoolByYmd: new Map([["2026-06-01", 35_000]]),
+    };
+
+    const portal589kUsd = 589_900 * 0.07;
+    const r = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 1),
+      periodEnd: new Date(2026, 5, 25, 23, 59, 59),
+      liveOrgCosts: {
+        chatgptUsd: portal589kUsd * 0.35,
+        codexUsd: portal589kUsd * 0.65,
+        totalUsd: portal589kUsd,
+      },
+    });
+
+    expect(r.source).toBe("org_costs");
+    expect(r.envelopeUsd).toBeCloseTo(portal589kUsd, 2);
+    expect(r.chatgptUsd + r.codexUsd).toBeCloseTo(portal589kUsd, 2);
+  });
+
+  it("prefers unified credits when unified total exceeds org-costs", () => {
+    const merged = emptyMerged();
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map([["2026-06-21", 25_000]]),
+      unifiedCodByYmd: new Map([["2026-06-21", 18_000]]),
+      orgCostsChatByYmd: new Map([["2026-06-21", 10_000]]),
+      orgCostsCodByYmd: new Map([["2026-06-21", 10_000]]),
+      workspacePoolByYmd: new Map([["2026-06-21", 5_000]]),
+    };
+
+    const r = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 5, 21),
+      periodEnd: new Date(2026, 5, 21, 23, 59, 59),
+    });
+
+    expect(r.source).toBe("unified_credits");
+    expect(r.envelopeUsd).toBe(43_000);
   });
 });
 

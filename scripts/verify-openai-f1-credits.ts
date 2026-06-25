@@ -21,8 +21,9 @@ import {
 import { WORKSPACE_ANALYTICS_USER_VENDOR_KEY } from "@/lib/integrations/workspace-analytics/vendor-key";
 import {
   loadOpenAiOrgEnvelopeLayers,
-  sumOpenAiPortalAlignedEnvelopeUsd,
+  resolveOpenAiPortalEnvelope,
 } from "@/lib/f1-openai-org-envelope";
+import { fetchOpenAiOrgCostsPeriodEnvelope } from "@/lib/f1-openai-org-costs-live";
 import { OPENAI_ORG_COSTS_VENDOR_KEY } from "@/lib/integrations/openai/org-costs";
 import { UNIFIED_CREDITS_VENDOR_KEY } from "@/lib/integrations/unified-credits/constants";
 
@@ -89,7 +90,7 @@ async function main(): Promise<void> {
   const { periodStart, periodEnd } = parseArgs();
   const codexUsdPerCredit = resolveUsdPerCredit();
 
-  const [wa, codexEa, unifiedChat, unifiedCodex, orgCostsChat, orgCostsCodex, merged, snapshot, envelopeLayers] =
+  const [wa, codexEa, unifiedChat, unifiedCodex, orgCostsChat, orgCostsCodex, merged, snapshot, envelopeLayers, liveOrgCosts] =
     await Promise.all([
     rawVendorSum({
       periodStart,
@@ -130,15 +131,18 @@ async function main(): Promise<void> {
     loadOpenAiDailyMergedSpendForF1(prisma, { periodStart, periodEnd }),
     loadOpenAiSpendSnapshotForF1(prisma, { periodStart, periodEnd }),
     loadOpenAiOrgEnvelopeLayers(prisma, { periodStart, periodEnd }),
+    fetchOpenAiOrgCostsPeriodEnvelope({ periodStart, periodEnd }),
   ]);
 
   const orgPoolUsd = sumOpenAiOrgPoolUsdFromMerged({ merged, periodStart, periodEnd });
-  const portalEnvelopeUsd = sumOpenAiPortalAlignedEnvelopeUsd({
+  const portal = resolveOpenAiPortalEnvelope({
     merged,
     layers: envelopeLayers,
     periodStart,
     periodEnd,
+    liveOrgCosts,
   });
+  const portalEnvelopeUsd = portal.envelopeUsd;
 
   const waCredits = wa.usd / OPENAI_CREDIT_OVERAGE_USD;
   const codexEaCredits = codexEa.usd / codexUsdPerCredit;
@@ -173,8 +177,13 @@ async function main(): Promise<void> {
   console.log("── F1 computed org pool (WA + unified only) ──");
   console.log(`WA org pool USD: $${orgPoolUsd.toFixed(2)} → ${Math.round(orgPoolUsd / OPENAI_CREDIT_OVERAGE_USD).toLocaleString()} credits`);
   console.log(
-    `Portal-aligned envelope USD: $${portalEnvelopeUsd.toFixed(2)} → ${Math.round(portalCredits).toLocaleString()} credits (unified > org-costs > WA per day)`,
+    `Portal-aligned envelope USD: $${portalEnvelopeUsd.toFixed(2)} → ${Math.round(portalCredits).toLocaleString()} credits (source=${portal.source})`,
   );
+  if (liveOrgCosts) {
+    console.log(
+      `Live org-costs API: chat $${liveOrgCosts.chatgptUsd.toFixed(2)} + cod $${liveOrgCosts.codexUsd.toFixed(2)} → $${liveOrgCosts.totalUsd.toFixed(2)}`,
+    );
+  }
   console.log("");
   console.log("── F1 snapshot (what /health tiles show) ──");
   console.log(`Combined (org pool): ${Math.round(snapshot.credits.combinedCredits).toLocaleString()} credits`);

@@ -172,3 +172,77 @@ function sumMap(m: Map<string, number>): number {
   for (const v of m.values()) s += v;
   return s;
 }
+
+export type OpenAiPortalEnvelopeResolution = {
+  envelopeUsd: number;
+  chatgptUsd: number;
+  codexUsd: number;
+  source: OpenAiEnvelopeSource;
+};
+
+/** Pick the highest-fidelity org envelope for the period (matches OpenAI Admin Credits). */
+export function resolveOpenAiPortalEnvelope(args: {
+  merged: OpenAiDailyMergedSpend;
+  layers: OpenAiOrgEnvelopeLayers;
+  periodStart: Date;
+  periodEnd: Date;
+  liveOrgCosts?: { chatgptUsd: number; codexUsd: number; totalUsd: number } | null;
+}): OpenAiPortalEnvelopeResolution {
+  const unifiedChat = sumMap(args.layers.unifiedChatByYmd);
+  const unifiedCod = sumMap(args.layers.unifiedCodByYmd);
+  const unifiedTotal = unifiedChat + unifiedCod;
+
+  const mirrorOrgChat = sumMap(args.layers.orgCostsChatByYmd);
+  const mirrorOrgCod = sumMap(args.layers.orgCostsCodByYmd);
+  const mirrorOrgTotal = mirrorOrgChat + mirrorOrgCod;
+
+  const liveOrg = args.liveOrgCosts;
+  const orgChat = Math.max(mirrorOrgChat, liveOrg?.chatgptUsd ?? 0);
+  const orgCod = Math.max(mirrorOrgCod, liveOrg?.codexUsd ?? 0);
+  const orgTotal = Math.max(mirrorOrgTotal, liveOrg?.totalUsd ?? 0, orgChat + orgCod);
+
+  const waTotal = sumMap(args.layers.workspacePoolByYmd);
+  const dailyTotal = sumOpenAiPortalAlignedEnvelopeUsd({
+    merged: args.merged,
+    layers: args.layers,
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+  });
+
+  type Candidate = OpenAiPortalEnvelopeResolution;
+  const candidates: Candidate[] = [
+    {
+      envelopeUsd: unifiedTotal,
+      chatgptUsd: unifiedChat,
+      codexUsd: unifiedCod,
+      source: "unified_credits" as const,
+    },
+    { envelopeUsd: orgTotal, chatgptUsd: orgChat, codexUsd: orgCod, source: "org_costs" as const },
+    { envelopeUsd: dailyTotal, chatgptUsd: 0, codexUsd: 0, source: "mixed" as const },
+    { envelopeUsd: waTotal, chatgptUsd: waTotal, codexUsd: 0, source: "workspace_analytics" as const },
+  ].filter((c) => c.envelopeUsd > 0);
+
+  if (candidates.length === 0) {
+    return { envelopeUsd: 0, chatgptUsd: 0, codexUsd: 0, source: "mixed" };
+  }
+
+  const priority: OpenAiEnvelopeSource[] = [
+    "unified_credits",
+    "org_costs",
+    "mixed",
+    "workspace_analytics",
+  ];
+
+  let best = candidates[0]!;
+  for (const c of candidates.slice(1)) {
+    if (c.envelopeUsd > best.envelopeUsd + 0.01) {
+      best = c;
+      continue;
+    }
+    if (Math.abs(c.envelopeUsd - best.envelopeUsd) <= 0.01) {
+      if (priority.indexOf(c.source) < priority.indexOf(best.source)) best = c;
+    }
+  }
+
+  return best;
+}
