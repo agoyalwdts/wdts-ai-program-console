@@ -7,7 +7,15 @@ import { getGatewayClient } from "@/lib/integrations";
 import { loadCursorVendorSpendForF1, mergeCursorVendorIntoF1 } from "@/lib/f1-cursor-vendor";
 import { mergeOpenAiSpendIntoPagePeriodF1 } from "@/lib/f1-openai-spend";
 import { formatF1DateRange } from "@/lib/f1-period";
-import { MONTHLY_BUDGET_USD, PRODUCTS, type ProductKey } from "@/lib/program";
+import {
+  cursorProgramStartDate,
+  MONTHLY_BUDGET_USD,
+  OPENAI_COMBINED_MONTHLY_PLANNING_USD,
+  PRODUCTS,
+  PROGRAM_ANNUAL_PLANNING_YTD_ACTUALS_USD,
+  YTD_ACTUALS_EXCLUDED_PRODUCTS,
+  type ProductKey,
+} from "@/lib/program";
 
 function startOfLocalDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
@@ -34,8 +42,10 @@ export type ProgramObservedSpend = {
 export function programObservedTotalUsd(args: {
   byProduct: Map<ProductKey, number>;
   budgetMonthMultiplier: number;
+  excludeProducts?: ProductKey[];
 }): number {
   return PRODUCTS.reduce((acc, { key }) => {
+    if (args.excludeProducts?.includes(key)) return acc;
     if (key === "M365_COPILOT") {
       return acc + MONTHLY_BUDGET_USD.M365_COPILOT * args.budgetMonthMultiplier;
     }
@@ -97,4 +107,80 @@ export function calendarYearToDateWindow(now: Date = new Date()): {
     periodStart: new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0),
     periodEnd: now,
   };
+}
+
+/** Cursor YTD slice — null when the program had not started before period end. */
+export function effectiveCursorYtdWindow(args: {
+  ytdPeriodStart: Date;
+  ytdPeriodEnd: Date;
+  cursorProgramStart?: Date;
+}): { periodStart: Date; periodEnd: Date } | null {
+  const cursorStart = args.cursorProgramStart ?? cursorProgramStartDate();
+  if (cursorStart.getTime() > args.ytdPeriodEnd.getTime()) return null;
+  return {
+    periodStart: new Date(Math.max(args.ytdPeriodStart.getTime(), cursorStart.getTime())),
+    periodEnd: args.ytdPeriodEnd,
+  };
+}
+
+/** Prorated planning USD for the calendar-YTD actuals scope (no Claude; Cursor from go-live). */
+export function programPlanningYtdUsdForActuals(now: Date = new Date()): number {
+  const { periodStart, periodEnd } = calendarYearToDateWindow(now);
+  const openAiAndCopilotMultiplier = budgetMonthMultiplierForWindow(periodStart, periodEnd);
+
+  let total =
+    OPENAI_COMBINED_MONTHLY_PLANNING_USD * openAiAndCopilotMultiplier +
+    MONTHLY_BUDGET_USD.M365_COPILOT * openAiAndCopilotMultiplier;
+
+  const cursorWindow = effectiveCursorYtdWindow({
+    ytdPeriodStart: periodStart,
+    ytdPeriodEnd: periodEnd,
+  });
+  if (cursorWindow) {
+    total +=
+      MONTHLY_BUDGET_USD.CURSOR *
+      budgetMonthMultiplierForWindow(cursorWindow.periodStart, cursorWindow.periodEnd);
+  }
+
+  return total;
+}
+
+/**
+ * Calendar-YTD observed spend for F1: Claude excluded; Cursor counted from
+ * {@link cursorProgramStartDate} only.
+ */
+export async function loadProgramYtdObservedSpendUsd(
+  prisma: PrismaClient,
+  now: Date = new Date(),
+): Promise<ProgramObservedSpend> {
+  const window = calendarYearToDateWindow(now);
+  const observed = await loadProgramObservedSpendUsd(prisma, window);
+
+  const cursorWindow = effectiveCursorYtdWindow({
+    ytdPeriodStart: window.periodStart,
+    ytdPeriodEnd: window.periodEnd,
+  });
+  if (cursorWindow) {
+    const cursorSlice = await loadProgramObservedSpendUsd(prisma, cursorWindow);
+    observed.byProduct.set("CURSOR", cursorSlice.byProduct.get("CURSOR") ?? 0);
+  } else {
+    observed.byProduct.set("CURSOR", 0);
+  }
+
+  observed.totalUsd = programObservedTotalUsd({
+    byProduct: observed.byProduct,
+    budgetMonthMultiplier: observed.budgetMonthMultiplier,
+    excludeProducts: YTD_ACTUALS_EXCLUDED_PRODUCTS,
+  });
+
+  return observed;
+}
+
+/** Annualize YTD actuals using the matching prorated planning envelope. */
+export function annualizedProgramActualUsdForYtd(args: {
+  observedYtdUsd: number;
+  planningYtdUsd: number;
+}): number {
+  if (args.planningYtdUsd <= 0) return 0;
+  return (args.observedYtdUsd / args.planningYtdUsd) * PROGRAM_ANNUAL_PLANNING_YTD_ACTUALS_USD;
 }

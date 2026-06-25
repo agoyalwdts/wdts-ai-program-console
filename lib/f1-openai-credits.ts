@@ -94,7 +94,7 @@ export function resolveOpenAiF1CreditsFromMerged(args: {
   const env = args.env ?? process.env;
   const codexUsdPerCredit = resolveUsdPerCredit(env);
   const codexUsdFromEa = sumOpenAiCodexUsdFromMerged(args);
-  let codexCredits = usdToCredits(codexUsdFromEa, codexUsdPerCredit);
+  const codexCredits = usdToCredits(codexUsdFromEa, codexUsdPerCredit);
 
   const orgPoolUsd =
     args.manualChatgptUsd && args.manualChatgptUsd > 0
@@ -111,18 +111,19 @@ export function resolveOpenAiF1CreditsFromMerged(args: {
     orgPoolUsd > 0 ||
     [...args.merged.chatgpt.byYmdSource.values()].some((s) => isOrgPoolChatGptSource(s));
 
+  const portalProductUsd = (args.portalChatgptUsd ?? 0) + (args.portalCodexUsd ?? 0);
   if (
-    (args.combinedSource === "org_costs" || args.combinedSource === "unified_credits") &&
-    envelopeUsd > 0 &&
-    (args.portalChatgptUsd ?? 0) + (args.portalCodexUsd ?? 0) > 0
+    args.portalAlignedEnvelopeUsd != null &&
+    args.portalAlignedEnvelopeUsd > 0 &&
+    portalProductUsd > 0 &&
+    (args.combinedSource === "org_costs" ||
+      args.combinedSource === "unified_credits" ||
+      args.combinedSource === "mixed")
   ) {
-    const chatgptCredits = usdToCredits(args.portalChatgptUsd ?? 0, OPENAI_CREDIT_OVERAGE_USD);
-    const portalCodexCredits = usdToCredits(args.portalCodexUsd ?? 0, codexUsdPerCredit);
-    codexCredits = Math.max(codexCredits, portalCodexCredits);
     return {
-      chatgptCredits,
-      codexCredits,
-      combinedCredits: Math.max(combinedCredits, chatgptCredits + codexCredits),
+      chatgptCredits: usdToCredits(args.portalChatgptUsd ?? 0, OPENAI_CREDIT_OVERAGE_USD),
+      codexCredits: usdToCredits(args.portalCodexUsd ?? 0, codexUsdPerCredit),
+      combinedCredits,
       combinedSource: args.combinedSource,
       mode: "direct",
     };

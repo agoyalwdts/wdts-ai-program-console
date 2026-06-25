@@ -162,6 +162,14 @@ export const ANNUAL_BUDGET_USD: Record<ProductKey, number> = {
   M365_COPILOT: M365_COPILOT_ANNUAL_COMMIT_USD,
 };
 
+/** Local midnight when the Cursor enterprise program went live (YTD actuals start here). */
+export function cursorProgramStartDate(): Date {
+  return new Date(2026, 4, 1, 0, 0, 0, 0);
+}
+
+/** Products omitted from F1 calendar-YTD actual roll-up until wired or in scope. */
+export const YTD_ACTUALS_EXCLUDED_PRODUCTS: ProductKey[] = ["CLAUDE_AI"];
+
 /** Sum of F1 monthly planning envelopes: Cursor + ChatGPT/Codex (once) + Claude + M365 Copilot. */
 export const PROGRAM_MONTHLY_PLANNING_USD_TOTAL =
   MONTHLY_BUDGET_USD.CURSOR +
@@ -174,6 +182,12 @@ export const PROGRAM_ANNUAL_PLANNING_USD_TOTAL =
   ANNUAL_BUDGET_USD.CURSOR +
   OPENAI_COMBINED_MONTHLY_PLANNING_USD * 12 +
   ANNUAL_BUDGET_USD.CLAUDE_AI +
+  ANNUAL_BUDGET_USD.M365_COPILOT;
+
+/** Annual planning envelope aligned with {@link YTD_ACTUALS_EXCLUDED_PRODUCTS} (no Claude). */
+export const PROGRAM_ANNUAL_PLANNING_YTD_ACTUALS_USD =
+  ANNUAL_BUDGET_USD.CURSOR +
+  OPENAI_COMBINED_MONTHLY_PLANNING_USD * 12 +
   ANNUAL_BUDGET_USD.M365_COPILOT;
 
 /** Illustration anchor = full planning credit envelope (pooled + typical overage). */

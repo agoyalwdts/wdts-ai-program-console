@@ -302,6 +302,7 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
 
     expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeCloseTo(portalCredits, -2);
     expect(portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeLessThan(642_391);
+    expect(portal.chatgptUsd + portal.codexUsd).toBeCloseTo(portal.envelopeUsd, 2);
     expect(portal.source).toBe("unified_credits");
   });
 });

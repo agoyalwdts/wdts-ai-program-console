@@ -20,6 +20,7 @@ import {
   OPENAI_COMBINED_MONTHLY_PLANNING_USD,
   PROGRAM_MONTHLY_PLANNING_USD_TOTAL,
   PROGRAM_ANNUAL_PLANNING_USD_TOTAL,
+  PROGRAM_ANNUAL_PLANNING_YTD_ACTUALS_USD,
   M365_COPILOT_LICENSES_ENTITLED,
   M365_COPILOT_USD_PER_LICENSE_YEAR,
   M365_COPILOT_ANNUAL_COMMIT_USD,
@@ -53,9 +54,10 @@ import {
   type F1LeaderboardRow,
 } from "@/lib/f1-health-leaderboards";
 import {
-  calendarYearToDateWindow,
-  loadProgramObservedSpendUsd,
+  annualizedProgramActualUsdForYtd,
+  loadProgramYtdObservedSpendUsd,
   programObservedTotalUsd,
+  programPlanningYtdUsdForActuals,
 } from "@/lib/f1-program-observed-spend";
 import { Product } from "@prisma/client";
 
@@ -245,10 +247,9 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const { plan, period } = resolveF1PlanFromSearchParams(now, sp);
   const openAiWindow = parseOpenAiF1Window(sp.openaiWindow);
   const openAiSpendPlan = planOpenAiF1Spend({ now, period, pagePlan: plan, window: openAiWindow });
-  const ytdWindow = calendarYearToDateWindow(now);
   const [data, ytdObserved] = await Promise.all([
     getF1Data(period, plan, openAiSpendPlan),
-    loadProgramObservedSpendUsd(prisma, ytdWindow),
+    loadProgramYtdObservedSpendUsd(prisma, now),
   ]);
   const m = data.plan.budgetMonthMultiplier;
   const openAiM = data.openAiSpendPlan.budgetMonthMultiplier;
@@ -266,8 +267,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   const openAiChatgptSpendSource = data.openAiSpend.sources.chatgpt;
   const codexSpendSource = data.openAiSpend.sources.codex;
   const programPlanningPeriodUsd = PROGRAM_MONTHLY_PLANNING_USD_TOTAL * m;
-  const programPlanningYtdUsd =
-    PROGRAM_MONTHLY_PLANNING_USD_TOTAL * ytdObserved.budgetMonthMultiplier;
+  const programPlanningYtdUsd = programPlanningYtdUsdForActuals(now);
   /** Copilot is EA prepaid — economic outlay follows commit, not gateway “usage USD”. */
   const observedProgramPeriodUsd = programObservedTotalUsd({
     byProduct: data.mtdMap,
@@ -275,11 +275,11 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
   });
   const observedProgramYtdUsd = ytdObserved.totalUsd;
   const ytdVarianceUsd = observedProgramYtdUsd - programPlanningYtdUsd;
-  const annualizedActualUsd =
-    ytdObserved.budgetMonthMultiplier > 0
-      ? (observedProgramYtdUsd / ytdObserved.budgetMonthMultiplier) * 12
-      : 0;
-  const annualVarianceUsd = annualizedActualUsd - PROGRAM_ANNUAL_PLANNING_USD_TOTAL;
+  const annualizedActualUsd = annualizedProgramActualUsdForYtd({
+    observedYtdUsd: observedProgramYtdUsd,
+    planningYtdUsd: programPlanningYtdUsd,
+  });
+  const annualVarianceUsd = annualizedActualUsd - PROGRAM_ANNUAL_PLANNING_YTD_ACTUALS_USD;
 
   return (
     <>
@@ -494,7 +494,7 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                     {formatUsd(annualizedActualUsd, { decimals: 0 })}
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    vs {formatUsd(PROGRAM_ANNUAL_PLANNING_USD_TOTAL, { decimals: 0 })} envelope
+                    vs {formatUsd(PROGRAM_ANNUAL_PLANNING_YTD_ACTUALS_USD, { decimals: 0 })} envelope
                     <span
                       className={
                         annualVarianceUsd > 0
@@ -516,6 +516,10 @@ export default async function HealthPage(props: { searchParams: Promise<SP> }) {
                   />
                 </div>
               </div>
+              <p className="text-xs text-slate-500">
+                Actual YTD excludes Claude.ai (not yet in scope). Cursor actuals count from May 1,
+                2026 only; prorated plan matches that window.
+              </p>
             </div>
             <p className="text-xs text-slate-600">
               <span className="font-medium text-slate-700">Period outlay (est.)</span> — Cursor,

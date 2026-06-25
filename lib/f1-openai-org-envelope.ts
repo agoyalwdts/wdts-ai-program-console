@@ -181,20 +181,6 @@ const MIN_OVERLAP_DAY_USD = 50;
  */
 export const OPENAI_WA_PORTAL_UPLIFT_DEFAULT = 589_900 / 504_908;
 
-function sumProductMapsInPeriod(args: {
-  chatByYmd: Map<string, number>;
-  codByYmd: Map<string, number>;
-  periodStart: Date;
-  periodEnd: Date;
-}): number {
-  let total = 0;
-  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
-    const ymd = localYmd(day);
-    total += (args.chatByYmd.get(ymd) ?? 0) + (args.codByYmd.get(ymd) ?? 0);
-  }
-  return total;
-}
-
 function sumMapInPeriod(m: Map<string, number>, periodStart: Date, periodEnd: Date): number {
   let total = 0;
   for (const day of enumerateDays(periodStart, periodEnd)) {
@@ -261,10 +247,79 @@ export function hasWaOnlyDaysInPeriod(args: {
   return false;
 }
 
+/** Per-day org envelope USD using billing-aligned source priority. */
+export function sumOpenAiPortalAlignedEnvelopeUsd(args: {
+  merged: OpenAiDailyMergedSpend;
+  layers: OpenAiOrgEnvelopeLayers;
+  periodStart: Date;
+  periodEnd: Date;
+}): number {
+  return sumPortalEnvelopeProductUsd(args).totalUsd;
+}
+
+export type PortalEnvelopeProductSum = {
+  chatgptUsd: number;
+  codexUsd: number;
+  totalUsd: number;
+  /** USD from Unified Credits COSTS layers (billing-native). */
+  unifiedUsd: number;
+};
+
 /**
- * Scale WA-only gap days toward OpenAI Admin Credits.
- * Unified COSTS days are billing-native and are never re-uplifted.
+ * Portal-aligned org envelope with explicit ChatGPT / Codex split.
+ * Unified days use COSTS product slices; WA-only gap days use pool − Codex EA.
  */
+export function sumPortalEnvelopeProductUsd(args: {
+  merged: OpenAiDailyMergedSpend;
+  layers: OpenAiOrgEnvelopeLayers;
+  periodStart: Date;
+  periodEnd: Date;
+  /** When > 1, scale WA-only gap days (Unified days are never re-uplifted). */
+  waGapUplift?: number;
+}): PortalEnvelopeProductSum {
+  const uplift = args.waGapUplift ?? 1;
+  let chatgptUsd = 0;
+  let codexUsd = 0;
+  let unifiedUsd = 0;
+
+  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
+    const ymd = localYmd(day);
+    const uChat = args.layers.unifiedChatByYmd.get(ymd) ?? 0;
+    const uCod = args.layers.unifiedCodByYmd.get(ymd) ?? 0;
+    const unifiedDay = uChat + uCod;
+    if (unifiedDay > 0) {
+      chatgptUsd += uChat;
+      codexUsd += uCod;
+      unifiedUsd += unifiedDay;
+      continue;
+    }
+
+    const oChat = args.layers.orgCostsChatByYmd.get(ymd) ?? 0;
+    const oCod = args.layers.orgCostsCodByYmd.get(ymd) ?? 0;
+    if (oChat + oCod > 0) {
+      chatgptUsd += oChat;
+      codexUsd += oCod;
+      continue;
+    }
+
+    const waPoolUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
+    if (waPoolUsd > 0) {
+      const poolUsd = waPoolUsd * uplift;
+      const dayCodexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
+      const codSlice = Math.min(poolUsd, dayCodexUsd);
+      codexUsd += codSlice;
+      chatgptUsd += Math.max(0, poolUsd - codSlice);
+      continue;
+    }
+
+    chatgptUsd += args.merged.chatgpt.byYmd.get(ymd) ?? 0;
+    codexUsd += args.merged.codex.byYmd.get(ymd) ?? 0;
+  }
+
+  return { chatgptUsd, codexUsd, totalUsd: chatgptUsd + codexUsd, unifiedUsd };
+}
+
+/** @deprecated Use sumPortalEnvelopeProductUsd — kept for tests importing the name. */
 export function sumOpenAiWaCalibratedEnvelopeUsd(args: {
   merged: OpenAiDailyMergedSpend;
   layers: OpenAiOrgEnvelopeLayers;
@@ -288,77 +343,12 @@ export function sumOpenAiWaCalibratedEnvelopeUsd(args: {
     return { totalUsd: dailyTotal, uplift: 1, usesUplift: false };
   }
 
-  let totalUsd = 0;
-  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
-    const ymd = localYmd(day);
-    const unifiedUsd =
-      (args.layers.unifiedChatByYmd.get(ymd) ?? 0) + (args.layers.unifiedCodByYmd.get(ymd) ?? 0);
-    if (unifiedUsd > 0) {
-      totalUsd += unifiedUsd;
-      continue;
-    }
-
-    const waPoolUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
-    if (waPoolUsd > 0) {
-      totalUsd += waPoolUsd * uplift;
-      continue;
-    }
-
-    const orgCostsUsd =
-      (args.layers.orgCostsChatByYmd.get(ymd) ?? 0) + (args.layers.orgCostsCodByYmd.get(ymd) ?? 0);
-    if (orgCostsUsd > 0) {
-      totalUsd += orgCostsUsd;
-      continue;
-    }
-
-    totalUsd +=
-      (args.merged.chatgpt.byYmd.get(ymd) ?? 0) + (args.merged.codex.byYmd.get(ymd) ?? 0);
-  }
-
+  const calibrated = sumPortalEnvelopeProductUsd({ ...args, waGapUplift: uplift });
   return {
-    totalUsd,
+    totalUsd: calibrated.totalUsd,
     uplift,
     usesUplift: true,
   };
-}
-
-/** Per-day org envelope USD using billing-aligned source priority. */
-export function sumOpenAiPortalAlignedEnvelopeUsd(args: {
-  merged: OpenAiDailyMergedSpend;
-  layers: OpenAiOrgEnvelopeLayers;
-  periodStart: Date;
-  periodEnd: Date;
-}): number {
-  let totalUsd = 0;
-
-  for (const day of enumerateDays(args.periodStart, args.periodEnd)) {
-    const ymd = localYmd(day);
-    const unifiedUsd =
-      (args.layers.unifiedChatByYmd.get(ymd) ?? 0) + (args.layers.unifiedCodByYmd.get(ymd) ?? 0);
-    if (unifiedUsd > 0) {
-      totalUsd += unifiedUsd;
-      continue;
-    }
-
-    const orgCostsUsd =
-      (args.layers.orgCostsChatByYmd.get(ymd) ?? 0) + (args.layers.orgCostsCodByYmd.get(ymd) ?? 0);
-    if (orgCostsUsd > 0) {
-      totalUsd += orgCostsUsd;
-      continue;
-    }
-
-    const waPoolUsd = args.layers.workspacePoolByYmd.get(ymd) ?? 0;
-    if (waPoolUsd > 0) {
-      totalUsd += waPoolUsd;
-      continue;
-    }
-
-    const chatgptUsd = args.merged.chatgpt.byYmd.get(ymd) ?? 0;
-    const codexUsd = args.merged.codex.byYmd.get(ymd) ?? 0;
-    totalUsd += chatgptUsd + codexUsd;
-  }
-
-  return totalUsd;
 }
 
 export type OpenAiEnvelopeSource = "workspace_analytics" | "unified_credits" | "org_costs" | "mixed";
@@ -411,7 +401,7 @@ export function mergeLiveUnifiedIntoEnvelopeLayers(
   return { ...layers, unifiedChatByYmd, unifiedCodByYmd };
 }
 
-/** Pick the highest-fidelity org envelope for the period (matches OpenAI Admin Credits). */
+/** Pick the billing-aligned org envelope for the period (matches OpenAI Admin Credits). */
 export function resolveOpenAiPortalEnvelope(args: {
   merged: OpenAiDailyMergedSpend;
   layers: OpenAiOrgEnvelopeLayers;
@@ -419,19 +409,24 @@ export function resolveOpenAiPortalEnvelope(args: {
   periodEnd: Date;
   liveOrgCosts?: { chatgptUsd: number; codexUsd: number; totalUsd: number } | null;
 }): OpenAiPortalEnvelopeResolution {
-  const unifiedChat = sumProductMapsInPeriod({
-    chatByYmd: args.layers.unifiedChatByYmd,
-    codByYmd: new Map(),
+  const aligned = sumPortalEnvelopeProductUsd(args);
+  const waOnlyGaps = hasWaOnlyDaysInPeriod({
+    layers: args.layers,
     periodStart: args.periodStart,
     periodEnd: args.periodEnd,
   });
-  const unifiedCod = sumProductMapsInPeriod({
-    chatByYmd: new Map(),
-    codByYmd: args.layers.unifiedCodByYmd,
-    periodStart: args.periodStart,
-    periodEnd: args.periodEnd,
-  });
-  const unifiedTotal = unifiedChat + unifiedCod;
+  const uplift = computeWaCreditUpliftRatio(args);
+
+  let product = aligned;
+  const usedGapCalibration =
+    waOnlyGaps && uplift > 1.005 && (() => {
+      const calibrated = sumPortalEnvelopeProductUsd({ ...args, waGapUplift: uplift });
+      if (calibrated.totalUsd > aligned.totalUsd + 0.01) {
+        product = calibrated;
+        return true;
+      }
+      return false;
+    })();
 
   const mirrorOrgChat = sumMapInPeriod(
     args.layers.orgCostsChatByYmd,
@@ -443,87 +438,41 @@ export function resolveOpenAiPortalEnvelope(args: {
     args.periodStart,
     args.periodEnd,
   );
-  const mirrorOrgTotal = mirrorOrgChat + mirrorOrgCod;
-
   const liveOrg = args.liveOrgCosts;
-  const orgChat = Math.max(mirrorOrgChat, liveOrg?.chatgptUsd ?? 0);
-  const orgCod = Math.max(mirrorOrgCod, liveOrg?.codexUsd ?? 0);
-  const orgTotal = Math.max(mirrorOrgTotal, liveOrg?.totalUsd ?? 0, orgChat + orgCod);
-
-  const waTotal = sumMapInPeriod(
-    args.layers.workspacePoolByYmd,
-    args.periodStart,
-    args.periodEnd,
+  const orgTotal = Math.max(
+    mirrorOrgChat + mirrorOrgCod,
+    liveOrg?.totalUsd ?? 0,
+    (liveOrg?.chatgptUsd ?? 0) + (liveOrg?.codexUsd ?? 0),
   );
-  const dailyTotal = sumOpenAiPortalAlignedEnvelopeUsd({
-    merged: args.merged,
-    layers: args.layers,
-    periodStart: args.periodStart,
-    periodEnd: args.periodEnd,
-  });
-  const calibrated = sumOpenAiWaCalibratedEnvelopeUsd({
-    merged: args.merged,
-    layers: args.layers,
-    periodStart: args.periodStart,
-    periodEnd: args.periodEnd,
-  });
 
-  type Candidate = OpenAiPortalEnvelopeResolution;
-  const candidates: Candidate[] = [
-    {
-      envelopeUsd: unifiedTotal,
-      chatgptUsd: unifiedChat,
-      codexUsd: unifiedCod,
-      source: "unified_credits" as const,
-    },
-  ];
-
-  if (
-    calibrated.usesUplift &&
-    hasWaOnlyDaysInPeriod({
-      layers: args.layers,
-      periodStart: args.periodStart,
-      periodEnd: args.periodEnd,
-    }) &&
-    calibrated.totalUsd > unifiedTotal + 0.01
+  let source: OpenAiEnvelopeSource = "mixed";
+  if (aligned.unifiedUsd > 0) {
+    source = "unified_credits";
+  } else if (orgTotal > product.totalUsd + 0.01) {
+    source = "org_costs";
+    const orgChat = Math.max(mirrorOrgChat, liveOrg?.chatgptUsd ?? 0);
+    const orgCod = Math.max(mirrorOrgCod, liveOrg?.codexUsd ?? 0);
+    product = {
+      chatgptUsd: orgChat,
+      codexUsd: orgCod,
+      totalUsd: orgTotal,
+      unifiedUsd: 0,
+    };
+  } else if (usedGapCalibration) {
+    source = "unified_credits";
+  } else if (orgTotal >= product.totalUsd * 0.5 && orgTotal > 0) {
+    source = "org_costs";
+  } else if (
+    sumMapInPeriod(args.layers.workspacePoolByYmd, args.periodStart, args.periodEnd) >=
+    product.totalUsd * 0.5
   ) {
-    candidates.push({
-      envelopeUsd: calibrated.totalUsd,
-      chatgptUsd: unifiedChat,
-      codexUsd: unifiedCod,
-      source: "unified_credits" as const,
-    });
+    source = "workspace_analytics";
   }
 
-  candidates.push(
-    { envelopeUsd: orgTotal, chatgptUsd: orgChat, codexUsd: orgCod, source: "org_costs" as const },
-    { envelopeUsd: dailyTotal, chatgptUsd: 0, codexUsd: 0, source: "mixed" as const },
-    { envelopeUsd: waTotal, chatgptUsd: waTotal, codexUsd: 0, source: "workspace_analytics" as const },
-  );
-
-  const filtered = candidates.filter((c) => c.envelopeUsd > 0);
-
-  if (filtered.length === 0) {
-    return { envelopeUsd: 0, chatgptUsd: 0, codexUsd: 0, source: "mixed" };
-  }
-
-  const priority: OpenAiEnvelopeSource[] = [
-    "unified_credits",
-    "org_costs",
-    "mixed",
-    "workspace_analytics",
-  ];
-
-  let best = filtered[0]!;
-  for (const c of filtered.slice(1)) {
-    if (c.envelopeUsd > best.envelopeUsd + 0.01) {
-      best = c;
-      continue;
-    }
-    if (Math.abs(c.envelopeUsd - best.envelopeUsd) <= 0.01) {
-      if (priority.indexOf(c.source) < priority.indexOf(best.source)) best = c;
-    }
-  }
-
-  return best;
+  return {
+    envelopeUsd: product.totalUsd,
+    chatgptUsd: product.chatgptUsd,
+    codexUsd: product.codexUsd,
+    source,
+  };
 }

@@ -150,6 +150,12 @@ export async function loadOpenAiSpendSnapshotForF1(
       portalCodexUsd: portal.codexUsd,
       combinedSource: portal.source,
     });
+    if (portal.source === "unified_credits" || portal.source === "org_costs") {
+      sources = {
+        chatgpt: portal.source === "unified_credits" ? "unified_credits" : "vendor",
+        codex: portal.source === "unified_credits" ? "unified_credits" : "openai_org_costs",
+      };
+    }
   } else {
     credits = resolveOpenAiF1Credits({
       chatgptUsd,
