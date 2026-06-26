@@ -6,6 +6,7 @@ import {
   programObservedTotalUsd,
   programPlanningYtdUsdForActuals,
   programYtdActualUsdForProduct,
+  programYtdComparisonChartRows,
   programYtdComparisonRows,
 } from "./f1-program-observed-spend";
 import {
@@ -142,6 +143,30 @@ describe("programYtdComparisonRows", () => {
     expect(
       programYtdActualUsdForProduct({ key: "CLAUDE_AI", byProduct, budgetMonthMultiplier: m }),
     ).toBe(0);
+  });
+});
+
+describe("programYtdComparisonChartRows", () => {
+  it("combines ChatGPT and Codex into one OpenAI row", () => {
+    const now = new Date(2026, 5, 25, 12, 0, 0);
+    const m = budgetMonthMultiplierForWindow(new Date(2026, 0, 1), now);
+    const chartRows = programYtdComparisonChartRows({
+      observed: {
+        byProduct: new Map([
+          ["CHATGPT", 10_000],
+          ["CODEX", 30_000],
+          ["CURSOR", 50_000],
+          ["M365_COPILOT", 0],
+        ]),
+        budgetMonthMultiplier: m,
+      },
+      now,
+    });
+    expect(chartRows).toHaveLength(3);
+    expect(chartRows.map((r) => r.key)).toEqual(["CURSOR", "OPENAI", "M365_COPILOT"]);
+    const openAi = chartRows.find((r) => r.key === "OPENAI")!;
+    expect(openAi.actualUsd).toBe(40_000);
+    expect(openAi.plannedUsd).toBeCloseTo(OPENAI_COMBINED_MONTHLY_PLANNING_USD * m, 2);
   });
 });
 

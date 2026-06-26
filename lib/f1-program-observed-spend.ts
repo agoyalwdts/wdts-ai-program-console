@@ -203,6 +203,38 @@ export function programYtdComparisonRows(args: {
   }));
 }
 
+/** Chart rows: Cursor, OpenAI (ChatGPT + Codex combined), M365 Copilot. */
+export type ProgramYtdChartRow = {
+  key: "CURSOR" | "OPENAI" | "M365_COPILOT";
+  label: string;
+  actualUsd: number;
+  plannedUsd: number;
+  included: boolean;
+};
+
+export function programYtdComparisonChartRows(args: {
+  observed: Pick<ProgramObservedSpend, "byProduct" | "budgetMonthMultiplier">;
+  now?: Date;
+}): ProgramYtdChartRow[] {
+  const rows = programYtdComparisonRows(args);
+  const cursor = rows.find((r) => r.key === "CURSOR")!;
+  const chatgpt = rows.find((r) => r.key === "CHATGPT")!;
+  const codex = rows.find((r) => r.key === "CODEX")!;
+  const m365 = rows.find((r) => r.key === "M365_COPILOT")!;
+
+  return [
+    { ...cursor, key: "CURSOR" as const },
+    {
+      key: "OPENAI",
+      label: "OpenAI (ChatGPT + Codex)",
+      actualUsd: chatgpt.actualUsd + codex.actualUsd,
+      plannedUsd: chatgpt.plannedUsd + codex.plannedUsd,
+      included: true,
+    },
+    { ...m365, key: "M365_COPILOT" as const },
+  ];
+}
+
 /**
  * Calendar-YTD observed spend for F1: Claude excluded; Cursor counted from
  * {@link cursorProgramStartDate} only.

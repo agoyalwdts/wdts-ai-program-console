@@ -11,20 +11,18 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { ProgramYtdProductRow } from "@/lib/f1-program-observed-spend";
+import type { ProgramYtdChartRow } from "@/lib/f1-program-observed-spend";
 import { formatUsd } from "@/lib/utils";
 
 const PRODUCT_COLOR: Record<string, string> = {
   CURSOR: "#7c3aed",
-  CHATGPT: "#10b981",
-  CODEX: "#0ea5e9",
+  OPENAI: "#10b981",
   M365_COPILOT: "#64748b",
 };
 
 const PRODUCT_DOT_CLASS: Record<string, string> = {
   CURSOR: "bg-violet-600",
-  CHATGPT: "bg-emerald-500",
-  CODEX: "bg-sky-500",
+  OPENAI: "bg-emerald-500",
   M365_COPILOT: "bg-slate-500",
 };
 
@@ -34,12 +32,12 @@ function formatAxisUsd(value: number): string {
   return `$${value.toFixed(0)}`;
 }
 
-type ChartRow = ProgramYtdProductRow & {
+type ChartRow = ProgramYtdChartRow & {
   varianceUsd: number;
   utilizationPct: number;
 };
 
-function toChartRows(rows: ProgramYtdProductRow[]): ChartRow[] {
+function toChartRows(rows: ProgramYtdChartRow[]): ChartRow[] {
   return rows
     .filter((r) => r.included)
     .map((r) => ({
@@ -89,11 +87,11 @@ function YtdTooltip({
   );
 }
 
-export function YtdProductComparisonChart({ rows }: { rows: ProgramYtdProductRow[] }) {
+export function YtdProductComparisonChart({ rows }: { rows: ProgramYtdChartRow[] }) {
   const data = toChartRows(rows);
   if (data.length === 0) return null;
 
-  const chartHeightClass = data.length <= 3 ? "h-[220px]" : "h-[280px]";
+  const chartHeightClass = "h-[200px]";
 
   return (
     <div className="space-y-3">
@@ -117,7 +115,7 @@ export function YtdProductComparisonChart({ rows }: { rows: ProgramYtdProductRow
             <YAxis
               type="category"
               dataKey="label"
-              width={88}
+              width={120}
               tick={{ fontSize: 12, fill: "#334155" }}
               axisLine={false}
               tickLine={false}
@@ -144,7 +142,7 @@ export function YtdProductComparisonChart({ rows }: { rows: ProgramYtdProductRow
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-3">
         {data.map((row) => (
           <div
             key={row.key}
