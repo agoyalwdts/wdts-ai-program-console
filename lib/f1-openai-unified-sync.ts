@@ -53,6 +53,11 @@ export function isUnderMedianUnifiedDay(unifiedUsd: number, medianCompleteDayUsd
 /**
  * Unified COSTS can land mid-day with only a sliver synced. A tiny unified row must
  * not block lower-priority vendor layers when WA (or other feeds) are still catching up.
+ *
+ * Under-median checks require a WA pool on the day. Without WA, comparing a day to the
+ * median of other Unified-only rows falsely marks quieter (but real) days incomplete and
+ * the portal envelope projects them up to the median — e.g. July MTD ~230K snapshot
+ * credits inflated to ~324K vs OpenAI Admin ~239K.
  */
 export function isIncompleteUnifiedDaySync(
   unifiedUsd: number,
@@ -61,8 +66,8 @@ export function isIncompleteUnifiedDaySync(
 ): boolean {
   if (unifiedUsd <= 0) return false;
   if (unifiedUsd < MIN_UNIFIED_COMPLETE_DAY_USD) return true;
-  if (isUnderMedianUnifiedDay(unifiedUsd, medianCompleteDayUsd)) return true;
   if (waPoolUsd < MIN_UNIFIED_COMPLETE_DAY_USD) return false;
+  if (isUnderMedianUnifiedDay(unifiedUsd, medianCompleteDayUsd)) return true;
   return unifiedUsd < waPoolUsd * 0.05;
 }
 
