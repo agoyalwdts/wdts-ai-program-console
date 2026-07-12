@@ -661,6 +661,51 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
     expect(credits).toBeCloseTo(portalCredits, -2);
     expect(credits).not.toBeCloseTo(10_092, -2);
   });
+
+  it("July MTD: varied Unified snapshot days without WA must not project up to median (~230K not ~324K)", () => {
+    // Prod mirrors: COSTS snapshots ~230K credits; Admin ~239K. Quiet days (Jul 4/5/11)
+    // were marked incomplete via under-median with WA=0 and projected to ~$2K, inflating
+    // the envelope to ~324K. Sum of actual Unified days must win.
+    const merged = emptyMerged();
+    const dailyCredits: Array<[string, number]> = [
+      ["2026-07-01", 32_078],
+      ["2026-07-02", 31_139],
+      ["2026-07-03", 18_804],
+      ["2026-07-04", 5_295],
+      ["2026-07-05", 5_860],
+      ["2026-07-06", 19_124],
+      ["2026-07-07", 29_354],
+      ["2026-07-08", 28_719],
+      ["2026-07-09", 28_797],
+      ["2026-07-10", 26_856],
+      ["2026-07-11", 3_677],
+    ];
+    const snapshotCredits = dailyCredits.reduce((s, [, c]) => s + c, 0);
+
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map(
+        dailyCredits.map(([d, c]) => [d, c * OPENAI_CREDIT_OVERAGE_USD * 0.28]),
+      ),
+      unifiedCodByYmd: new Map(
+        dailyCredits.map(([d, c]) => [d, c * OPENAI_CREDIT_OVERAGE_USD * 0.72]),
+      ),
+      orgCostsChatByYmd: new Map(),
+      orgCostsCodByYmd: new Map(),
+      workspacePoolByYmd: new Map(),
+    };
+
+    const portal = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 6, 1),
+      periodEnd: new Date(2026, 6, 12, 23, 59, 59),
+    });
+
+    const credits = portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD;
+    expect(credits).toBeCloseTo(snapshotCredits, -1);
+    expect(credits).toBeLessThan(250_000);
+    expect(credits).not.toBeCloseTo(323_712, -2);
+  });
 });
 
 describe("resolveOpenAiPortalEnvelope", () => {

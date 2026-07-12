@@ -28,6 +28,13 @@ describe("isIncompleteUnifiedDaySync", () => {
     expect(isIncompleteUnifiedDaySync(partialUsd, 10_000, medianUsd)).toBe(true);
     expect(isIncompleteUnifiedDaySync(1_600, 10_000, medianUsd)).toBe(false);
   });
+
+  it("does not use under-median alone when WA is missing (avoids upward projection)", () => {
+    // Quiet-but-real Unified days must not be projected up to the median of busier days
+    // when Workspace Analytics has not synced — that overstated July MTD (~230K → ~324K).
+    expect(isIncompleteUnifiedDaySync(516, 0, 2_000)).toBe(false);
+    expect(isIncompleteUnifiedDaySync(370, 0, 2_200)).toBe(false);
+  });
 });
 
 describe("medianCompleteUnifiedDayUsd", () => {
