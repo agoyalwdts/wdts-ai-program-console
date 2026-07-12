@@ -74,7 +74,11 @@ async function loadVendorUsdByYmd(
   return map;
 }
 
-/** Cron upserts VendorDailySpend authoritatively; snapshots only fill missing days. */
+/**
+ * Merge VendorDailySpend with snapshot Unified COSTS rows.
+ * Mid-sync vendor upserts can be a sliver while snapshots already hold more of
+ * the day — take the larger total so partial cron rows do not hide fuller data.
+ */
 export function preferVendorUnifiedUsdByYmd(
   vendor: Map<string, number>,
   snapshot: Map<string, number>,
@@ -82,7 +86,8 @@ export function preferVendorUnifiedUsdByYmd(
   const out = new Map<string, number>();
   for (const ymd of new Set([...vendor.keys(), ...snapshot.keys()])) {
     const vendorUsd = vendor.get(ymd) ?? 0;
-    out.set(ymd, vendorUsd > 0 ? vendorUsd : (snapshot.get(ymd) ?? 0));
+    const snapshotUsd = snapshot.get(ymd) ?? 0;
+    out.set(ymd, Math.max(vendorUsd, snapshotUsd));
   }
   return out;
 }
@@ -435,10 +440,20 @@ export function sumPortalEnvelopeProductUsd(args: {
     if (incompleteUnified) {
       const projectedUsd = medianExcludingDay;
       const waEstimate = waPoolUsd > 0 ? waPoolUsd * uplift : 0;
-      // Prefer median for mid-sync unified rows. WA can show a full-day pool while
-      // Unified COSTS is still catching up — never let WA×uplift exceed median.
-      let dayUsd = projectedUsd;
-      if (waEstimate > unifiedDay && waEstimate < projectedUsd) {
+      // Prefer in-period median for mid-sync unified rows. WA can show a full-day
+      // pool while Unified COSTS is still catching up — never let WA×uplift exceed
+      // median when a complete-day baseline exists.
+      //
+      // When every day in the window is incomplete (e.g. early-month MTD with only
+      // partial Unified mirrors), median is 0 — fall through to WA×uplift like the
+      // daily merge skip path, instead of summing mid-sync slivers (~10K vs ~238K).
+      let dayUsd = 0;
+      if (projectedUsd >= MIN_UNIFIED_COMPLETE_DAY_USD) {
+        dayUsd = projectedUsd;
+        if (waEstimate > unifiedDay && waEstimate < projectedUsd) {
+          dayUsd = waEstimate;
+        }
+      } else if (waEstimate > unifiedDay) {
         dayUsd = waEstimate;
       }
       if (dayUsd > unifiedDay + 0.01) {
@@ -447,6 +462,9 @@ export function sumPortalEnvelopeProductUsd(args: {
           uChat,
           uCod,
           periodCodShare,
+          dayCodexEaUsd: projectedUsd < MIN_UNIFIED_COMPLETE_DAY_USD
+            ? args.merged.codex.byYmd.get(ymd)
+            : undefined,
         });
         chatgptUsd += split.chatgptUsd;
         codexUsd += split.codexUsd;

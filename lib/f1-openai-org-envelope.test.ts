@@ -4,6 +4,7 @@ import {
   computeWaCreditUpliftRatio,
   dominantOpenAiEnvelopeSource,
   hasWaOnlyDaysInPeriod,
+  OPENAI_WA_PORTAL_UPLIFT_DEFAULT,
   preferVendorUnifiedUsdByYmd,
   resolveOpenAiPortalEnvelope,
   sumOpenAiPortalAlignedEnvelopeUsd,
@@ -36,7 +37,7 @@ function emptyMerged(): OpenAiDailyMergedSpend {
 }
 
 describe("preferVendorUnifiedUsdByYmd", () => {
-  it("uses vendor daily totals when present and snapshot only for gaps", () => {
+  it("takes the larger of vendor and snapshot per day (partial vendor must not hide fuller snapshot)", () => {
     const vendor = new Map([["2026-06-01", 100], ["2026-06-02", 200]]);
     const snapshot = new Map([
       ["2026-06-01", 150],
@@ -44,7 +45,7 @@ describe("preferVendorUnifiedUsdByYmd", () => {
       ["2026-06-03", 75],
     ]);
     const merged = preferVendorUnifiedUsdByYmd(vendor, snapshot);
-    expect(merged.get("2026-06-01")).toBe(100);
+    expect(merged.get("2026-06-01")).toBe(150);
     expect(merged.get("2026-06-02")).toBe(200);
     expect(merged.get("2026-06-03")).toBe(75);
   });
@@ -619,6 +620,46 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
       periodStart: new Date(2026, 5, 1),
       periodEnd: new Date(2026, 5, 25, 23, 59, 59),
     })).toBeCloseTo(0.65, 2);
+  });
+
+  it("July MTD: incomplete Unified slivers on every day fall back to WA×uplift (not ~10K credits)", () => {
+    // Reproduces Jul 1–12 2026 production failure: ~841 Unified credits/day while
+    // OpenAI Admin showed ~238.4K MTD. No complete in-period Unified day → median 0
+    // → old envelope summed partials (~10K). Must use WA pool × portal uplift.
+    const merged = emptyMerged();
+    const portalCredits = 238_400;
+    const days = 12;
+    const waDayUsd = ((portalCredits / OPENAI_WA_PORTAL_UPLIFT_DEFAULT) * OPENAI_CREDIT_OVERAGE_USD) / days;
+    const partialUnifiedDayUsd = 841 * OPENAI_CREDIT_OVERAGE_USD; // ~$58.87
+
+    const julyYmds = Array.from({ length: days }, (_, i) => {
+      const d = String(i + 1).padStart(2, "0");
+      return `2026-07-${d}`;
+    });
+
+    const layers: OpenAiOrgEnvelopeLayers = {
+      unifiedChatByYmd: new Map(julyYmds.map((d) => [d, partialUnifiedDayUsd * 0.35])),
+      unifiedCodByYmd: new Map(julyYmds.map((d) => [d, partialUnifiedDayUsd * 0.65])),
+      orgCostsChatByYmd: new Map(),
+      orgCostsCodByYmd: new Map(),
+      workspacePoolByYmd: new Map(julyYmds.map((d) => [d, waDayUsd])),
+    };
+
+    const rawPartialCredits =
+      (partialUnifiedDayUsd * days) / OPENAI_CREDIT_OVERAGE_USD;
+    expect(rawPartialCredits).toBeCloseTo(10_092, 0);
+
+    const portal = resolveOpenAiPortalEnvelope({
+      merged,
+      layers,
+      periodStart: new Date(2026, 6, 1),
+      periodEnd: new Date(2026, 6, 12, 23, 59, 59),
+    });
+
+    const credits = portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD;
+    expect(credits).toBeGreaterThan(200_000);
+    expect(credits).toBeCloseTo(portalCredits, -2);
+    expect(credits).not.toBeCloseTo(10_092, -2);
   });
 });
 
