@@ -55,6 +55,30 @@ describe("medianCompleteUnifiedDayUsd", () => {
 
     expect(median).toBeCloseTo(dayUsd, 2);
   });
+
+  it("returns 0 when every day is an incomplete Unified sliver vs WA (no complete baseline)", () => {
+    const partialUsd = 841 * OPENAI_CREDIT_OVERAGE_USD;
+    const waDayUsd = 1_190;
+    const unifiedChat = new Map<string, number>();
+    const unifiedCod = new Map<string, number>();
+    const workspacePool = new Map<string, number>();
+    for (let i = 1; i <= 12; i++) {
+      const d = String(i).padStart(2, "0");
+      unifiedChat.set(`2026-07-${d}`, partialUsd * 0.35);
+      unifiedCod.set(`2026-07-${d}`, partialUsd * 0.65);
+      workspacePool.set(`2026-07-${d}`, waDayUsd);
+    }
+
+    const median = medianCompleteUnifiedDayUsd({
+      periodStart: new Date(2026, 6, 1),
+      periodEnd: new Date(2026, 6, 12, 23, 59, 59),
+      unifiedChatByYmd: unifiedChat,
+      unifiedCodByYmd: unifiedCod,
+      workspacePoolByYmd: workspacePool,
+    });
+
+    expect(median).toBe(0);
+  });
 });
 
 describe("incompleteUnifiedDayYmds", () => {

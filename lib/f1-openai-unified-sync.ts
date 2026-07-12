@@ -144,7 +144,7 @@ export function medianCompleteUnifiedDayUsd(args: {
       samples.push(unifiedUsd);
     }
   }
-  if (samples.length === 0) return medianLoose;
+  if (samples.length === 0) return 0;
   samples.sort((a, b) => a - b);
   return samples[Math.floor(samples.length / 2)]!;
 }
