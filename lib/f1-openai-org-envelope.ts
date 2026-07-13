@@ -440,13 +440,18 @@ export function sumPortalEnvelopeProductUsd(args: {
     if (incompleteUnified) {
       const projectedUsd = medianExcludingDay;
       const waEstimate = waPoolUsd > 0 ? waPoolUsd * uplift : 0;
+      // Prefer in-period median for mid-sync unified rows only when WA can corroborate.
+      // Without WA, a sub-$50 sliver (typical "today still syncing") must NOT be projected
+      // up to the busy-day median — that invented ~26K credits on Jul 13 and pushed F1 to
+      // ~264K while OpenAI Admin MTD showed ~243K (actual sliver included).
+      if (waPoolUsd < MIN_UNIFIED_COMPLETE_DAY_USD) {
+        chatgptUsd += uChat;
+        codexUsd += uCod;
+        continue;
+      }
       // Prefer in-period median for mid-sync unified rows. WA can show a full-day
       // pool while Unified COSTS is still catching up — never let WA×uplift exceed
       // median when a complete-day baseline exists.
-      //
-      // When every day in the window is incomplete (e.g. early-month MTD with only
-      // partial Unified mirrors), median is 0 — fall through to WA×uplift like the
-      // daily merge skip path, instead of summing mid-sync slivers (~10K vs ~238K).
       let dayUsd = 0;
       if (projectedUsd >= MIN_UNIFIED_COMPLETE_DAY_USD) {
         dayUsd = projectedUsd;
@@ -462,9 +467,6 @@ export function sumPortalEnvelopeProductUsd(args: {
           uChat,
           uCod,
           periodCodShare,
-          dayCodexEaUsd: projectedUsd < MIN_UNIFIED_COMPLETE_DAY_USD
-            ? args.merged.codex.byYmd.get(ymd)
-            : undefined,
         });
         chatgptUsd += split.chatgptUsd;
         codexUsd += split.codexUsd;

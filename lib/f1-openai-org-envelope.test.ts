@@ -433,7 +433,9 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
     expect(jun25Credits).toBeCloseTo(589_900, -2);
   });
 
-  it("projects a trailing incomplete day from median unified when WA has not synced", () => {
+  it("keeps today's Unified sliver as-is when WA has not synced (no median invent)", () => {
+    // Align with OpenAI Admin MTD: partial "today" credits stay partial until WA or
+    // a complete Unified day lands. Projecting to the busy-day median overstated Jul 13.
     const merged = emptyMerged();
     const unifiedDayUsd = 2_000;
     const partialJun25UnifiedUsd = 399 * OPENAI_CREDIT_OVERAGE_USD;
@@ -477,11 +479,9 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
       periodEnd: new Date(2026, 5, 25, 23, 59, 59),
     });
 
-    expect(
-      throughJun25.envelopeUsd - throughJun24.envelopeUsd,
-    ).toBeGreaterThan(1_000);
-    expect(throughJun25.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD).toBeGreaterThan(
-      throughJun24.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD + 10_000,
+    expect(throughJun25.envelopeUsd - throughJun24.envelopeUsd).toBeCloseTo(
+      partialJun25UnifiedUsd,
+      2,
     );
   });
 
@@ -662,10 +662,9 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
     expect(credits).not.toBeCloseTo(10_092, -2);
   });
 
-  it("July MTD: varied Unified snapshot days without WA must not project up to median (~230K not ~324K)", () => {
-    // Prod mirrors: COSTS snapshots ~230K credits; Admin ~239K. Quiet days (Jul 4/5/11)
-    // were marked incomplete via under-median with WA=0 and projected to ~$2K, inflating
-    // the envelope to ~324K. Sum of actual Unified days must win.
+  it("July MTD: today's Unified sliver without WA must not project to median (~238K not ~264K)", () => {
+    // Prod 2026-07-13: ~607 credits so far ($42 < $50 floor) was projected to the
+    // ~26.9K busy-day median → 237.6K snapshot sum became 263.9K vs Admin ~243.1K.
     const merged = emptyMerged();
     const dailyCredits: Array<[string, number]> = [
       ["2026-07-01", 32_078],
@@ -679,6 +678,8 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
       ["2026-07-09", 28_797],
       ["2026-07-10", 26_856],
       ["2026-07-11", 3_677],
+      ["2026-07-12", 8_148],
+      ["2026-07-13", 607],
     ];
     const snapshotCredits = dailyCredits.reduce((s, [, c]) => s + c, 0);
 
@@ -698,13 +699,13 @@ describe("sumOpenAiWaCalibratedEnvelopeUsd", () => {
       merged,
       layers,
       periodStart: new Date(2026, 6, 1),
-      periodEnd: new Date(2026, 6, 12, 23, 59, 59),
+      periodEnd: new Date(2026, 6, 13, 23, 59, 59),
     });
 
     const credits = portal.envelopeUsd / OPENAI_CREDIT_OVERAGE_USD;
     expect(credits).toBeCloseTo(snapshotCredits, -1);
     expect(credits).toBeLessThan(250_000);
-    expect(credits).not.toBeCloseTo(323_712, -2);
+    expect(credits).not.toBeCloseTo(263_884, -2);
   });
 });
 

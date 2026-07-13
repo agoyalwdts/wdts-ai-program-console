@@ -103,8 +103,9 @@ export async function ingestUnifiedCreditsRows(
           syncedAt: now,
         },
         update: {
-          spendUsd,
-          eventCount: agg.events,
+          // Sync only passes newly seen event_ids — accumulate, don't overwrite.
+          spendUsd: { increment: spendUsd },
+          eventCount: { increment: agg.events },
           syncedAt: now,
         },
       });
@@ -135,8 +136,8 @@ export async function ingestUnifiedCreditsRows(
           syncedAt: now,
         },
         update: {
-          spendUsd,
-          eventCount: agg.events,
+          spendUsd: { increment: spendUsd },
+          eventCount: { increment: agg.events },
           syncedAt: now,
         },
       });
